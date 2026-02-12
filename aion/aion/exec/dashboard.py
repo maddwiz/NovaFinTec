@@ -1,8 +1,10 @@
 import csv
+import errno
 import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
+from urllib.request import urlopen
 
 from .. import config as cfg
 
@@ -43,6 +45,24 @@ def _to_int(raw, default: int):
         return int(raw)
     except Exception:
         return default
+
+
+def _is_aion_dashboard_running(host: str, port: int) -> bool:
+    probe_hosts = [host]
+    if host in {"0.0.0.0", "::"}:
+        probe_hosts.append("127.0.0.1")
+    for probe_host in probe_hosts:
+        url = f"http://{probe_host}:{port}/api/status"
+        try:
+            with urlopen(url, timeout=1.0) as resp:
+                if resp.status != 200:
+                    continue
+                payload = json.loads(resp.read().decode("utf-8"))
+                if isinstance(payload, dict) and "doctor_ok" in payload and "trading_enabled" in payload:
+                    return True
+        except Exception:
+            continue
+    return False
 
 
 def _status_payload():
@@ -235,7 +255,16 @@ class Handler(BaseHTTPRequestHandler):
 def main() -> int:
     host = cfg.DASHBOARD_HOST
     port = int(cfg.DASHBOARD_PORT)
-    server = ThreadingHTTPServer((host, port), Handler)
+    try:
+        server = ThreadingHTTPServer((host, port), Handler)
+    except OSError as exc:
+        if exc.errno == errno.EADDRINUSE:
+            if _is_aion_dashboard_running(host, port):
+                print(f"[AION] Dashboard already running at http://{host}:{port}")
+                return 0
+            print(f"[AION] ERROR: dashboard port {host}:{port} is already in use by another process.")
+            return 1
+        raise
     print(f"[AION] Dashboard running at http://{host}:{port}")
     try:
         server.serve_forever()
