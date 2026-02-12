@@ -175,6 +175,20 @@ def _mark_open_pnl(open_positions: dict, last_prices: dict) -> float:
     return open_pnl
 
 
+def _equity_from_cash_and_positions(cash: float, open_positions: dict, last_prices: dict) -> float:
+    equity = float(cash)
+    for sym, pos in open_positions.items():
+        px = float(last_prices.get(sym, pos.get("mark_price", pos["entry"])))
+        qty = int(pos.get("qty", 0))
+        if qty <= 0:
+            continue
+        if pos.get("side") == "LONG":
+            equity += px * qty
+        else:
+            equity -= px * qty
+    return equity
+
+
 def _close_position(open_positions: dict, symbol: str, fill_price: float, reason: str, cash: float, closed_pnl: float, ks: KillSwitch, today: str, fill_ratio: float = 1.0, slippage_bps: float = 0.0):
     pos = open_positions[symbol]
     qty = int(pos["qty"])
@@ -355,11 +369,9 @@ def main() -> int:
                     if samples > 0:
                         log_run(f"Meta-label model refreshed on day change ({samples} samples).")
 
-            if not ks.check(today, equity):
+            killswitch_block_new_entries = not ks.check(today, equity)
+            if killswitch_block_new_entries:
                 log_run(f"KillSwitch tripped: {ks.last_reason}")
-                save_runtime_state(day_key, cash, closed_pnl, trades_today, open_positions, cooldown)
-                time.sleep(cfg.LOOP_SECONDS)
-                continue
 
             for sym in list(cooldown.keys()):
                 cooldown[sym] = max(0, cooldown[sym] - 1)
@@ -527,6 +539,8 @@ def main() -> int:
                         continue
 
                     # Candidate collection for portfolio allocator
+                    if killswitch_block_new_entries:
+                        continue
                     if sym in cooldown:
                         continue
                     if trades_today >= max_trades_cap:
@@ -688,7 +702,7 @@ def main() -> int:
                 )
 
             open_pnl = _mark_open_pnl(open_positions, last_prices)
-            equity = cash + open_pnl
+            equity = _equity_from_cash_and_positions(cash, open_positions, last_prices)
             log_equity(now(), equity, cash, open_pnl, closed_pnl)
             save_runtime_state(day_key, cash, closed_pnl, trades_today, open_positions, cooldown)
 
