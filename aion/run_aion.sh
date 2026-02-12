@@ -56,7 +56,7 @@ if [[ "$AION_MODE" == "brain" ]]; then
       if [[ "$AION_AUTO_CLEAN_STALE_WORKERS" == "1" ]]; then
         STALE_PIDS="$(
           ps -axo pid=,command= | awk '
-            /aion\.exec\.(paper_loop|universe_scan|doctor|ib_recover|ib_wait_ready)/ {print $1}
+            /[[:space:]]-m[[:space:]]aion\.exec\.(paper_loop|universe_scan|doctor|ib_recover|ib_wait_ready)([[:space:]]|$)/ {print $1}
           ' || true
         )"
         if [[ -n "${STALE_PIDS//[[:space:]]/}" ]]; then
