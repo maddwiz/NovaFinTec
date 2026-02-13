@@ -187,6 +187,8 @@ def main():
     run([sys.executable, str(TOOLS / "make_symbolic.py")])
     run([sys.executable, str(TOOLS / "make_reflexive.py")])
     run([sys.executable, str(TOOLS / "make_hive.py")])
+    run([sys.executable, str(TOOLS / "run_cross_hive.py")])
+    run([sys.executable, str(TOOLS / "run_ecosystem_age.py")])
     run([sys.executable, str(TOOLS / "make_hive_council.py")])
     run([sys.executable, str(TOOLS / "nested_wf_lite.py")])
 

@@ -86,6 +86,8 @@ if __name__ == "__main__":
     run_script("tools/run_synapses.py")
     # Cross-hive arbitration (weights per hive)
     run_script("tools/run_cross_hive.py")
+    # Ecosystem age governor (atrophy/split/fusion dynamics on hive weights)
+    run_script("tools/run_ecosystem_age.py")
     # Tail-blender over base weights and hedges
     run_script("tools/run_tail_blender.py")
 

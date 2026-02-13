@@ -43,8 +43,9 @@ if __name__ == "__main__":
         top_by_hive[hive] = {sym: w for sym, w in ranked}
 
     suggested = {}
-    w_cross = runs / "weights_cross_hive.csv"
-    if w_cross.exists():
+    w_candidates = [runs / "weights_cross_hive_governed.csv", runs / "weights_cross_hive.csv"]
+    w_cross = next((p for p in w_candidates if p.exists()), None)
+    if w_cross is not None:
         try:
             wdf = pd.read_csv(w_cross)
             if not wdf.empty:
@@ -59,7 +60,12 @@ if __name__ == "__main__":
         except Exception:
             pass
 
-    hive_payload = {"hives": hive_map, "top_by_hive": top_by_hive, "suggested_weights": suggested}
+    hive_payload = {
+        "hives": hive_map,
+        "top_by_hive": top_by_hive,
+        "suggested_weights": suggested,
+        "suggested_source": str(w_cross.name) if w_cross is not None else None,
+    }
     (runs / "hive.json").write_text(json.dumps(hive_payload, indent=2))
 
     print("✅ Wrote runs_plus/hive_signals.csv")
