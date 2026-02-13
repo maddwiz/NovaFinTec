@@ -72,3 +72,25 @@ def test_dream_coherence_causal_delay_alignment_detects_lead():
     d = i1.get("per_signal_causal_delay", {}).get("lead_stream", 0)
     assert int(d) >= 1
     assert float(i1["mean_coherence"]) >= float(i0["mean_coherence"]) - 1e-6
+
+
+def test_dream_coherence_shock_penalty_reduces_high_vol_exposure():
+    T = 420
+    t = np.linspace(0.0, 18.0, T)
+    rng = np.random.default_rng(23)
+
+    base = np.sin(t - 0.12)
+    ret = 0.0022 * base + 0.0006 * rng.standard_normal(T)
+    ret[T // 2 :] = 0.0068 * base[T // 2 :] + 0.0030 * rng.standard_normal(T // 2)
+
+    sig = {
+        "reflex_latent": 0.95 * base,
+        "symbolic_latent": 0.85 * base,
+        "meta_mix": 0.80 * base,
+    }
+    g, info = build_dream_coherence_governor(sig, ret)
+    lo = float(np.mean(g[: T // 2]))
+    hi = float(np.mean(g[T // 2 :]))
+
+    assert info["mean_shock_penalty"] <= 1.0
+    assert hi < lo

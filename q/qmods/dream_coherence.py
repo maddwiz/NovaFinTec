@@ -58,6 +58,18 @@ def _smooth(x: np.ndarray, alpha: float = 0.88) -> np.ndarray:
     return out
 
 
+def _rolling_flip_rate(x: np.ndarray, win: int = 21) -> np.ndarray:
+    a = _safe_1d(x)
+    if len(a) <= 1:
+        return np.zeros(len(a), dtype=float)
+    s = np.sign(a)
+    d = np.abs(np.diff(s, prepend=s[0]))
+    flips = np.clip(d / 2.0, 0.0, 1.0)
+    ser = pd.Series(flips)
+    fr = ser.rolling(int(max(3, win)), min_periods=max(5, int(win // 3))).mean().fillna(0.0)
+    return np.clip(fr.values.astype(float), 0.0, 1.0)
+
+
 def _apply_causal_delay(x: np.ndarray, delay: int) -> np.ndarray:
     a = _safe_1d(x)
     d = int(max(0, delay))
@@ -179,6 +191,12 @@ def build_dream_coherence_governor(
     if M.shape[1] == 1:
         coherence = np.clip(0.85 * coherence, 0.0, 1.0)
 
+    # Shock/chop pressure: damp coherence in high-volatility and high-flip regimes.
+    vol_stress = np.clip(_tanh_zscore(np.abs(ret), win=63), 0.0, 1.0)
+    flip_rate = _rolling_flip_rate(consensus, win=21)
+    shock_penalty = np.clip(1.0 - 0.18 * vol_stress - 0.12 * flip_rate, 0.55, 1.02)
+    coherence = np.clip(coherence * shock_penalty, 0.0, 1.0)
+
     lo_f = float(min(lo, hi))
     hi_f = float(max(lo, hi))
     gov = lo_f + (hi_f - lo_f) * coherence
@@ -201,6 +219,9 @@ def build_dream_coherence_governor(
         "mean_efficacy": float(np.mean(efficacy)),
         "mean_stability": float(np.mean(stability)),
         "mean_coherence": float(np.mean(coherence)),
+        "mean_vol_stress": float(np.mean(vol_stress)),
+        "mean_flip_rate": float(np.mean(flip_rate)),
+        "mean_shock_penalty": float(np.mean(shock_penalty)),
         "mean_governor": float(np.mean(gov)),
         "min_governor": float(np.min(gov)),
         "max_governor": float(np.max(gov)),
