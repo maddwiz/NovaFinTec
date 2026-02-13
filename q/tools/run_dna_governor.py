@@ -103,10 +103,15 @@ if __name__ == "__main__":
 
     drift = pd.to_numeric(df.get("dna_drift", 0.0), errors="coerce").fillna(0.0).values
     vel = pd.to_numeric(df.get("dna_velocity", 0.0), errors="coerce").fillna(0.0).values
+    acc_col = df["dna_acceleration"] if "dna_acceleration" in df.columns else pd.Series(np.nan, index=df.index)
+    acc = pd.to_numeric(acc_col, errors="coerce").values
+    if np.isnan(acc).all():
+        acc = np.gradient(vel) if len(vel) else np.zeros_like(vel)
+    acc = np.nan_to_num(acc, nan=0.0, posinf=0.0, neginf=0.0)
     z = pd.to_numeric(df.get("dna_drift_z", 0.0), errors="coerce").fillna(0.0).values
     st = pd.to_numeric(df.get("dna_regime_state", 0.0), errors="coerce").fillna(0.0).values
 
-    stress, gov, info = build_dna_stress_governor(drift, vel, z, st, lo=0.72, hi=1.12, smooth=0.88)
+    stress, gov, info = build_dna_stress_governor(drift, vel, acc, z, st, lo=0.72, hi=1.12, smooth=0.88)
     if len(gov) == 0:
         print("(!) DNA governor empty; skipping.")
         raise SystemExit(0)
@@ -115,12 +120,27 @@ if __name__ == "__main__":
     if "DATE" in df.columns and len(df["DATE"]) >= len(out):
         out.insert(0, "DATE", pd.to_datetime(df["DATE"], errors="coerce").astype(str).values[: len(out)])
     out.to_csv(RUNS / "dna_stress_governor.csv", index=False)
+    comp = pd.DataFrame(
+        {
+            "dna_drift": drift[: len(stress)],
+            "dna_velocity": vel[: len(stress)],
+            "dna_acceleration": acc[: len(stress)],
+            "dna_drift_z": z[: len(stress)],
+            "dna_regime_state": st[: len(stress)],
+            "dna_stress": stress,
+            "dna_stress_governor": gov,
+        }
+    )
+    if "DATE" in df.columns and len(df["DATE"]) >= len(comp):
+        comp.insert(0, "DATE", pd.to_datetime(df["DATE"], errors="coerce").astype(str).values[: len(comp)])
+    comp.to_csv(RUNS / "dna_stress_components.csv", index=False)
 
     meta = {
         **info,
         "source": source,
         "drift_rows": int(len(df)),
         "governor_file": str(RUNS / "dna_stress_governor.csv"),
+        "components_file": str(RUNS / "dna_stress_components.csv"),
     }
     (RUNS / "dna_stress_info.json").write_text(json.dumps(meta, indent=2))
 

@@ -24,8 +24,10 @@ def _smooth(x: np.ndarray, alpha: float = 0.88) -> np.ndarray:
 def build_dna_stress_governor(
     drift: np.ndarray,
     velocity: np.ndarray | None = None,
+    acceleration: np.ndarray | None = None,
     drift_z: np.ndarray | None = None,
     regime_state: np.ndarray | None = None,
+    persistence_win: int = 10,
     lo: float = 0.72,
     hi: float = 1.12,
     smooth: float = 0.88,
@@ -41,6 +43,7 @@ def build_dna_stress_governor(
         return np.zeros(0, float), np.zeros(0, float), {"status": "empty"}
 
     v = _safe_1d(velocity) if velocity is not None else np.zeros(T, float)
+    a = _safe_1d(acceleration) if acceleration is not None else np.gradient(v) if len(v) else np.zeros(T, float)
     z = _safe_1d(drift_z) if drift_z is not None else np.zeros(T, float)
     s = _safe_1d(regime_state) if regime_state is not None else np.zeros(T, float)
     if len(v) < T:
@@ -55,6 +58,12 @@ def build_dna_stress_governor(
         z = zz
     else:
         z = z[:T]
+    if len(a) < T:
+        aa = np.zeros(T, float)
+        aa[: len(a)] = a
+        a = aa
+    else:
+        a = a[:T]
     if len(s) < T:
         ss = np.zeros(T, float)
         ss[: len(s)] = s
@@ -73,13 +82,42 @@ def build_dna_stress_governor(
     vel = np.clip(vp / den_v, 0.0, 2.0)
     vel = np.clip(vel / 1.25, 0.0, 1.0)
 
+    # Positive acceleration of drift velocity.
+    ap = np.clip(a, 0.0, None)
+    den_a = float(np.percentile(ap, 90)) + 1e-9
+    acc = np.clip(ap / den_a, 0.0, 2.0)
+    acc = np.clip(acc / 1.25, 0.0, 1.0)
+
     # Z-normalized drift stress.
     zz = np.clip((z + 2.0) / 4.0, 0.0, 1.0)
 
     # Regime stress: -1 calm, 0 neutral, +1 stressed.
     rs = np.clip((s + 1.0) / 2.0, 0.0, 1.0)
 
-    stress = np.clip(0.40 * lvl + 0.25 * vel + 0.20 * zz + 0.15 * rs, 0.0, 1.0)
+    # Persistence of stressed regime.
+    pw = int(max(3, persistence_win))
+    if T:
+        k = np.ones(pw, dtype=float) / float(pw)
+        persist = np.convolve(rs, k, mode="same")
+    else:
+        persist = np.zeros(0, float)
+
+    # Transition burst when regime state flips during high drift velocity.
+    flips = np.r_[0.0, np.abs(np.diff(np.sign(s)))]
+    flips = np.clip(flips, 0.0, 1.0)
+    transition = np.clip(flips * (0.40 + 0.60 * vel), 0.0, 1.0)
+
+    stress = np.clip(
+        0.25 * lvl
+        + 0.17 * vel
+        + 0.12 * acc
+        + 0.15 * zz
+        + 0.10 * rs
+        + 0.11 * persist
+        + 0.10 * transition,
+        0.0,
+        1.0,
+    )
     stress = _smooth(stress, alpha=smooth)
 
     lo_f = float(min(lo, hi))
@@ -95,5 +133,8 @@ def build_dna_stress_governor(
         "mean_governor": float(np.mean(gov)),
         "min_governor": float(np.min(gov)),
         "max_governor": float(np.max(gov)),
+        "mean_acceleration_stress": float(np.mean(acc)),
+        "mean_persistence_stress": float(np.mean(persist)),
+        "mean_transition_stress": float(np.mean(transition)),
     }
     return stress, gov, info

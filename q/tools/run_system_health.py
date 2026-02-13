@@ -111,6 +111,7 @@ if __name__ == "__main__":
         RUNS / "dream_coherence_info.json",
         RUNS / "dna_stress_governor.csv",
         RUNS / "dna_stress_info.json",
+        RUNS / "dna_stress_components.csv",
         RUNS / "reflex_health_governor.csv",
         RUNS / "reflex_health_info.json",
         RUNS / "reflex_health_components.csv",

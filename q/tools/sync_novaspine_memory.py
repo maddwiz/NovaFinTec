@@ -280,6 +280,9 @@ def build_events():
                     "status": str((dna or {}).get("status", "na")) if isinstance(dna, dict) else "na",
                     "mean_stress": _safe_float((dna or {}).get("mean_stress", 0.0)),
                     "max_stress": _safe_float((dna or {}).get("max_stress", 0.0)),
+                    "mean_acceleration_stress": _safe_float((dna or {}).get("mean_acceleration_stress", 0.0)),
+                    "mean_persistence_stress": _safe_float((dna or {}).get("mean_persistence_stress", 0.0)),
+                    "mean_transition_stress": _safe_float((dna or {}).get("mean_transition_stress", 0.0)),
                     "mean_governor": float(np.mean(dna_gov)) if dna_gov is not None and len(dna_gov) else None,
                 },
                 "reflex_health": {
