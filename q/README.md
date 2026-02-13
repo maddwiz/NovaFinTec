@@ -58,6 +58,7 @@ python tools/run_all_in_one_plus.py
 ```
 This now includes:
 - symbolic + heartbeat + reflexive generation
+- dream/reflex/symbolic coherence governor
 - shock/news sentinel gating
 - hive build + hive walk-forward diagnostics
 - guardrails, governors, councils, meta/synapses, cross-hive, ecosystem
@@ -82,6 +83,7 @@ export Q_MAX_SHOCK_RATE=0.25
 export Q_MAX_CONCENTRATION_HHI_AFTER=0.18
 export Q_MAX_CONCENTRATION_TOP1_AFTER=0.30
 export Q_MAX_PORTFOLIO_L1_DRIFT=1.20
+export Q_MIN_DREAM_COHERENCE=0.45
 ```
 
 ### Health artifacts
@@ -91,6 +93,8 @@ export Q_MAX_PORTFOLIO_L1_DRIFT=1.20
 - `runs_plus/portfolio_drift_watch.json`
 - `runs_plus/quality_snapshot.json`
 - `runs_plus/quality_runtime_modifier.csv`
+- `runs_plus/dream_coherence_governor.csv`
+- `runs_plus/dream_coherence_info.json`
 - `runs_plus/hive_transparency.json`
 - `runs_plus/final_governor_trace.csv`
 - `runs_plus/execution_constraints_info.json`

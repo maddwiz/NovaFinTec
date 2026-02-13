@@ -1,0 +1,47 @@
+import numpy as np
+
+from qmods.dream_coherence import build_dream_coherence_governor
+
+
+def test_dream_coherence_bounds_and_shape():
+    T = 320
+    t = np.linspace(0.0, 12.0, T)
+    ret = 0.004 * np.sin(t) + 0.0015 * np.cos(1.3 * t)
+    sig = {
+        "reflex_latent": 0.9 * np.sin(t - 0.2),
+        "symbolic_latent": 0.8 * np.sin(t - 0.15),
+        "meta_mix": 0.7 * np.sin(t - 0.1),
+    }
+    g, info = build_dream_coherence_governor(sig, ret)
+    assert g.shape == (T,)
+    assert np.isfinite(g).all()
+    assert float(np.min(g)) >= 0.70 - 1e-9
+    assert float(np.max(g)) <= 1.15 + 1e-9
+    assert info["status"] == "ok"
+    assert len(info["signals"]) == 3
+
+
+def test_dream_coherence_rewards_consistency():
+    T = 360
+    t = np.linspace(0.0, 15.0, T)
+    rng = np.random.default_rng(7)
+    ret = 0.0035 * np.sin(t) + 0.001 * np.cos(1.7 * t) + 0.0005 * rng.standard_normal(T)
+
+    consistent = {
+        "reflex_latent": np.sin(t - 0.10),
+        "symbolic_latent": 0.95 * np.sin(t - 0.12),
+        "meta_mix": 0.85 * np.sin(t - 0.08),
+        "synapses_pred": 0.70 * np.sin(t - 0.05),
+    }
+    incoherent = {
+        "reflex_latent": rng.standard_normal(T),
+        "symbolic_latent": rng.standard_normal(T),
+        "meta_mix": rng.standard_normal(T),
+        "synapses_pred": rng.standard_normal(T),
+    }
+
+    g1, i1 = build_dream_coherence_governor(consistent, ret)
+    g2, i2 = build_dream_coherence_governor(incoherent, ret)
+
+    assert float(np.mean(g1)) > float(np.mean(g2))
+    assert float(i1["mean_coherence"]) > float(i2["mean_coherence"])

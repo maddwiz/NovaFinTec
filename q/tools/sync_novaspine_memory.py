@@ -115,6 +115,7 @@ def build_events():
     health = _load_json(RUNS / "system_health.json") or {}
     alerts = _load_json(RUNS / "health_alerts.json") or {}
     quality = _load_json(RUNS / "quality_snapshot.json") or {}
+    dream = _load_json(RUNS / "dream_coherence_info.json") or {}
     cross = _load_json(RUNS / "cross_hive_summary.json") or {}
     eco = _load_json(RUNS / "hive_evolution.json") or {}
     constraints = _load_json(RUNS / "execution_constraints_info.json") or {}
@@ -246,6 +247,12 @@ def build_events():
                         "max_hhi": _safe_float((conc or {}).get("max_hhi", 0.0)),
                     },
                     "stats": conc_stats,
+                },
+                "dream_coherence": {
+                    "status": str((dream or {}).get("status", "na")) if isinstance(dream, dict) else "na",
+                    "signals": int(len((dream or {}).get("signals", []) or [])) if isinstance(dream, dict) else 0,
+                    "mean_coherence": _safe_float((dream or {}).get("mean_coherence", 0.0)),
+                    "mean_governor": _safe_float((dream or {}).get("mean_governor", 0.0)),
                 },
                 "final_steps": list((final_info or {}).get("steps", []) or []),
                 "pipeline_failed_count": int((pipeline or {}).get("failed_count", 0)),

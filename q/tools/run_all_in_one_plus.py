@@ -193,6 +193,9 @@ if __name__ == "__main__":
     # Reflex health (and optional gating of reflex signal)
     ok, rc = run_script("tools/run_reflex_health.py")
     if not ok and rc is not None: failures.append({"step": "tools/run_reflex_health.py", "code": rc})
+    # Dream/reflex/symbolic coherence governor.
+    ok, rc = run_script("tools/run_dream_coherence.py")
+    if not ok and rc is not None: failures.append({"step": "tools/run_dream_coherence.py", "code": rc})
     # Risk parity sleeve (T x N weights)
     ok, rc = run_script("tools/run_risk_parity.py")
     if not ok and rc is not None: failures.append({"step": "tools/run_risk_parity.py", "code": rc})

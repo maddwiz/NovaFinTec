@@ -97,6 +97,8 @@ if __name__ == "__main__":
         RUNS / "turnover_budget_rolling_after.csv",
         RUNS / "concentration_governor_info.json",
         RUNS / "final_governor_trace.csv",
+        RUNS / "dream_coherence_governor.csv",
+        RUNS / "dream_coherence_info.json",
         RUNS / "portfolio_weights_exec.csv",
         RUNS / "execution_constraints_info.json",
         RUNS / "portfolio_drift_watch.json",
@@ -137,6 +139,7 @@ if __name__ == "__main__":
     gov = _load_series(RUNS / "global_governor.csv")
     hive_gov = _load_series(RUNS / "hive_diversification_governor.csv")
     quality_gov = _load_series(RUNS / "quality_governor.csv")
+    dream_gov = _load_series(RUNS / "dream_coherence_governor.csv")
     nsp_ctx_boost = _load_series(RUNS / "novaspine_context_boost.csv")
     nsp_hive_boost = _load_series(RUNS / "novaspine_hive_boost.csv")
     gov_trace_total = _load_series(RUNS / "final_governor_trace.csv")
@@ -157,6 +160,11 @@ if __name__ == "__main__":
     if quality_gov is not None:
         shape["quality_governor_rows"] = int(len(quality_gov))
         shape["quality_governor_mean"] = float(np.mean(quality_gov))
+    if dream_gov is not None:
+        shape["dream_coherence_rows"] = int(len(dream_gov))
+        shape["dream_coherence_mean"] = float(np.mean(dream_gov))
+        shape["dream_coherence_min"] = float(np.min(dream_gov))
+        shape["dream_coherence_max"] = float(np.max(dream_gov))
     if nsp_ctx_boost is not None:
         shape["novaspine_context_boost_rows"] = int(len(nsp_ctx_boost))
         shape["novaspine_context_boost_mean"] = float(np.mean(nsp_ctx_boost))

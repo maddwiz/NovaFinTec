@@ -45,6 +45,22 @@ war wars conflict conflicts strike strikes default defaults crisis crises crash 
 sanction sanctions recession recessionary inflation stagflation volatility volatile uncertainty uncertain
 """.split())
 
+NEGATION = {"no", "not", "never", "none", "without", "hardly", "barely", "neither", "nor"}
+BOOST = {
+    "very": 1.25,
+    "extremely": 1.55,
+    "massive": 1.45,
+    "strongly": 1.30,
+    "sharply": 1.30,
+    "significantly": 1.25,
+}
+DAMP = {
+    "slightly": 0.70,
+    "somewhat": 0.80,
+    "mildly": 0.75,
+    "partly": 0.85,
+}
+
 WORD_RE = re.compile(r"[a-zA-Z][a-zA-Z\-']+")
 UPPER_TICK_RE = re.compile(r"\b[A-Z]{1,5}(?:\.[A-Z])?\b")
 CASHTAG_RE = re.compile(r"\$([A-Z]{1,5}(?:\.[A-Z])?)\b")
@@ -123,22 +139,75 @@ def _tokenize(text: str):
     return [t for t in toks if t not in STOP]
 
 def _score_text(text: str):
-    toks = _tokenize(text)
-    if not toks: 
-        return 0.0, 0.0, 0.0, [], {"pos":0,"neg":0,"fear":0,"len":0}
-    c = Counter(toks)
-    pos = sum(c[w] for w in POS if w in c)
-    neg = sum(c[w] for w in NEG if w in c)
-    fear = sum(c[w] for w in FEAR if w in c)
-    n = sum(c.values())
-    # sentiment: normalized difference
-    sent = (pos - neg) / math.sqrt(n + 1.0)
-    # affect: fear emphasis
-    affect = fear / math.sqrt(n + 1.0)
-    confidence = min(1.0, (pos + neg + fear) / math.sqrt(n + 1.0))
-    # pick top 5 words (excluding stopwords)
-    top = [w for w,_ in c.most_common(5)]
-    return float(sent), float(affect), float(confidence), top, {"pos":pos,"neg":neg,"fear":fear,"len":n}
+    raw = WORD_RE.findall(str(text or ""))
+    if not raw:
+        return 0.0, 0.0, 0.0, [], {"pos": 0.0, "neg": 0.0, "fear": 0.0, "len": 0}
+
+    toks = [w.lower() for w in raw]
+    c = Counter([t for t in toks if t not in STOP])
+
+    pos_score = 0.0
+    neg_score = 0.0
+    fear_score = 0.0
+    neg_window = 0
+    pending_mult = 1.0
+
+    for tok_raw, tok in zip(raw, toks):
+        if tok in BOOST:
+            pending_mult *= BOOST[tok]
+            continue
+        if tok in DAMP:
+            pending_mult *= DAMP[tok]
+            continue
+        if tok in NEGATION:
+            neg_window = 3
+            pending_mult = 1.0
+            continue
+
+        mult = pending_mult
+        pending_mult = 1.0
+        if tok_raw.isupper() and len(tok_raw) >= 3:
+            mult *= 1.10
+
+        if tok in POS:
+            sc = 1.0 * mult
+            if neg_window > 0:
+                sc = -0.80 * sc
+            if sc >= 0:
+                pos_score += sc
+            else:
+                neg_score += -sc
+
+        if tok in NEG:
+            sc = 1.0 * mult
+            if neg_window > 0:
+                sc = -0.80 * sc
+            if sc >= 0:
+                neg_score += sc
+            else:
+                pos_score += -sc
+
+        if tok in FEAR:
+            sc = 1.0 * mult
+            if neg_window > 0:
+                sc *= 0.50
+            fear_score += sc
+
+        if neg_window > 0:
+            neg_window -= 1
+
+    n = max(1, len(toks))
+    sent = (pos_score - neg_score) / math.sqrt(n + 1.0)
+    affect = fear_score / math.sqrt(n + 1.0)
+
+    punct = min(4, str(text).count("!"))
+    punct_mult = 1.0 + 0.05 * punct
+    confidence_mass = (abs(pos_score) + abs(neg_score) + fear_score)
+    confidence = np.clip((confidence_mass / math.sqrt(n + 1.0)) * punct_mult, 0.0, 1.0)
+
+    top = [w for w, _ in c.most_common(5)]
+    aux = {"pos": float(pos_score), "neg": float(neg_score), "fear": float(fear_score), "len": int(n)}
+    return float(sent), float(affect), float(confidence), top, aux
 
 
 def _load_asset_universe():

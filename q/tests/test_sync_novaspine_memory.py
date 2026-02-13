@@ -23,6 +23,7 @@ def test_build_events_includes_governance_audit_events(tmp_path, monkeypatch):
     _write_json(tmp_path / "system_health.json", {"health_score": 88})
     _write_json(tmp_path / "health_alerts.json", {"ok": True, "alerts": []})
     _write_json(tmp_path / "quality_snapshot.json", {"quality_score": 0.66, "quality_governor_mean": 0.84})
+    _write_json(tmp_path / "dream_coherence_info.json", {"status": "ok", "signals": ["reflex_latent", "meta_mix"], "mean_coherence": 0.62, "mean_governor": 0.93})
     _write_json(tmp_path / "cross_hive_summary.json", {"hives": ["EQ", "FX"], "mean_turnover": 0.2, "latest_weights": {"EQ": 0.6}})
     _write_json(tmp_path / "hive_evolution.json", {"events": [{"event": "split_applied"}]})
     _write_json(tmp_path / "execution_constraints_info.json", {"gross_after_mean": 0.9})
@@ -53,6 +54,9 @@ def test_build_events_includes_governance_audit_events(tmp_path, monkeypatch):
     pdw = rc.get("payload", {}).get("portfolio_drift_watch", {})
     assert pdw.get("status") == "ok"
     assert float(pdw.get("latest_l1")) > 0.0
+    dream = rc.get("payload", {}).get("dream_coherence", {})
+    assert dream.get("status") == "ok"
+    assert float(dream.get("mean_coherence")) > 0.0
     trusts = [float(e.get("trust", 0.0)) for e in events]
     assert all(0.0 <= t <= 1.0 for t in trusts)
 

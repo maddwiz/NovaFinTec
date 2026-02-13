@@ -103,6 +103,7 @@ if __name__ == "__main__":
     nctx = _load_json(RUNS / "novaspine_context.json") or {}
     eco = _load_json(RUNS / "hive_evolution.json") or {}
     shock_info = _load_json(RUNS / "shock_mask_info.json") or {}
+    dream_info = _load_json(RUNS / "dream_coherence_info.json") or {}
 
     hive_sh = None
     hive_hit = None
@@ -205,12 +206,23 @@ if __name__ == "__main__":
     except Exception:
         shock_q = None
 
+    dream_q = None
+    try:
+        dream_q = float(dream_info.get("mean_coherence", np.nan))
+        if np.isfinite(dream_q):
+            dream_q = float(np.clip(dream_q, 0.0, 1.0))
+        else:
+            dream_q = None
+    except Exception:
+        dream_q = None
+
     # Blend across subsystems, using whatever is available.
     quality, quality_detail = blend_quality(
         {
             "nested_wf": (nested_q, 0.30),
             "hive_wf": (hive_q, 0.23),
             "council": (council_q, 0.20),
+            "dream_coherence": (dream_q, 0.10),
             "system_health": (health_q, 0.13),
             "ecosystem": (eco_q, 0.07),
             "shock_env": (shock_q, 0.05),
@@ -268,6 +280,13 @@ if __name__ == "__main__":
         alpha = float(np.clip(float(os.getenv("Q_SHOCK_ALPHA", "0.35")), 0.0, 1.0))
         runtime_mod[:L] *= np.clip(1.0 - 0.80 * alpha * np.clip(sm[:L], 0.0, 1.0), 0.70, 1.0)
 
+    # Dream coherence modifier from dream/reflex/symbolic consistency.
+    dcg = _load_series(RUNS / "dream_coherence_governor.csv")
+    if dcg is not None and len(dcg):
+        L = min(T, len(dcg))
+        dn = np.clip((np.asarray(dcg[:L], float) - 0.70) / (1.15 - 0.70 + 1e-9), 0.0, 1.0)
+        runtime_mod[:L] *= np.clip(0.88 + 0.24 * dn, 0.78, 1.12)
+
     qg = np.clip(qg * runtime_mod, 0.55, 1.15)
     if len(qg) > 1:
         for t in range(1, len(qg)):
@@ -287,6 +306,7 @@ if __name__ == "__main__":
             "nested_wf": {"score": float(nested_q), "detail": nested_detail},
             "hive_wf": {"score": float(hive_q), "detail": hive_detail},
             "council": {"score": float(council_q), "detail": council_detail},
+            "dream_coherence": {"score": float(dream_q) if dream_q is not None else None},
             "ecosystem": {"score": float(eco_q) if eco_q is not None else None},
             "shock_env": {"score": float(shock_q) if shock_q is not None else None},
             "system_health": {"score": float(health_q)},
@@ -303,6 +323,8 @@ if __name__ == "__main__":
             "hive_evolution": (RUNS / "hive_evolution.json").exists(),
             "shock_mask_info": (RUNS / "shock_mask_info.json").exists(),
             "shock_mask": (RUNS / "shock_mask.csv").exists(),
+            "dream_coherence_info": (RUNS / "dream_coherence_info.json").exists(),
+            "dream_coherence_governor": (RUNS / "dream_coherence_governor.csv").exists(),
             "system_health": (RUNS / "system_health.json").exists(),
             "novaspine_context": (RUNS / "novaspine_context.json").exists(),
         },
