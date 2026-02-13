@@ -45,3 +45,30 @@ def test_dream_coherence_rewards_consistency():
 
     assert float(np.mean(g1)) > float(np.mean(g2))
     assert float(i1["mean_coherence"]) > float(i2["mean_coherence"])
+
+
+def test_dream_coherence_causal_delay_alignment_detects_lead():
+    T = 420
+    t = np.linspace(0.0, 20.0, T)
+    rng = np.random.default_rng(11)
+
+    # Synthetic return process with smooth structure.
+    ret = 0.0032 * np.sin(t) + 0.0010 * np.cos(1.1 * t) + 0.0004 * rng.standard_normal(T)
+    base = np.sin(t - 0.15)
+
+    # This stream leads the target process; causal delay should be selected (>0).
+    lead_stream = np.roll(base, -2)
+    lead_stream[-2:] = lead_stream[-3]
+
+    sig = {
+        "lead_stream": lead_stream,
+        "support_stream": 0.7 * base + 0.2 * rng.standard_normal(T),
+    }
+
+    g0, i0 = build_dream_coherence_governor(sig, ret, max_causal_delay=0)
+    g1, i1 = build_dream_coherence_governor(sig, ret, max_causal_delay=3)
+
+    assert g0.shape == g1.shape
+    d = i1.get("per_signal_causal_delay", {}).get("lead_stream", 0)
+    assert int(d) >= 1
+    assert float(i1["mean_coherence"]) >= float(i0["mean_coherence"]) - 1e-6

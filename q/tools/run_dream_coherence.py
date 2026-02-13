@@ -163,6 +163,10 @@ if __name__ == "__main__":
         "mean_governor": float(info.get("mean_governor", float(np.mean(gov)))),
         "min_governor": float(info.get("min_governor", float(np.min(gov)))),
         "max_governor": float(info.get("max_governor", float(np.max(gov)))),
+        "max_causal_delay": int(info.get("max_causal_delay", 0)),
+        "per_signal_causal_delay": info.get("per_signal_causal_delay", {}),
+        "per_signal_delay_quality": info.get("per_signal_delay_quality", {}),
+        "per_signal_weight": info.get("per_signal_weight", {}),
         "per_signal_consensus_corr": info.get("per_signal_consensus_corr", {}),
     }
     (RUNS / "dream_coherence_info.json").write_text(json.dumps(comp_info, indent=2))

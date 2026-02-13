@@ -58,12 +58,60 @@ def _smooth(x: np.ndarray, alpha: float = 0.88) -> np.ndarray:
     return out
 
 
+def _apply_causal_delay(x: np.ndarray, delay: int) -> np.ndarray:
+    a = _safe_1d(x)
+    d = int(max(0, delay))
+    if d <= 0 or len(a) == 0:
+        return a.copy()
+    out = np.roll(a, d)
+    out[:d] = 0.0
+    return out
+
+
+def _mean_tail(x: np.ndarray, tail: int = 63) -> float:
+    a = _safe_1d(x)
+    if len(a) == 0:
+        return 0.0
+    L = int(max(1, min(len(a), tail)))
+    return float(np.mean(a[-L:]))
+
+
+def _best_causal_delay(
+    signal: np.ndarray,
+    returns: np.ndarray,
+    max_delay: int = 3,
+) -> tuple[np.ndarray, int, float]:
+    """
+    Pick the best causal delay (no look-ahead) for a signal by maximizing
+    recent rolling efficacy against returns.
+    """
+    s = _safe_1d(signal)
+    r = _safe_1d(returns)
+    L = min(len(s), len(r))
+    if L <= 1:
+        return s[-L:], 0, 0.0
+    s = s[-L:]
+    r = r[-L:]
+    best = (s.copy(), 0, -1.0)
+    md = int(max(0, max_delay))
+    for d in range(md + 1):
+        sd = _apply_causal_delay(s, d)
+        q = _rolling_signal_quality(sd, r, win=63)
+        score = _mean_tail(q, tail=63)
+        # Mild penalty for larger delay to reduce over-lagging.
+        score = float(score - 0.01 * d)
+        if score > best[2]:
+            best = (sd, d, score)
+    return best
+
+
 def build_dream_coherence_governor(
     signals: dict[str, np.ndarray],
     returns: np.ndarray,
     lo: float = 0.70,
     hi: float = 1.15,
     smooth: float = 0.88,
+    max_causal_delay: int = 3,
 ) -> tuple[np.ndarray, dict]:
     """
     Blend dream/reflex/symbolic/council streams into a coherence governor.
@@ -98,11 +146,27 @@ def build_dream_coherence_governor(
     ret = ret[-L:]
     names = sorted(clean.keys())
     mats = []
+    signal_weights = []
+    per_signal_delay = {}
+    per_signal_delay_quality = {}
     for name in names:
-        mats.append(_tanh_zscore(clean[name][-L:], win=63))
+        base = _tanh_zscore(clean[name][-L:], win=63)
+        aligned, delay, delay_score = _best_causal_delay(base, ret, max_delay=max_causal_delay)
+        mats.append(aligned)
+        per_signal_delay[name] = int(delay)
+        per_signal_delay_quality[name] = float(delay_score)
+        q = _rolling_signal_quality(aligned, ret, win=63)
+        q_mean = _mean_tail(q, tail=63)
+        delay_pen = 1.0 - 0.15 * (float(delay) / max(1.0, float(max_causal_delay)))
+        w = float(np.clip((0.45 + 0.90 * q_mean) * delay_pen, 0.20, 1.80))
+        signal_weights.append(w)
     M = np.column_stack(mats) if mats else np.zeros((L, 1), dtype=float)
 
-    consensus = np.tanh(np.mean(M, axis=1))
+    wv = np.asarray(signal_weights, float)
+    if len(wv) != M.shape[1]:
+        wv = np.ones(M.shape[1], float)
+    wv = np.clip(np.nan_to_num(wv, nan=1.0, posinf=1.0, neginf=1.0), 0.05, 4.0)
+    consensus = np.tanh((M * wv.reshape(1, -1)).sum(axis=1) / (float(np.sum(wv)) + 1e-12))
     dispersion = np.std(M, axis=1)
     agreement = np.clip(1.0 - dispersion / 0.90, 0.0, 1.0)
     efficacy = _rolling_signal_quality(consensus, ret, win=63)
@@ -140,6 +204,10 @@ def build_dream_coherence_governor(
         "mean_governor": float(np.mean(gov)),
         "min_governor": float(np.min(gov)),
         "max_governor": float(np.max(gov)),
+        "max_causal_delay": int(max(0, max_causal_delay)),
+        "per_signal_causal_delay": per_signal_delay,
+        "per_signal_delay_quality": per_signal_delay_quality,
+        "per_signal_weight": {n: float(wv[i]) for i, n in enumerate(names)},
         "per_signal_consensus_corr": per_signal_corr,
     }
     return gov, info

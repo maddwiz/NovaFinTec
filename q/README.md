@@ -59,7 +59,7 @@ python tools/run_all_in_one_plus.py
 This now includes:
 - symbolic + heartbeat + reflexive generation
 - symbolic risk governor
-- dream/reflex/symbolic coherence governor
+- dream/reflex/symbolic coherence governor (causal delay alignment + signal-quality weighting)
 - DNA drift/stress governor (with returns fallback)
 - shock/news sentinel gating
 - hive build + hive walk-forward diagnostics
