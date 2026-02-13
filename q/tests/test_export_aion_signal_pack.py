@@ -14,6 +14,7 @@ def test_runtime_context_uses_governor_components(tmp_path: Path):
     _write_series(tmp_path / "meta_mix_reliability_governor.csv", [0.98, 1.02])
     _write_series(tmp_path / "dna_stress_governor.csv", [0.95, 0.90])
     _write_series(tmp_path / "reflex_health_governor.csv", [0.96, 1.00])
+    _write_series(tmp_path / "symbolic_governor.csv", [0.94, 0.98])
     _write_series(tmp_path / "novaspine_context_boost.csv", [1.0, 1.05])
 
     ctx = ex._runtime_context(tmp_path)
@@ -23,6 +24,7 @@ def test_runtime_context_uses_governor_components(tmp_path: Path):
     assert ctx["components"]["meta_mix_reliability_governor"]["found"] is True
     assert ctx["components"]["dna_stress_governor"]["found"] is True
     assert ctx["components"]["reflex_health_governor"]["found"] is True
+    assert ctx["components"]["symbolic_governor"]["found"] is True
 
 
 def test_runtime_context_defaults_to_neutral_when_missing(tmp_path: Path):

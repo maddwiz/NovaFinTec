@@ -106,6 +106,7 @@ if __name__ == "__main__":
     dream_info = _load_json(RUNS / "dream_coherence_info.json") or {}
     dna_info = _load_json(RUNS / "dna_stress_info.json") or {}
     reflex_info = _load_json(RUNS / "reflex_health_info.json") or {}
+    sym_info = _load_json(RUNS / "symbolic_governor_info.json") or {}
 
     hive_sh = None
     hive_hit = None
@@ -239,6 +240,13 @@ if __name__ == "__main__":
             reflex_q = float(np.clip((rm - 0.72) / (1.10 - 0.72 + 1e-9), 0.0, 1.0))
     except Exception:
         reflex_q = None
+    sym_q = None
+    try:
+        ms = float(sym_info.get("mean_stress", np.nan))
+        if np.isfinite(ms):
+            sym_q = float(np.clip(1.0 - ms, 0.0, 1.0))
+    except Exception:
+        sym_q = None
 
     # Blend across subsystems, using whatever is available.
     quality, quality_detail = blend_quality(
@@ -249,6 +257,7 @@ if __name__ == "__main__":
             "dream_coherence": (dream_q, 0.10),
             "dna_stress": (dna_q, 0.08),
             "reflex_health": (reflex_q, 0.08),
+            "symbolic": (sym_q, 0.08),
             "system_health": (health_q, 0.13),
             "ecosystem": (eco_q, 0.07),
             "shock_env": (shock_q, 0.05),
@@ -334,6 +343,13 @@ if __name__ == "__main__":
         rs = np.clip(np.asarray(rhg[:L], float), 0.70, 1.15)
         runtime_mod[:L] *= np.clip(rs, 0.75, 1.12)
 
+    # Symbolic governor modifier.
+    sgg = _load_series(RUNS / "symbolic_governor.csv")
+    if sgg is not None and len(sgg):
+        L = min(T, len(sgg))
+        sg = np.clip(np.asarray(sgg[:L], float), 0.70, 1.15)
+        runtime_mod[:L] *= np.clip(sg, 0.75, 1.12)
+
     qg = np.clip(qg * runtime_mod, 0.55, 1.15)
     if len(qg) > 1:
         for t in range(1, len(qg)):
@@ -356,6 +372,7 @@ if __name__ == "__main__":
             "dream_coherence": {"score": float(dream_q) if dream_q is not None else None},
             "dna_stress": {"score": float(dna_q) if dna_q is not None else None},
             "reflex_health": {"score": float(reflex_q) if reflex_q is not None else None},
+            "symbolic": {"score": float(sym_q) if sym_q is not None else None},
             "ecosystem": {"score": float(eco_q) if eco_q is not None else None},
             "shock_env": {"score": float(shock_q) if shock_q is not None else None},
             "system_health": {"score": float(health_q)},
@@ -379,6 +396,8 @@ if __name__ == "__main__":
             "dna_stress_governor": (RUNS / "dna_stress_governor.csv").exists(),
             "reflex_health_info": (RUNS / "reflex_health_info.json").exists(),
             "reflex_health_governor": (RUNS / "reflex_health_governor.csv").exists(),
+            "symbolic_governor_info": (RUNS / "symbolic_governor_info.json").exists(),
+            "symbolic_governor": (RUNS / "symbolic_governor.csv").exists(),
             "system_health": (RUNS / "system_health.json").exists(),
             "novaspine_context": (RUNS / "novaspine_context.json").exists(),
         },

@@ -119,6 +119,7 @@ def build_events():
     dream = _load_json(RUNS / "dream_coherence_info.json") or {}
     dna = _load_json(RUNS / "dna_stress_info.json") or {}
     reflex = _load_json(RUNS / "reflex_health_info.json") or {}
+    sym = _load_json(RUNS / "symbolic_governor_info.json") or {}
     cross = _load_json(RUNS / "cross_hive_summary.json") or {}
     eco = _load_json(RUNS / "hive_evolution.json") or {}
     constraints = _load_json(RUNS / "execution_constraints_info.json") or {}
@@ -137,6 +138,7 @@ def build_events():
     meta_rel = _load_series(RUNS / "meta_mix_reliability_governor.csv")
     dna_gov = _load_series(RUNS / "dna_stress_governor.csv")
     reflex_gov = _load_series(RUNS / "reflex_health_governor.csv")
+    sym_gov = _load_series(RUNS / "symbolic_governor.csv")
 
     W = _load_matrix(RUNS / "portfolio_weights_final.csv")
     weights_info = {}
@@ -279,6 +281,12 @@ def build_events():
                     "health_mean": _safe_float((reflex or {}).get("health_mean", 0.0)),
                     "health_max": _safe_float((reflex or {}).get("health_max", 0.0)),
                     "mean_governor": float(np.mean(reflex_gov)) if reflex_gov is not None and len(reflex_gov) else None,
+                },
+                "symbolic": {
+                    "status": str((sym or {}).get("status", "na")) if isinstance(sym, dict) else "na",
+                    "mean_stress": _safe_float((sym or {}).get("mean_stress", 0.0)),
+                    "max_stress": _safe_float((sym or {}).get("max_stress", 0.0)),
+                    "mean_governor": float(np.mean(sym_gov)) if sym_gov is not None and len(sym_gov) else None,
                 },
                 "final_steps": list((final_info or {}).get("steps", []) or []),
                 "pipeline_failed_count": int((pipeline or {}).get("failed_count", 0)),

@@ -236,6 +236,7 @@ def _runtime_context(runs_dir: Path):
         "heartbeat_exposure_scaler": ("heartbeat_exposure_scaler.csv", 0.40, 1.20, 1.0),
         "dna_stress_governor": ("dna_stress_governor.csv", 0.70, 1.15, 1.0),
         "reflex_health_governor": ("reflex_health_governor.csv", 0.70, 1.15, 1.0),
+        "symbolic_governor": ("symbolic_governor.csv", 0.70, 1.15, 1.0),
         "legacy_exposure": ("legacy_exposure.csv", 0.40, 1.30, 1.0),
     }
     active_vals = []

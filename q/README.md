@@ -58,6 +58,7 @@ python tools/run_all_in_one_plus.py
 ```
 This now includes:
 - symbolic + heartbeat + reflexive generation
+- symbolic risk governor
 - dream/reflex/symbolic coherence governor
 - DNA drift/stress governor (with returns fallback)
 - shock/news sentinel gating
@@ -105,6 +106,8 @@ export Q_MAX_HEARTBEAT_STRESS=0.85
 - `runs_plus/dna_stress_info.json`
 - `runs_plus/reflex_health_governor.csv`
 - `runs_plus/reflex_health_info.json`
+- `runs_plus/symbolic_governor.csv`
+- `runs_plus/symbolic_governor_info.json`
 - `runs_plus/hive_transparency.json`
 - `runs_plus/hive_dynamic_quality.csv`
 - `runs_plus/final_governor_trace.csv`
