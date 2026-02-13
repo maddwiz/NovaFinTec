@@ -72,6 +72,7 @@ This runs strict mode (`Q_STRICT=1`) and fails if critical health alerts trigger
 - `runs_plus/system_health.json`
 - `runs_plus/health_alerts.json`
 - `runs_plus/pipeline_status.json`
+- `runs_plus/execution_constraints_info.json`
 
 ### Tests
 ```bash
@@ -84,4 +85,11 @@ If you have many raw CSVs, normalize them into `data/` first:
 ```bash
 python tools/import_history_csvs.py --src "/absolute/path/to/your/csv_folder"
 python tools/make_asset_names.py
+```
+
+### Execution constraints (live realism)
+You can define live execution limits in `config/execution_constraints.json`
+(copy from `config/execution_constraints.example.json`), then run:
+```bash
+python tools/run_execution_constraints.py --replace-final
 ```

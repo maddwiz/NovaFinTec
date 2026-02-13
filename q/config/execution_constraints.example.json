@@ -1,0 +1,16 @@
+{
+  "allow_shorts": true,
+  "max_abs_weight": 0.25,
+  "short_blocklist": [],
+  "long_blocklist": [],
+  "symbol_caps": {
+    "TSLA": 0.12,
+    "NVDA": 0.12
+  },
+  "session_scales": {
+    "regular": 1.0,
+    "after_hours": 0.6,
+    "closed": 0.0
+  },
+  "renormalize_to_gross": true
+}

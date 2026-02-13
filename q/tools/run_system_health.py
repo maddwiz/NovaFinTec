@@ -88,6 +88,8 @@ if __name__ == "__main__":
         RUNS / "synapses_summary.json",
         RUNS / "meta_stack_summary.json",
         RUNS / "tune_best_config.json",
+        RUNS / "portfolio_weights_exec.csv",
+        RUNS / "execution_constraints_info.json",
     ]
 
     checks = []

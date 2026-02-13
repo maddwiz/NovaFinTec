@@ -149,6 +149,9 @@ if __name__ == "__main__":
     # Assemble final portfolio weights from available layers
     ok, rc = run_script("tools/build_final_portfolio.py")
     if not ok and rc is not None: failures.append({"step": "tools/build_final_portfolio.py", "code": rc})
+    # Apply execution constraints for live realism
+    ok, rc = run_script("tools/run_execution_constraints.py", ["--replace-final"])
+    if not ok and rc is not None: failures.append({"step": "tools/run_execution_constraints.py", "code": rc})
     # Emit a health snapshot for unattended operation
     ok, rc = run_script("tools/run_system_health.py")
     if not ok and rc is not None: failures.append({"step": "tools/run_system_health.py", "code": rc})
