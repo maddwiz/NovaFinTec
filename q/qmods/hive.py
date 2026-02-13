@@ -16,16 +16,65 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 import json
+import re
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNS = ROOT / "runs_plus"
 HIVES_DIR = ROOT / "data_hives"
 MAP_CSV = HIVES_DIR / "hive_map.csv"
 
+FX_RE = re.compile(r"^[A-Z]{6}$")
+
+RATES_SYMS = {
+    "TLT", "IEF", "SHY", "VGSH", "BND", "AGG", "GOVT", "LQD", "HYG", "MBB",
+    "ZB", "ZN", "ZF", "ZT", "UB", "TY", "FV", "TU",
+    "^TNX", "^IRX", "^FVX",
+}
+COMMOD_SYMS = {
+    "GLD", "SLV", "USO", "UNG", "DBC", "DBA", "XLE", "XOP", "GDX", "XME",
+    "CL", "NG", "GC", "SI", "HG", "PL", "PA", "XAUUSD", "XAGUSD",
+}
+CRYPTO_SYMS = {
+    "BTCUSD", "ETHUSD", "SOLUSD", "BNBUSD", "XRPUSD", "DOGEUSD",
+    "BTC", "ETH", "SOL", "BNB", "XRP", "DOGE", "IBIT", "FBTC", "BITO",
+}
+
+def _infer_hive_from_symbol(sym: str) -> str:
+    s = str(sym or "").upper().replace("-", "").replace("_", "").replace("/", "")
+    if not s:
+        return "EQ"
+    if s in CRYPTO_SYMS:
+        return "CRYPTO"
+    if s in RATES_SYMS:
+        return "RATES"
+    if s in COMMOD_SYMS:
+        return "COMMOD"
+    if FX_RE.match(s):
+        c1, c2 = s[:3], s[3:]
+        ccy = {"USD", "EUR", "JPY", "GBP", "CHF", "CAD", "AUD", "NZD", "SEK", "NOK"}
+        if c1 in ccy and c2 in ccy:
+            return "FX"
+    return "EQ"
+
 def _read_mapping():
     """Return DataFrame with columns ASSET,HIVE (uppercased)."""
     if not MAP_CSV.exists():
-        # No mapping; return empty
+        # fallback: use cluster map if available
+        cm = RUNS / "cluster_map.csv"
+        if cm.exists():
+            try:
+                df = pd.read_csv(cm)
+                lowers = {c.lower(): c for c in df.columns}
+                a = lowers.get("asset")
+                c = lowers.get("cluster")
+                if a and c:
+                    out = df[[a, c]].copy()
+                    out.columns = ["ASSET", "HIVE"]
+                    out["ASSET"] = out["ASSET"].astype(str).str.upper()
+                    out["HIVE"] = out["HIVE"].astype(str).str.upper()
+                    return out
+            except Exception:
+                pass
         return pd.DataFrame(columns=["ASSET","HIVE"])
     df = pd.read_csv(MAP_CSV)
     lowers = {c.lower(): c for c in df.columns}
@@ -88,13 +137,13 @@ def run_hive():
         # odd single-column case returned (empty, name)
         mapping = mapping[0]
     if mapping.empty:
-        # If no mapping, everything goes to HIVE="ALL"
-        aset["HIVE"] = "ALL"
+        # If no mapping, infer hives from symbol names.
+        aset["HIVE"] = aset["ASSET"].astype(str).map(_infer_hive_from_symbol).fillna("EQ").astype(str).str.upper()
     else:
         aset["ASSET_u"] = aset["ASSET"].astype(str).str.upper()
         m = mapping.copy()
         aset = pd.merge(aset, m, left_on="ASSET_u", right_on="ASSET", how="left")
-        aset["HIVE"] = aset["HIVE"].fillna("UNMAPPED").astype(str).str.upper()
+        aset["HIVE"] = aset["HIVE"].fillna(aset["ASSET_u"].map(_infer_hive_from_symbol)).astype(str).str.upper()
         aset.drop(columns=["ASSET_y","ASSET_u"], errors="ignore", inplace=True)
         aset.rename(columns={"ASSET_x":"ASSET"}, inplace=True)
 
