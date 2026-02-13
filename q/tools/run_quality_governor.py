@@ -100,6 +100,7 @@ if __name__ == "__main__":
     syn = _load_json(RUNS / "synapses_summary.json") or {}
     mix = _load_json(RUNS / "meta_mix_info.json") or {}
     nctx = _load_json(RUNS / "novaspine_context.json") or {}
+    eco = _load_json(RUNS / "hive_evolution.json") or {}
 
     hive_sh = None
     hive_hit = None
@@ -142,6 +143,26 @@ if __name__ == "__main__":
             float(mix.get("mean_confidence", np.nan)),
         ]
     )
+    syn_disp_mean = float(syn.get("mean_dispersion", np.nan))
+    if np.isfinite(syn_disp_mean):
+        syn_disp_q = float(np.clip(1.0 - syn_disp_mean / 0.35, 0.0, 1.0))
+    else:
+        syn_disp_q = None
+
+    eco_q = None
+    try:
+        counts = eco.get("event_counts", {}) if isinstance(eco, dict) else {}
+        total_actions = float(
+            float(counts.get("atrophy_applied", 0))
+            + float(counts.get("split_applied", 0))
+            + float(counts.get("fusion_applied", 0))
+        )
+        Teco = max(1.0, float(_infer_length()))
+        # Higher action density means more ecosystem instability.
+        action_density = total_actions / (3.0 * Teco)
+        eco_q = float(np.clip(1.0 - action_density / 0.50, 0.0, 1.0))
+    except Exception:
+        eco_q = None
 
     nested_q, nested_detail = blend_quality(
         {
@@ -162,6 +183,7 @@ if __name__ == "__main__":
             "council_sharpe": (sharpe_quality(council_sh), 0.45),
             "council_hit": (hit_quality(council_hit), 0.25),
             "council_conf": (float(np.clip(council_conf, 0.0, 1.0)) if np.isfinite(council_conf) else None, 0.30),
+            "synapses_agreement": (syn_disp_q, 0.10),
         }
     )
     health_q = float(np.clip(float(health.get("health_score", 50.0)) / 100.0, 0.0, 1.0))
@@ -178,8 +200,9 @@ if __name__ == "__main__":
         {
             "nested_wf": (nested_q, 0.30),
             "hive_wf": (hive_q, 0.23),
-            "council": (council_q, 0.22),
+            "council": (council_q, 0.20),
             "system_health": (health_q, 0.13),
+            "ecosystem": (eco_q, 0.07),
             "novaspine_context": (nctx_q, 0.12),
         }
     )
@@ -200,7 +223,41 @@ if __name__ == "__main__":
         hi=1.15,
         smooth=0.85,
     )
+
+    runtime_mod = np.ones(T, dtype=float)
+    # Synapses ensemble disagreement modifier (lower confidence when members diverge).
+    syn_disp = _load_series(RUNS / "synapses_ensemble_dispersion.csv")
+    if syn_disp is not None and len(syn_disp):
+        L = min(T, len(syn_disp))
+        d = np.abs(np.asarray(syn_disp[:L], float))
+        p90 = float(np.percentile(d, 90)) if len(d) else 0.0
+        dn = np.clip(d / (p90 + 1e-9), 0.0, 2.0)
+        runtime_mod[:L] *= np.clip(1.06 - 0.18 * dn, 0.82, 1.06)
+
+    # Cross-hive adaptive control modifier from alpha/inertia diagnostics, if available.
+    cwh = RUNS / "cross_hive_weights.csv"
+    if cwh.exists():
+        try:
+            cw = pd.read_csv(cwh)
+            if {"arb_alpha", "arb_inertia"}.issubset(cw.columns):
+                aa = pd.to_numeric(cw["arb_alpha"], errors="coerce").ffill().fillna(2.2).values
+                ii = pd.to_numeric(cw["arb_inertia"], errors="coerce").ffill().fillna(0.80).values
+                L = min(T, len(aa), len(ii))
+                aa_n = np.clip((aa[:L] - 0.8) / (4.5 - 0.8 + 1e-9), 0.0, 1.0)
+                ii_n = np.clip((ii[:L] - 0.40) / (0.97 - 0.40 + 1e-9), 0.0, 1.0)
+                stress = 0.5 * (1.0 - aa_n) + 0.5 * ii_n
+                runtime_mod[:L] *= np.clip(1.03 - 0.20 * stress, 0.84, 1.03)
+        except Exception:
+            pass
+
+    qg = np.clip(qg * runtime_mod, 0.55, 1.15)
+    if len(qg) > 1:
+        for t in range(1, len(qg)):
+            qg[t] = 0.86 * qg[t - 1] + 0.14 * qg[t]
+        qg = np.clip(qg, 0.55, 1.15)
+
     np.savetxt(RUNS / "quality_governor.csv", qg, delimiter=",")
+    np.savetxt(RUNS / "quality_runtime_modifier.csv", runtime_mod, delimiter=",")
 
     snapshot = {
         "quality_score": float(quality),
@@ -212,6 +269,7 @@ if __name__ == "__main__":
             "nested_wf": {"score": float(nested_q), "detail": nested_detail},
             "hive_wf": {"score": float(hive_q), "detail": hive_detail},
             "council": {"score": float(council_q), "detail": council_detail},
+            "ecosystem": {"score": float(eco_q) if eco_q is not None else None},
             "system_health": {"score": float(health_q)},
             "novaspine_context": {"score": float(nctx_q) if nctx_q is not None else None},
         },
@@ -221,7 +279,9 @@ if __name__ == "__main__":
             "hive_wf_metrics": hm.exists(),
             "meta_stack_summary": (RUNS / "meta_stack_summary.json").exists(),
             "synapses_summary": (RUNS / "synapses_summary.json").exists(),
+            "synapses_ensemble_dispersion": (RUNS / "synapses_ensemble_dispersion.csv").exists(),
             "meta_mix_info": (RUNS / "meta_mix_info.json").exists(),
+            "hive_evolution": (RUNS / "hive_evolution.json").exists(),
             "system_health": (RUNS / "system_health.json").exists(),
             "novaspine_context": (RUNS / "novaspine_context.json").exists(),
         },

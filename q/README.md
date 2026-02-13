@@ -81,6 +81,7 @@ If your default Python is missing deps, set `Q_PYTHON=/absolute/path/to/venv/bin
 - `runs_plus/health_alerts.json`
 - `runs_plus/pipeline_status.json`
 - `runs_plus/quality_snapshot.json`
+- `runs_plus/quality_runtime_modifier.csv`
 - `runs_plus/hive_transparency.json`
 - `runs_plus/execution_constraints_info.json`
 - `runs_plus/novaspine_sync_status.json`
