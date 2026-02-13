@@ -88,6 +88,7 @@ if __name__ == "__main__":
         RUNS / "reflex_signal_gated.csv",
         RUNS / "synapses_summary.json",
         RUNS / "meta_stack_summary.json",
+        RUNS / "hive_transparency.json",
         RUNS / "tune_best_config.json",
         RUNS / "portfolio_weights_exec.csv",
         RUNS / "execution_constraints_info.json",

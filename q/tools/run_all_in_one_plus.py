@@ -176,6 +176,9 @@ if __name__ == "__main__":
     # Cross-hive arbitration (weights per hive)
     ok, rc = run_script("tools/run_cross_hive.py")
     if not ok and rc is not None: failures.append({"step": "tools/run_cross_hive.py", "code": rc})
+    # Per-hive transparency artifact + report card.
+    ok, rc = run_script("tools/run_hive_transparency.py")
+    if not ok and rc is not None: failures.append({"step": "tools/run_hive_transparency.py", "code": rc})
     # Ecosystem age governor (atrophy/split/fusion dynamics on hive weights)
     ok, rc = run_script("tools/run_ecosystem_age.py")
     if not ok and rc is not None: failures.append({"step": "tools/run_ecosystem_age.py", "code": rc})

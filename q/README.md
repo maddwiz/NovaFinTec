@@ -66,6 +66,7 @@ This now includes:
 - final portfolio assembly + system health + alert gate
 - optional NovaSpine bridge (cold/meta memory sync, async-safe)
 - optional NovaSpine hive memory feedback (per-hive boosts + final projection)
+- hive transparency card/artifact (per-hive Sharpe/hit/DD + weight + memory boost)
 
 ### Strict production cycle
 ```bash
@@ -79,6 +80,7 @@ If your default Python is missing deps, set `Q_PYTHON=/absolute/path/to/venv/bin
 - `runs_plus/health_alerts.json`
 - `runs_plus/pipeline_status.json`
 - `runs_plus/quality_snapshot.json`
+- `runs_plus/hive_transparency.json`
 - `runs_plus/execution_constraints_info.json`
 - `runs_plus/novaspine_sync_status.json`
 - `runs_plus/novaspine_last_batch.json`
