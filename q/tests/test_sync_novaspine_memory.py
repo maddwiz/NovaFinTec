@@ -1,0 +1,56 @@
+import json
+
+import numpy as np
+
+import tools.sync_novaspine_memory as sm
+
+
+def _write_json(path, obj):
+    path.write_text(json.dumps(obj), encoding="utf-8")
+
+
+def test_build_events_includes_governance_audit_events(tmp_path, monkeypatch):
+    monkeypatch.setattr(sm, "RUNS", tmp_path)
+
+    _write_json(
+        tmp_path / "q_signal_overlay.json",
+        {
+            "global": {"confidence": 0.7, "bias": 0.2},
+            "coverage": {"symbols": 5},
+            "runtime_context": {"runtime_multiplier": 0.9, "regime": "balanced"},
+        },
+    )
+    _write_json(tmp_path / "system_health.json", {"health_score": 88})
+    _write_json(tmp_path / "health_alerts.json", {"ok": True, "alerts": []})
+    _write_json(tmp_path / "quality_snapshot.json", {"quality_score": 0.66, "quality_governor_mean": 0.84})
+    _write_json(tmp_path / "cross_hive_summary.json", {"hives": ["EQ", "FX"], "mean_turnover": 0.2, "latest_weights": {"EQ": 0.6}})
+    _write_json(tmp_path / "hive_evolution.json", {"events": [{"event": "split_applied"}]})
+    _write_json(tmp_path / "execution_constraints_info.json", {"gross_after_mean": 0.9})
+    _write_json(tmp_path / "immune_drill.json", {"pass": True, "ok": True})
+    _write_json(tmp_path / "guardrails_summary.json", {"turnover_cost": {"turnover_budget": {"enabled": True, "limit": 1.0}}})
+    _write_json(tmp_path / "final_portfolio_info.json", {"steps": ["quality_governor", "concentration_governor"]})
+    _write_json(tmp_path / "concentration_governor_info.json", {"enabled": True, "top1_cap": 0.18, "top3_cap": 0.42, "max_hhi": 0.14, "stats": {"hhi_after": 0.11}})
+    _write_json(tmp_path / "shock_mask_info.json", {"shock_days": 10, "shock_rate": 0.05, "params": {"z": 2.5}})
+    _write_json(tmp_path / "pipeline_status.json", {"failed_count": 0})
+    _write_json(tmp_path / "novaspine_context.json", {"status": "ok", "context_resonance": 0.6, "context_boost": 1.03})
+    _write_json(tmp_path / "novaspine_hive_feedback.json", {"status": "ok", "global_boost": 1.02, "per_hive": {"EQ": {"boost": 1.04}}})
+    _write_json(tmp_path / "hive_transparency.json", {"summary": {"hive_count": 2}})
+
+    np.savetxt(tmp_path / "portfolio_weights_final.csv", np.array([[0.1, -0.1], [0.2, -0.2]], float), delimiter=",")
+
+    events = sm.build_events()
+    types = {e.get("event_type") for e in events}
+
+    assert "governance.risk_controls" in types
+    assert "decision.runtime_context" in types
+    assert "memory.feedback_state" in types
+    assert "governance.immune_drill" in types
+    trusts = [float(e.get("trust", 0.0)) for e in events]
+    assert all(0.0 <= t <= 1.0 for t in trusts)
+
+
+def test_build_events_works_with_missing_artifacts(tmp_path, monkeypatch):
+    monkeypatch.setattr(sm, "RUNS", tmp_path)
+    events = sm.build_events()
+    assert len(events) >= 4
+    assert any(e.get("event_type") == "governance.health_gate" for e in events)

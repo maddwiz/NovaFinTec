@@ -94,6 +94,14 @@ def _latest_overlay_sample(limit: int = 12):
     return rec
 
 
+def _safe_float(x, default: float = 0.0) -> float:
+    try:
+        v = float(x)
+        return v if np.isfinite(v) else float(default)
+    except Exception:
+        return float(default)
+
+
 def build_events():
     ts = _now_iso()
     overlay = _load_json(RUNS / "q_signal_overlay.json") or {}
@@ -104,6 +112,14 @@ def build_events():
     eco = _load_json(RUNS / "hive_evolution.json") or {}
     constraints = _load_json(RUNS / "execution_constraints_info.json") or {}
     immune = _load_json(RUNS / "immune_drill.json") or {}
+    guardrails = _load_json(RUNS / "guardrails_summary.json") or {}
+    final_info = _load_json(RUNS / "final_portfolio_info.json") or {}
+    conc = _load_json(RUNS / "concentration_governor_info.json") or {}
+    shock = _load_json(RUNS / "shock_mask_info.json") or {}
+    pipeline = _load_json(RUNS / "pipeline_status.json") or {}
+    nctx = _load_json(RUNS / "novaspine_context.json") or {}
+    nhive = _load_json(RUNS / "novaspine_hive_feedback.json") or {}
+    htx = _load_json(RUNS / "hive_transparency.json") or {}
 
     W = _load_matrix(RUNS / "portfolio_weights_final.csv")
     weights_info = {}
@@ -140,6 +156,17 @@ def build_events():
 
     latest_weights = cross.get("latest_weights", {}) if isinstance(cross, dict) else {}
     eco_events = eco.get("events", []) if isinstance(eco, dict) else []
+    runtime_ctx = overlay.get("runtime_context", {}) if isinstance(overlay, dict) else {}
+    turnover_budget = {}
+    if isinstance(guardrails, dict):
+        tc = guardrails.get("turnover_cost", {})
+        if isinstance(tc, dict):
+            tb = tc.get("turnover_budget", {})
+            if isinstance(tb, dict):
+                turnover_budget = tb
+    conc_stats = conc.get("stats", {}) if isinstance(conc, dict) else {}
+    quality_score = float(quality.get("quality_score", 0.5)) if isinstance(quality, dict) else 0.5
+    quality_gov_mean = float(quality.get("quality_governor_mean", 1.0)) if isinstance(quality, dict) else 1.0
 
     events = [
         {
@@ -163,8 +190,8 @@ def build_events():
                 "health_score": float(health.get("health_score", 0.0)),
                 "alerts_ok": bool(alerts.get("ok", False)),
                 "alerts": list(alerts.get("alerts", []) or []),
-                "quality_score": float(quality.get("quality_score", 0.5)),
-                "quality_governor_mean": float(quality.get("quality_governor_mean", 1.0)),
+                "quality_score": quality_score,
+                "quality_governor_mean": quality_gov_mean,
             },
             "trust": float(np.clip(float(health.get("health_score", 0.0)) / 100.0, 0.0, 1.0)),
         },
@@ -190,6 +217,74 @@ def build_events():
                 "execution_constraints": constraints,
             },
             "trust": 0.8,
+        },
+        {
+            "event_type": "governance.risk_controls",
+            "namespace": "private/c3/governance",
+            "ts_utc": ts,
+            "payload": {
+                "shock_mask": {
+                    "shock_days": int(shock.get("shock_days", 0)) if isinstance(shock, dict) else 0,
+                    "shock_rate": _safe_float((shock or {}).get("shock_rate", 0.0)),
+                    "params": (shock or {}).get("params", {}) if isinstance(shock, dict) else {},
+                },
+                "turnover_budget": turnover_budget,
+                "concentration": {
+                    "enabled": bool((conc or {}).get("enabled", False)) if isinstance(conc, dict) else False,
+                    "params": {
+                        "top1_cap": _safe_float((conc or {}).get("top1_cap", 0.0)),
+                        "top3_cap": _safe_float((conc or {}).get("top3_cap", 0.0)),
+                        "max_hhi": _safe_float((conc or {}).get("max_hhi", 0.0)),
+                    },
+                    "stats": conc_stats,
+                },
+                "final_steps": list((final_info or {}).get("steps", []) or []),
+                "pipeline_failed_count": int((pipeline or {}).get("failed_count", 0)),
+            },
+            "trust": float(
+                np.clip(
+                    0.45 * np.clip(_safe_float(health.get("health_score", 0.0)) / 100.0, 0.0, 1.0)
+                    + 0.30 * np.clip(quality_score, 0.0, 1.0)
+                    + 0.25 * (1.0 if int((pipeline or {}).get("failed_count", 0)) == 0 else 0.0),
+                    0.0,
+                    1.0,
+                )
+            ),
+        },
+        {
+            "event_type": "decision.runtime_context",
+            "namespace": "private/c3/decisions",
+            "ts_utc": ts,
+            "payload": {
+                "runtime_context": runtime_ctx if isinstance(runtime_ctx, dict) else {},
+                "hive_transparency_summary": (htx or {}).get("summary", {}) if isinstance(htx, dict) else {},
+            },
+            "trust": float(np.clip(_safe_float((runtime_ctx or {}).get("runtime_multiplier", 1.0), 1.0), 0.0, 1.0)),
+        },
+        {
+            "event_type": "memory.feedback_state",
+            "namespace": "private/c3/governance",
+            "ts_utc": ts,
+            "payload": {
+                "novaspine_context": {
+                    "status": str((nctx or {}).get("status", "na")) if isinstance(nctx, dict) else "na",
+                    "context_resonance": _safe_float((nctx or {}).get("context_resonance", 0.0)),
+                    "context_boost": _safe_float((nctx or {}).get("context_boost", 1.0), 1.0),
+                },
+                "novaspine_hive_feedback": {
+                    "status": str((nhive or {}).get("status", "na")) if isinstance(nhive, dict) else "na",
+                    "global_boost": _safe_float((nhive or {}).get("global_boost", 1.0), 1.0),
+                    "hives": int(len((nhive or {}).get("per_hive", {}) or {})) if isinstance(nhive, dict) else 0,
+                },
+            },
+            "trust": float(
+                np.clip(
+                    0.5 * np.clip(_safe_float((nctx or {}).get("context_boost", 1.0), 1.0), 0.0, 1.2) / 1.2
+                    + 0.5 * np.clip(_safe_float((nhive or {}).get("global_boost", 1.0), 1.0), 0.0, 1.2) / 1.2,
+                    0.0,
+                    1.0,
+                )
+            ),
         },
     ]
     if isinstance(immune, dict) and immune:
@@ -217,9 +312,12 @@ if __name__ == "__main__":
 
     events = build_events()
     ns_counts = {}
+    type_counts = {}
     for ev in events:
         ns = str(ev.get("namespace", "private/nova/actions"))
+        et = str(ev.get("event_type", "event"))
         ns_counts[ns] = int(ns_counts.get(ns, 0) + 1)
+        type_counts[et] = int(type_counts.get(et, 0) + 1)
     # Always materialize local batch artifacts for auditability.
     jsonl_path = RUNS / "novaspine_events.jsonl"
     with jsonl_path.open("w", encoding="utf-8") as f:
@@ -233,6 +331,7 @@ if __name__ == "__main__":
         "novaspine_url": novaspine_url,
         "events_count": int(len(events)),
         "namespaces": ns_counts,
+        "event_types": type_counts,
         "events": events,
     }
     (RUNS / "novaspine_last_batch.json").write_text(json.dumps(batch, indent=2))
@@ -261,6 +360,7 @@ if __name__ == "__main__":
             "error": res.error,
             "events_count": int(len(events)),
             "namespaces": ns_counts,
+            "event_types": type_counts,
         }
     else:
         sync = {
@@ -276,6 +376,7 @@ if __name__ == "__main__":
             "error": "disabled",
             "events_count": int(len(events)),
             "namespaces": ns_counts,
+            "event_types": type_counts,
         }
 
     (RUNS / "novaspine_sync_status.json").write_text(json.dumps(sync, indent=2))

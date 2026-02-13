@@ -150,6 +150,8 @@ and can be called directly for per-hive memory boosts:
 ```bash
 python tools/run_novaspine_hive_feedback.py
 ```
+`sync_novaspine_memory.py` now emits governance audit events too
+(`governance.risk_controls`, `decision.runtime_context`, `memory.feedback_state`).
 
 ### Advanced hive controls (optional env)
 Cross-hive adaptive arbitration:
