@@ -123,3 +123,103 @@ class SynapseSmall:
         # confidence from margin vs residual noise
         z = np.abs(p) / (self.resid_std_ + 1e-8)
         return np.tanh(z)
+
+
+class SynapseEnsemble:
+    """
+    Bagged ensemble of tiny synapse MLPs.
+    Produces mean prediction plus confidence from margin and model agreement.
+    """
+
+    def __init__(
+        self,
+        n_models=5,
+        hidden=12,
+        lr=0.008,
+        reg=2e-3,
+        epochs=400,
+        patience=40,
+        grad_clip=2.0,
+        sample_frac=0.85,
+        seed=13,
+    ):
+        self.n_models = int(max(1, n_models))
+        self.hidden = int(max(2, hidden))
+        self.lr = float(max(1e-5, lr))
+        self.reg = float(max(0.0, reg))
+        self.epochs = int(max(10, epochs))
+        self.patience = int(max(5, patience))
+        self.grad_clip = float(max(0.1, grad_clip))
+        self.sample_frac = float(np.clip(sample_frac, 0.30, 1.0))
+        self.seed = int(seed)
+        self.models_ = []
+        self.pred_std_ = None
+        self.mean_resid_std_ = 1.0
+
+    def _sample_idx(self, T: int, rng):
+        if T < 24 or self.sample_frac >= 0.999:
+            return np.arange(T)
+        L = int(max(16, np.floor(self.sample_frac * T)))
+        L = min(L, T)
+        start = int(rng.integers(0, T - L + 1))
+        return np.arange(start, start + L)
+
+    def fit(self, X, y):
+        X = np.asarray(X, dtype=float)
+        y = np.asarray(y, dtype=float).ravel()
+        T = int(X.shape[0]) if X.ndim == 2 else 0
+        if T <= 0:
+            self.models_ = []
+            self.mean_resid_std_ = 1.0
+            return self
+
+        rng = np.random.default_rng(self.seed)
+        self.models_ = []
+        resid = []
+        for i in range(self.n_models):
+            idx = self._sample_idx(T, rng)
+            Xi = X[idx]
+            yi = y[idx]
+            m = SynapseSmall(
+                hidden=self.hidden,
+                lr=self.lr,
+                reg=self.reg,
+                epochs=self.epochs,
+                seed=self.seed + 17 * (i + 1),
+                patience=self.patience,
+                grad_clip=self.grad_clip,
+            )
+            m.fit(Xi, yi)
+            self.models_.append(m)
+            try:
+                resid.append(float(m.resid_std_))
+            except Exception:
+                pass
+        self.mean_resid_std_ = float(np.mean(resid)) if resid else 1.0
+        if not np.isfinite(self.mean_resid_std_) or self.mean_resid_std_ <= 1e-8:
+            self.mean_resid_std_ = 1.0
+        return self
+
+    def predict_all(self, X):
+        X = np.asarray(X, dtype=float)
+        if not self.models_:
+            return np.zeros((len(X), 1), dtype=float)
+        preds = [m.predict(X) for m in self.models_]
+        return np.stack(preds, axis=1)
+
+    def predict(self, X):
+        P = self.predict_all(X)
+        self.pred_std_ = np.std(P, axis=1, ddof=1) if P.shape[1] > 1 else np.zeros(P.shape[0], float)
+        return np.mean(P, axis=1)
+
+    def predict_confidence(self, X):
+        p = self.predict(X)
+        margin = np.abs(p) / (self.mean_resid_std_ + 1e-8)
+        margin_conf = np.tanh(margin)
+        std = np.asarray(self.pred_std_ if self.pred_std_ is not None else np.zeros_like(p), float)
+        if len(std):
+            den = float(np.percentile(std, 90)) + 1e-8
+            agree = 1.0 - np.clip(std / den, 0.0, 1.0)
+        else:
+            agree = np.ones_like(p)
+        return np.clip(0.65 * margin_conf + 0.35 * agree, 0.0, 1.0)

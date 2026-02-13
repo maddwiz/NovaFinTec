@@ -155,6 +155,12 @@ export CROSS_HIVE_ADAPTIVE=1
 export CROSS_HIVE_ALPHA=2.2
 export CROSS_HIVE_INERTIA=0.80
 ```
+Synapses ensemble fusion:
+```bash
+export SYNAPSES_ENSEMBLE=1
+export SYNAPSES_ENSEMBLE_N=5
+export SYNAPSES_HIDDEN=12
+```
 Ecosystem evolution governors:
 ```bash
 export ECO_ATROPHY_TRIGGER=0.32
