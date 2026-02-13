@@ -76,11 +76,15 @@ def _rank_corr(a: pd.Series, b: pd.Series) -> float:
 
 
 def _member_quality(sig: pd.DataFrame, fwd: pd.DataFrame, lookback: int = 252) -> float:
+    return _member_stats(sig, fwd, lookback=lookback)["quality"]
+
+
+def _member_stats(sig: pd.DataFrame, fwd: pd.DataFrame, lookback: int = 252) -> dict[str, float]:
     if sig.empty or fwd.empty:
-        return 0.0
+        return {"quality": 0.10, "polarity": 0.0, "mean_ic": 0.0, "samples": 0.0}
     idx = sig.index.intersection(fwd.index)
     if len(idx) == 0:
-        return 0.0
+        return {"quality": 0.10, "polarity": 0.0, "mean_ic": 0.0, "samples": 0.0}
     idx = idx[-max(40, int(lookback)) :]
     ics = []
     for t in idx:
@@ -88,10 +92,23 @@ def _member_quality(sig: pd.DataFrame, fwd: pd.DataFrame, lookback: int = 252) -
         if np.isfinite(ic):
             ics.append(ic)
     if not ics:
-        return 0.0
+        return {"quality": 0.10, "polarity": 0.0, "mean_ic": 0.0, "samples": 0.0}
     mean_ic = float(np.mean(ics))
-    # map IC into [0, 1] reliability with a floor so members can recover
-    return float(np.clip(0.10 + 0.90 * max(0.0, np.tanh(3.0 * mean_ic)), 0.10, 1.00))
+    abs_ic = abs(mean_ic)
+    # Reliability uses absolute IC so anti-predictive members are still useful once flipped.
+    quality = float(np.clip(0.10 + 0.90 * np.tanh(3.0 * abs_ic), 0.10, 1.00))
+
+    # Polarity maps IC to [-1, 1], with a neutral deadband near zero to reduce noise.
+    polarity = float(np.clip(mean_ic / 0.03, -1.0, 1.0))
+    if abs(polarity) < 0.15:
+        polarity = 0.0
+
+    return {
+        "quality": quality,
+        "polarity": polarity,
+        "mean_ic": mean_ic,
+        "samples": float(len(ics)),
+    }
 
 
 def aggregate(votes: list[CouncilVote], qualities: dict[str, float] | None = None) -> tuple[pd.Series, dict]:
@@ -130,17 +147,27 @@ def run_council(prices: pd.DataFrame, out_json="runs_plus/council.json"):
     votes = []
     mats = {}
     qualities = {}
+    polarities = {}
+    member_ic = {}
+    member_samples = {}
 
     for m in members:
         mat = m.signal_matrix(prices).replace([np.inf, -np.inf], np.nan).fillna(0.0).clip(-1.0, 1.0)
         mats[m.name] = mat
-        qualities[m.name] = _member_quality(mat, fwd, lookback=252)
-        votes.append(CouncilVote(m.name, mat.iloc[-1].fillna(0.0)))
+        stats = _member_stats(mat, fwd, lookback=252)
+        qualities[m.name] = float(stats["quality"])
+        polarities[m.name] = float(stats["polarity"])
+        member_ic[m.name] = float(stats["mean_ic"])
+        member_samples[m.name] = float(stats["samples"])
+        votes.append(CouncilVote(m.name, mat.iloc[-1].fillna(0.0) * float(stats["polarity"])))
 
     final_w, meta = aggregate(votes, qualities=qualities)
     out = {
         "members": {v.name: v.score.to_dict() for v in votes},
         "member_quality": {k: float(v) for k, v in qualities.items()},
+        "member_polarity": {k: float(v) for k, v in polarities.items()},
+        "member_mean_ic": {k: float(v) for k, v in member_ic.items()},
+        "member_ic_samples": {k: float(v) for k, v in member_samples.items()},
         "ensemble_confidence": float(meta["confidence"]),
         "ensemble_disagreement": float(meta["disagreement"]),
         "final_weights": final_w.to_dict(),
