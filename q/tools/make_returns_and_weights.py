@@ -14,13 +14,31 @@ RUNS = ROOT / "runs_plus"; RUNS.mkdir(exist_ok=True)
 
 def read_close_series(fp):
     dates, close = [], []
+    date_keys = ("Date", "DATE", "date", "timestamp", "Timestamp", "datetime", "Datetime")
+    close_keys = ("Adj Close", "adj_close", "AdjClose", "Close", "close", "price", "Price")
     with open(fp) as f:
         r = csv.DictReader(f)
         for row in r:
-            dates.append(row["Date"])
-            # allow common schemas
-            c = row.get("Adj Close") or row.get("Close") or row.get("close")
-            close.append(float(c))
+            d = None
+            for k in date_keys:
+                if k in row and row.get(k) not in (None, ""):
+                    d = row.get(k)
+                    break
+            c = None
+            for k in close_keys:
+                if k in row and row.get(k) not in (None, ""):
+                    c = row.get(k)
+                    break
+            if d is None or c is None:
+                continue
+            try:
+                close_val = float(c)
+            except Exception:
+                continue
+            dates.append(d)
+            close.append(close_val)
+    if len(close) < 2:
+        raise ValueError("not enough usable close rows")
     return np.array(dates), np.array(close, float)
 
 if __name__ == "__main__":
