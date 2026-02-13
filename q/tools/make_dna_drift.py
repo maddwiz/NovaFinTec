@@ -10,14 +10,19 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 import json
+import sys
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 RUNS = ROOT / "runs_plus"
 DATA = ROOT / "data"
 
 PORT = RUNS / "portfolio_plus.csv"
 SYMP = RUNS / "symbolic_signal.csv"
 RFLX = RUNS / "reflexive_signal.csv"
+
+from qengine.dna import drift_regime_flags, drift_velocity, rolling_drift
 
 def _safe_num(s):
     return pd.to_numeric(s, errors="coerce").replace([np.inf,-np.inf], np.nan)
@@ -139,10 +144,37 @@ if __name__ == "__main__":
         a = Xz.iloc[i].values
         b = med.iloc[i].values
         drift.append(_cosine_dist(a, b))
-    feats["dna_drift"] = np.array(drift)
+    feats["dna_drift_feature"] = np.array(drift)
+
+    # spectral DNA drift from return stream
+    sp = rolling_drift(r.values, window=64, topk=32, smooth_span=5)
+    sp = np.nan_to_num(sp, nan=0.0, posinf=0.0, neginf=0.0)
+    feats["dna_drift_spectral"] = sp
+
+    # blended DNA drift
+    feats["dna_drift"] = 0.60 * feats["dna_drift_feature"] + 0.40 * feats["dna_drift_spectral"]
+    feats["dna_velocity"] = drift_velocity(feats["dna_drift"].values)
+    z, state = drift_regime_flags(feats["dna_drift"].values, z_win=63, hi=1.25, lo=-1.25)
+    feats["dna_drift_z"] = np.nan_to_num(z, nan=0.0, posinf=0.0, neginf=0.0)
+    feats["dna_regime_state"] = state
 
     # save series
-    out = feats[["DATE","dna_drift","vol20","trend63","chop21","sym","reflex"]].copy()
+    out = feats[
+        [
+            "DATE",
+            "dna_drift",
+            "dna_drift_feature",
+            "dna_drift_spectral",
+            "dna_velocity",
+            "dna_drift_z",
+            "dna_regime_state",
+            "vol20",
+            "trend63",
+            "chop21",
+            "sym",
+            "reflex",
+        ]
+    ].copy()
     out.to_csv(RUNS/"dna_drift.csv", index=False)
 
     # Compatibility JSON expected by WF+ tooling: per-symbol date->drift map.
@@ -178,10 +210,12 @@ if __name__ == "__main__":
     summary = {
         "last": {
             "date": (str(last_row["DATE"].date()) if last_row is not None else None),
-            "drift": (float(last_row["dna_drift"]) if last_row is not None else None)
+            "drift": (float(last_row["dna_drift"]) if last_row is not None else None),
+            "velocity": (float(last_row["dna_velocity"]) if last_row is not None else None),
+            "regime_state": (int(last_row["dna_regime_state"]) if last_row is not None else 0),
         },
         "window_days": W,
-        "note": "dna_drift is 1 - cosine similarity to rolling median of z-scored features."
+        "note": "dna_drift blends feature cosine-drift and spectral DNA drift; regime_state: -1 calm, 0 neutral, +1 stressed."
     }
     (RUNS/"dna_summary.json").write_text(json.dumps(summary, indent=2))
 
