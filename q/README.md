@@ -58,6 +58,7 @@ python tools/run_all_in_one_plus.py
 ```
 This now includes:
 - symbolic + heartbeat + reflexive generation
+- adaptive heartbeat metabolism (rolling quantile vol bands + acceleration damping)
 - symbolic risk governor
 - dream/reflex/symbolic coherence governor (causal delay alignment + signal-quality weighting)
 - DNA drift/stress governor (with returns fallback)

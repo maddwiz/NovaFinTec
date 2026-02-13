@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from qmods.heartbeat import compute_heartbeat_from_returns
+from qmods.heartbeat import HBConfig, bpm_to_exposure_scaler, compute_heartbeat_from_returns, map_vol_to_bpm
 
 
 def test_compute_heartbeat_from_returns_writes_outputs(tmp_path: Path):
@@ -27,3 +27,22 @@ def test_compute_heartbeat_from_returns_writes_outputs(tmp_path: Path):
     assert out_scaler_csv.exists()
     assert out_stress_csv.exists()
     assert out_png.exists()
+
+
+def test_map_vol_to_bpm_adaptive_tracks_regime_shift():
+    cfg = HBConfig()
+    vol = pd.Series([0.008] * 120 + [0.020] * 120 + [0.045] * 120)
+    bpm = map_vol_to_bpm(vol, cfg)
+    scaler = bpm_to_exposure_scaler(bpm, cfg)
+
+    lo = float(bpm.iloc[:120].mean())
+    mid = float(bpm.iloc[120:240].mean())
+    hi = float(bpm.iloc[240:].mean())
+    assert hi > mid > lo
+
+    slo = float(scaler.iloc[:120].mean())
+    smid = float(scaler.iloc[120:240].mean())
+    shi = float(scaler.iloc[240:].mean())
+    assert slo > smid
+    assert slo > shi
+    assert min(smid, shi) <= (slo - 0.05)

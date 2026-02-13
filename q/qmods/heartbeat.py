@@ -26,6 +26,10 @@ class HBConfig:
     vol_hi: float = 0.05      # 5% daily vol ~ highly volatile
     smooth_span: int = 5      # smooth BPM jitter
     percentile_win: int = 126 # regime percentile horizon
+    adaptive_win: int = 252   # dynamic vol band horizon
+    adaptive_q_lo: float = 0.20
+    adaptive_q_hi: float = 0.90
+    adaptive_blend: float = 0.65  # blend static vs adaptive mapping
 
 def realized_vol(prices: pd.DataFrame, window: int) -> pd.Series:
     """
@@ -48,7 +52,9 @@ def _robust_percentile_rank(x: pd.Series, win: int) -> pd.Series:
         if a.size < 5:
             return np.nan
         v = a[-1]
-        return float((a <= v).mean())
+        lt = float((a < v).mean())
+        eq = float((a == v).mean())
+        return float(np.clip(lt + 0.5 * eq, 0.0, 1.0))
     return x.rolling(win, min_periods=max(20, win // 4)).apply(_pct, raw=True)
 
 
@@ -58,7 +64,9 @@ def heartbeat_stress_from_bpm(bpm: pd.Series, cfg: HBConfig) -> pd.Series:
     Higher means harsher risk conditions.
     """
     b = pd.Series(pd.to_numeric(bpm, errors="coerce")).replace([np.inf, -np.inf], np.nan).fillna(cfg.base_bpm)
-    lvl = _robust_percentile_rank(b, win=cfg.percentile_win).fillna(0.5).clip(0.0, 1.0)
+    lvl_pct = _robust_percentile_rank(b, win=cfg.percentile_win).fillna(0.5).clip(0.0, 1.0)
+    lvl_abs = ((b - cfg.base_bpm) / max(1e-9, cfg.max_bpm - cfg.base_bpm)).clip(0.0, 1.0)
+    lvl = (0.45 * lvl_pct + 0.55 * lvl_abs).clip(0.0, 1.0)
     jerk = b.diff().abs().fillna(0.0)
     jerk = jerk.rolling(21, min_periods=5).mean().fillna(0.0)
     jrk = _robust_percentile_rank(jerk, win=cfg.percentile_win).fillna(0.5).clip(0.0, 1.0)
@@ -68,11 +76,31 @@ def heartbeat_stress_from_bpm(bpm: pd.Series, cfg: HBConfig) -> pd.Series:
 
 def map_vol_to_bpm(vol: pd.Series, cfg: HBConfig) -> pd.Series:
     """
-    Linearly map vol into [base_bpm, max_bpm] with clipping.
+    Map vol into [base_bpm, max_bpm] using a blend of static and adaptive
+    rolling quantile bands to improve robustness across universes/regimes.
     """
-    v = vol.clip(lower=cfg.vol_lo, upper=cfg.vol_hi)
-    t = (v - cfg.vol_lo) / max(cfg.vol_hi - cfg.vol_lo, 1e-12)
+    v = pd.Series(pd.to_numeric(vol, errors="coerce")).replace([np.inf, -np.inf], np.nan)
+    v = v.ffill().bfill().fillna(cfg.vol_lo).clip(lower=0.0)
+    t_static = ((v.clip(lower=cfg.vol_lo, upper=cfg.vol_hi) - cfg.vol_lo) / max(cfg.vol_hi - cfg.vol_lo, 1e-12)).clip(0.0, 1.0)
+
+    aw = int(max(20, cfg.adaptive_win))
+    lo = v.rolling(aw, min_periods=max(20, aw // 6)).quantile(float(np.clip(cfg.adaptive_q_lo, 0.01, 0.60)))
+    hi = v.rolling(aw, min_periods=max(20, aw // 6)).quantile(float(np.clip(cfg.adaptive_q_hi, 0.40, 0.99)))
+    lo = lo.fillna(cfg.vol_lo)
+    hi = hi.fillna(cfg.vol_hi)
+    span = (hi - lo).clip(lower=max(1e-6, 0.1 * (cfg.vol_hi - cfg.vol_lo)))
+    t_adapt = ((v - lo) / span).clip(0.0, 1.0)
+
+    stress_w = _robust_percentile_rank(v, win=cfg.percentile_win).fillna(0.5).clip(0.0, 1.0)
+    base_blend = float(np.clip(cfg.adaptive_blend, 0.0, 1.0))
+    blend = (base_blend + 0.15 * (stress_w - 0.5)).clip(0.25, 0.90)
+    t = (1.0 - blend) * t_static + blend * t_adapt
+
     bpm = cfg.base_bpm + (cfg.max_bpm - cfg.base_bpm) * t
+    # Damp sudden bpm jumps to reduce allocator whipsaw in transition zones.
+    accel = bpm.diff().abs().fillna(0.0)
+    accel_rank = _robust_percentile_rank(accel, win=cfg.percentile_win).fillna(0.5).clip(0.0, 1.0)
+    bpm = cfg.base_bpm + (bpm - cfg.base_bpm) * (1.0 - 0.22 * accel_rank)
     bpm = bpm.ewm(span=max(2, int(cfg.smooth_span)), adjust=False).mean()
     return bpm.rename("heartbeat_bpm")
 
