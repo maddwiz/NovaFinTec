@@ -35,7 +35,7 @@ def append_card(title, html):
 def dynamic_quality_multipliers(index_dates, hives):
     """
     Build DATE x HIVE multipliers from hive_wf_oos_returns.csv rolling quality.
-    Returns DataFrame indexed by DATE with hive columns, values in [0.70, 1.40].
+    Returns DataFrame indexed by DATE with hive columns, values in [0.60, 1.45].
     """
     p = RUNS / "hive_wf_oos_returns.csv"
     idx = pd.DatetimeIndex(index_dates)
@@ -66,8 +66,34 @@ def dynamic_quality_multipliers(index_dates, hives):
         mu = s.rolling(63, min_periods=15).mean()
         sd = s.rolling(63, min_periods=15).std(ddof=1).replace(0.0, np.nan)
         sh = (mu / (sd + 1e-12)).replace([np.inf, -np.inf], np.nan).fillna(0.0)
-        mult = np.clip(1.0 + 0.25 * np.tanh(sh / 1.5), 0.70, 1.40)
+        q_sh = np.clip(0.5 + 0.5 * np.tanh(sh / 1.8), 0.0, 1.0)
+
+        hit = (s > 0.0).astype(float).rolling(63, min_periods=15).mean().fillna(0.5)
+        q_hit = np.clip((hit - 0.42) / 0.20, 0.0, 1.0)
+
+        eq = (1.0 + np.clip(s, -0.95, 0.95)).cumprod()
+        peak = np.maximum(eq.cummax(), 1e-12)
+        dd = (eq / peak - 1.0).clip(-1.0, 0.0)
+        q_dd = np.clip(1.0 - np.abs(dd) / 0.22, 0.0, 1.0)
+
+        vol = s.rolling(21, min_periods=7).std(ddof=1).fillna(0.0)
+        vbase = float(np.nanmedian(vol.values)) if np.isfinite(np.nanmedian(vol.values)) else 0.0
+        q_vol = np.clip(1.0 - vol / (3.0 * max(vbase, 1e-6)), 0.0, 1.0)
+
+        q = 0.45 * q_sh + 0.25 * q_hit + 0.20 * q_dd + 0.10 * q_vol
+        q = np.clip(q, 0.0, 1.0)
+        mult = np.clip(0.60 + 0.85 * q, 0.60, 1.45)
         out[hname] = mult.reindex(idx).ffill().fillna(1.0).values
+
+    # Optional shock dampener: in high-shock windows, compress multipliers toward 1.0.
+    smp = RUNS / "shock_mask.csv"
+    if smp.exists():
+        sm = _load_series(smp)
+        if sm is not None and len(sm):
+            L = min(len(out), len(sm))
+            damp = np.clip(1.0 - 0.12 * np.clip(sm[:L], 0.0, 1.0), 0.88, 1.0)
+            out.iloc[:L, :] = out.iloc[:L, :].values * damp.reshape(-1, 1)
+            out.iloc[:L, :] = np.clip(out.iloc[:L, :].values, 0.60, 1.45)
     return out
 
 
@@ -240,12 +266,17 @@ if __name__ == "__main__":
     # Optional dynamic quality multipliers from per-hive OOS streams.
     dyn_mult = dynamic_quality_multipliers(pivot_sig.index, pivot_sig.columns.tolist())
     dyn_means = {}
+    dyn_table = None
     if len(dyn_mult):
+        dyn_table = dyn_mult.copy()
         for hive in list(scores.keys()):
             if hive in dyn_mult.columns:
                 mvec = np.asarray(dyn_mult[hive].values, float)
                 scores[hive] = scores[hive] * np.nan_to_num(mvec, nan=1.0, posinf=1.0, neginf=1.0)
                 dyn_means[hive] = float(np.mean(mvec))
+    if dyn_table is not None and len(dyn_table):
+        dyn_out = dyn_table.reset_index().rename(columns={"index": "DATE"})
+        dyn_out.to_csv(RUNS / "hive_dynamic_quality.csv", index=False)
 
     alpha = float(np.clip(float(os.getenv("CROSS_HIVE_ALPHA", "2.2")), 0.2, 10.0))
     inertia = float(np.clip(float(os.getenv("CROSS_HIVE_INERTIA", "0.80")), 0.0, 0.98))
@@ -292,6 +323,7 @@ if __name__ == "__main__":
         "mean_turnover": turn,
         "quality_priors": {k: float(v) for k, v in priors.items()},
         "dynamic_quality_multiplier_mean": dyn_means,
+        "dynamic_quality_file": str(RUNS / "hive_dynamic_quality.csv") if dyn_table is not None else None,
         "novaspine_hive_boosts": {k: float(v) for k, v in ns_mult.items()},
         "date_min": str(out["DATE"].min().date()) if len(out) else None,
         "date_max": str(out["DATE"].max().date()) if len(out) else None,

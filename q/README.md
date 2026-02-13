@@ -96,6 +96,7 @@ export Q_MIN_DREAM_COHERENCE=0.45
 - `runs_plus/dream_coherence_governor.csv`
 - `runs_plus/dream_coherence_info.json`
 - `runs_plus/hive_transparency.json`
+- `runs_plus/hive_dynamic_quality.csv`
 - `runs_plus/final_governor_trace.csv`
 - `runs_plus/execution_constraints_info.json`
 - `runs_plus/novaspine_sync_status.json`
