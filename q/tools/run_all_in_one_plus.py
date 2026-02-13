@@ -113,6 +113,8 @@ if __name__ == "__main__":
     run_script("tools/tune_legacy_knobs.py")
     # Assemble final portfolio weights from available layers
     run_script("tools/build_final_portfolio.py")
+    # Emit a health snapshot for unattended operation
+    run_script("tools/run_system_health.py")
 
     # ---------- REPORT ----------
     # Many scripts already append cards; try to open the best report file.
