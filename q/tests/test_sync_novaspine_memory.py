@@ -35,6 +35,7 @@ def test_build_events_includes_governance_audit_events(tmp_path, monkeypatch):
     _write_json(tmp_path / "novaspine_context.json", {"status": "ok", "context_resonance": 0.6, "context_boost": 1.03})
     _write_json(tmp_path / "novaspine_hive_feedback.json", {"status": "ok", "global_boost": 1.02, "per_hive": {"EQ": {"boost": 1.04}}})
     _write_json(tmp_path / "hive_transparency.json", {"summary": {"hive_count": 2}})
+    _write_json(tmp_path / "portfolio_drift_watch.json", {"drift": {"status": "ok", "latest_l1": 0.4, "mean_l1": 0.2, "p95_l1": 0.35}})
     np.savetxt(tmp_path / "final_governor_trace.csv", np.array([[1.0, 0.9], [1.0, 0.85]], float), delimiter=",")
 
     np.savetxt(tmp_path / "portfolio_weights_final.csv", np.array([[0.1, -0.1], [0.2, -0.2]], float), delimiter=",")
@@ -49,6 +50,9 @@ def test_build_events_includes_governance_audit_events(tmp_path, monkeypatch):
     rc = [e for e in events if e.get("event_type") == "governance.risk_controls"][0]
     rts = rc.get("payload", {}).get("runtime_total_scalar", {})
     assert float(rts.get("latest")) > 0.0
+    pdw = rc.get("payload", {}).get("portfolio_drift_watch", {})
+    assert pdw.get("status") == "ok"
+    assert float(pdw.get("latest_l1")) > 0.0
     trusts = [float(e.get("trust", 0.0)) for e in events]
     assert all(0.0 <= t <= 1.0 for t in trusts)
 

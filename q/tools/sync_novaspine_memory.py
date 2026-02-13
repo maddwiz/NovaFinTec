@@ -127,6 +127,7 @@ def build_events():
     nctx = _load_json(RUNS / "novaspine_context.json") or {}
     nhive = _load_json(RUNS / "novaspine_hive_feedback.json") or {}
     htx = _load_json(RUNS / "hive_transparency.json") or {}
+    drift_watch = _load_json(RUNS / "portfolio_drift_watch.json") or {}
     gov_trace = _load_series(RUNS / "final_governor_trace.csv")
 
     W = _load_matrix(RUNS / "portfolio_weights_final.csv")
@@ -253,6 +254,12 @@ def build_events():
                     "mean": float(np.mean(gov_trace)) if gov_trace is not None and len(gov_trace) else None,
                     "min": float(np.min(gov_trace)) if gov_trace is not None and len(gov_trace) else None,
                     "max": float(np.max(gov_trace)) if gov_trace is not None and len(gov_trace) else None,
+                },
+                "portfolio_drift_watch": {
+                    "status": str((drift_watch.get("drift", {}) if isinstance(drift_watch, dict) else {}).get("status", "na")),
+                    "latest_l1": _safe_float((drift_watch.get("drift", {}) if isinstance(drift_watch, dict) else {}).get("latest_l1", 0.0)),
+                    "mean_l1": _safe_float((drift_watch.get("drift", {}) if isinstance(drift_watch, dict) else {}).get("mean_l1", 0.0)),
+                    "p95_l1": _safe_float((drift_watch.get("drift", {}) if isinstance(drift_watch, dict) else {}).get("p95_l1", 0.0)),
                 },
             },
             "trust": float(
