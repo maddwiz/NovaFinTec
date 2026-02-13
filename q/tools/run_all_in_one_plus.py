@@ -196,6 +196,9 @@ if __name__ == "__main__":
     # Legacy smooth scaler from DNA/heartbeat/symbolic/reflexive layers
     ok, rc = run_script("tools/tune_legacy_knobs.py")
     if not ok and rc is not None: failures.append({"step": "tools/tune_legacy_knobs.py", "code": rc})
+    # Pull recall context from NovaSpine and convert to a safe scalar boost.
+    ok, rc = run_script("tools/run_novaspine_context.py")
+    if not ok and rc is not None: failures.append({"step": "tools/run_novaspine_context.py", "code": rc})
     # Quality governor from nested/hive/council/system diagnostics
     ok, rc = run_script("tools/run_quality_governor.py")
     if not ok and rc is not None: failures.append({"step": "tools/run_quality_governor.py", "code": rc})
@@ -205,6 +208,9 @@ if __name__ == "__main__":
     # Apply execution constraints for live realism
     ok, rc = run_script("tools/run_execution_constraints.py", ["--replace-final"])
     if not ok and rc is not None: failures.append({"step": "tools/run_execution_constraints.py", "code": rc})
+    # Immune drill: synthetic stress test of final constrained weights.
+    ok, rc = run_script("tools/run_immune_drill.py")
+    if not ok and rc is not None: failures.append({"step": "tools/run_immune_drill.py", "code": rc})
     # Emit a health snapshot for unattended operation
     ok, rc = run_script("tools/run_system_health.py")
     if not ok and rc is not None: failures.append({"step": "tools/run_system_health.py", "code": rc})
@@ -217,6 +223,9 @@ if __name__ == "__main__":
         export_args.extend(["--mirror-json", mirror_json])
     ok, rc = run_script("tools/export_aion_signal_pack.py", export_args)
     if not ok and rc is not None: failures.append({"step": "tools/export_aion_signal_pack.py", "code": rc})
+    # Replay queued NovaSpine batches before writing the new one.
+    ok, rc = run_script("tools/replay_novaspine_outbox.py")
+    if not ok and rc is not None: failures.append({"step": "tools/replay_novaspine_outbox.py", "code": rc})
     # Optional cold/meta memory sync bridge (NovaSpine).
     ok, rc = run_script("tools/sync_novaspine_memory.py")
     if not ok and rc is not None: failures.append({"step": "tools/sync_novaspine_memory.py", "code": rc})

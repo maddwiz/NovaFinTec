@@ -95,6 +95,10 @@ if __name__ == "__main__":
         RUNS / "q_signal_overlay.csv",
         RUNS / "novaspine_sync_status.json",
         RUNS / "novaspine_last_batch.json",
+        RUNS / "novaspine_context.json",
+        RUNS / "novaspine_context_boost.csv",
+        RUNS / "novaspine_replay_status.json",
+        RUNS / "immune_drill.json",
     ]
 
     checks = []
@@ -122,6 +126,7 @@ if __name__ == "__main__":
     gov = _load_series(RUNS / "global_governor.csv")
     hive_gov = _load_series(RUNS / "hive_diversification_governor.csv")
     quality_gov = _load_series(RUNS / "quality_governor.csv")
+    nsp_ctx_boost = _load_series(RUNS / "novaspine_context_boost.csv")
 
     shape = {}
     if w is not None:
@@ -139,6 +144,9 @@ if __name__ == "__main__":
     if quality_gov is not None:
         shape["quality_governor_rows"] = int(len(quality_gov))
         shape["quality_governor_mean"] = float(np.mean(quality_gov))
+    if nsp_ctx_boost is not None:
+        shape["novaspine_context_boost_rows"] = int(len(nsp_ctx_boost))
+        shape["novaspine_context_boost_mean"] = float(np.mean(nsp_ctx_boost))
 
     # Alignment diagnostics
     issues = []

@@ -34,6 +34,7 @@ if __name__ == "__main__":
     min_global = float(os.getenv("Q_MIN_GLOBAL_GOV_MEAN", "0.45"))
     min_quality_gov = float(os.getenv("Q_MIN_QUALITY_GOV_MEAN", "0.60"))
     min_quality_score = float(os.getenv("Q_MIN_QUALITY_SCORE", "0.45"))
+    require_immune_pass = str(os.getenv("Q_REQUIRE_IMMUNE_PASS", "0")).strip().lower() in {"1", "true", "yes", "on"}
     max_issues = int(os.getenv("Q_MAX_HEALTH_ISSUES", "2"))
     min_nested_sharpe = float(os.getenv("Q_MIN_NESTED_SHARPE", "0.20"))
     min_nested_assets = int(os.getenv("Q_MIN_NESTED_ASSETS", "3"))
@@ -42,6 +43,7 @@ if __name__ == "__main__":
     guards = _load_json(RUNS / "guardrails_summary.json") or {}
     nested = _load_json(RUNS / "nested_wf_summary.json") or {}
     quality = _load_json(RUNS / "quality_snapshot.json") or {}
+    immune = _load_json(RUNS / "immune_drill.json") or {}
     pipeline = _load_json(RUNS / "pipeline_status.json") or {}
     issues = []
 
@@ -90,6 +92,14 @@ if __name__ == "__main__":
     if q_score is not None and q_score < min_quality_score:
         issues.append(f"quality_score<{min_quality_score} ({q_score:.3f})")
 
+    immune_ok = bool(immune.get("ok", False)) if isinstance(immune, dict) else False
+    immune_pass = bool(immune.get("pass", False)) if isinstance(immune, dict) else False
+    if require_immune_pass:
+        if not immune_ok:
+            issues.append("immune_drill_missing_or_invalid")
+        elif not immune_pass:
+            issues.append("immune_drill_failed")
+
     failed_steps = int(pipeline.get("failed_count", 0)) if isinstance(pipeline, dict) else 0
     if failed_steps > 0:
         issues.append(f"pipeline_failed_steps={failed_steps}")
@@ -102,6 +112,7 @@ if __name__ == "__main__":
             "min_global_governor_mean": min_global,
             "min_quality_governor_mean": min_quality_gov,
             "min_quality_score": min_quality_score,
+            "require_immune_pass": require_immune_pass,
             "min_nested_sharpe": min_nested_sharpe,
             "min_nested_assets": min_nested_assets,
         },
@@ -111,6 +122,8 @@ if __name__ == "__main__":
             "global_governor_mean": gmean,
             "quality_governor_mean": q_mean,
             "quality_score": q_score,
+            "immune_ok": immune_ok,
+            "immune_pass": immune_pass,
             "nested_assets": n_assets,
             "nested_avg_oos_sharpe": n_sh,
             "pipeline_failed_steps": failed_steps,

@@ -99,6 +99,7 @@ if __name__ == "__main__":
     meta = _load_json(RUNS / "meta_stack_summary.json") or {}
     syn = _load_json(RUNS / "synapses_summary.json") or {}
     mix = _load_json(RUNS / "meta_mix_info.json") or {}
+    nctx = _load_json(RUNS / "novaspine_context.json") or {}
 
     hive_sh = None
     hive_hit = None
@@ -164,14 +165,22 @@ if __name__ == "__main__":
         }
     )
     health_q = float(np.clip(float(health.get("health_score", 50.0)) / 100.0, 0.0, 1.0))
+    nctx_q = None
+    if isinstance(nctx, dict):
+        try:
+            if str(nctx.get("status", "")).lower() == "ok":
+                nctx_q = float(np.clip(float(nctx.get("context_resonance", 0.5)), 0.0, 1.0))
+        except Exception:
+            nctx_q = None
 
     # Blend across subsystems, using whatever is available.
     quality, quality_detail = blend_quality(
         {
-            "nested_wf": (nested_q, 0.34),
-            "hive_wf": (hive_q, 0.25),
-            "council": (council_q, 0.26),
-            "system_health": (health_q, 0.15),
+            "nested_wf": (nested_q, 0.30),
+            "hive_wf": (hive_q, 0.23),
+            "council": (council_q, 0.22),
+            "system_health": (health_q, 0.13),
+            "novaspine_context": (nctx_q, 0.12),
         }
     )
 
@@ -204,6 +213,7 @@ if __name__ == "__main__":
             "hive_wf": {"score": float(hive_q), "detail": hive_detail},
             "council": {"score": float(council_q), "detail": council_detail},
             "system_health": {"score": float(health_q)},
+            "novaspine_context": {"score": float(nctx_q) if nctx_q is not None else None},
         },
         "blend_detail": quality_detail,
         "sources": {
@@ -213,6 +223,7 @@ if __name__ == "__main__":
             "synapses_summary": (RUNS / "synapses_summary.json").exists(),
             "meta_mix_info": (RUNS / "meta_mix_info.json").exists(),
             "system_health": (RUNS / "system_health.json").exists(),
+            "novaspine_context": (RUNS / "novaspine_context.json").exists(),
         },
     }
     (RUNS / "quality_snapshot.json").write_text(json.dumps(snapshot, indent=2))

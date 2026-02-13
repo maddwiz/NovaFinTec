@@ -2,7 +2,7 @@
 # Final portfolio assembler:
 # Picks best base weights then applies (if available):
 #   cluster caps → adaptive caps → drawdown scaler → turnover governor
-#   → council gate → council/meta leverage → heartbeat/legacy/hive/global/quality governors
+#   → council gate → council/meta leverage → heartbeat/legacy/hive/global/quality/novaspine governors
 # Outputs:
 #   runs_plus/portfolio_weights_final.csv
 # Appends a card to report_*.
@@ -175,16 +175,24 @@ if __name__ == "__main__":
         W[:L] = W[:L] * qs
         steps.append("quality_governor")
 
-    # 13) Save final
+    # 13) NovaSpine recall-context boost (if available).
+    ncb = load_series("runs_plus/novaspine_context_boost.csv")
+    if ncb is not None:
+        L = min(len(ncb), W.shape[0])
+        nb = np.clip(ncb[:L], 0.85, 1.15).reshape(-1, 1)
+        W[:L] = W[:L] * nb
+        steps.append("novaspine_context_boost")
+
+    # 14) Save final
     outp = RUNS/"portfolio_weights_final.csv"
     np.savetxt(outp, W, delimiter=",")
 
-    # 14) Small JSON breadcrumb
+    # 15) Small JSON breadcrumb
     (RUNS/"final_portfolio_info.json").write_text(
         json.dumps({"steps": steps, "T": int(T), "N": int(N)}, indent=2)
     )
 
-    # 15) Report card
+    # 16) Report card
     html = f"<p>Built <b>portfolio_weights_final.csv</b> (T={T}, N={N}). Steps: {', '.join(steps)}.</p>"
     append_card("Final Portfolio ✔", html)
 

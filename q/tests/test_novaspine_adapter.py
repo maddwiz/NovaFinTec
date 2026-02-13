@@ -107,3 +107,15 @@ def test_publish_novaspine_api_unreachable_falls_back_to_outbox(tmp_path: Path, 
     assert res.outbox_file is not None
     assert Path(res.outbox_file).exists()
     assert str(res.error or "").startswith("unreachable:")
+
+
+def test_event_namespace_preserved_in_novaspine_payload():
+    ev = {
+        "event_type": "governance.health_gate",
+        "namespace": "private/c3/governance",
+        "payload": {"ok": True},
+        "trust": 0.9,
+    }
+    payload = na._event_to_novaspine_ingest(ev, namespace="private/nova/actions")
+    assert payload["metadata"]["namespace"] == "private/c3/governance"
+    assert payload["source_id"].startswith("novafintec:")

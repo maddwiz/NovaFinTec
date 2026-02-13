@@ -77,19 +77,20 @@ def _base_url(x: str | None, default: str) -> str:
 
 def _event_to_novaspine_ingest(
     ev: dict,
-    namespace: str,
+    namespace: str | None = None,
     source_prefix: str = "novafintec",
 ) -> dict:
     event_type = str(ev.get("event_type", "event"))
     trust = ev.get("trust", None)
     payload = ev.get("payload", {})
+    ns = str(ev.get("namespace") or namespace or "private/nova/actions")
     compact = json.dumps(payload, separators=(",", ":"), ensure_ascii=True)
     text = f"[{event_type}] trust={trust if trust is not None else 'na'} payload={compact}"
     # Guard overly large content; NovaSpine already chunks, but keep ingestion snappy.
     text = text[:16000]
     source_id = f"{source_prefix}:{event_type}"
     meta = {
-        "namespace": namespace,
+        "namespace": ns,
         "event_type": event_type,
         "trust": trust,
         "ts_utc": ev.get("ts_utc", _utc_now_iso()),
@@ -156,7 +157,11 @@ def publish_events(
         fail = 0
         last_err = None
         for ev in normalized:
-            payload = _event_to_novaspine_ingest(ev, namespace=namespace, source_prefix=novaspine_source_prefix)
+            payload = _event_to_novaspine_ingest(
+                ev,
+                namespace=str(ev.get("namespace") or namespace),
+                source_prefix=novaspine_source_prefix,
+            )
             try:
                 code, _ = _json_request(ingest_url, method="POST", payload=payload, token=tok, timeout_sec=timeout_sec)
                 if 200 <= code < 300:

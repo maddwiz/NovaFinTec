@@ -103,6 +103,7 @@ def build_events():
     cross = _load_json(RUNS / "cross_hive_summary.json") or {}
     eco = _load_json(RUNS / "hive_evolution.json") or {}
     constraints = _load_json(RUNS / "execution_constraints_info.json") or {}
+    immune = _load_json(RUNS / "immune_drill.json") or {}
 
     W = _load_matrix(RUNS / "portfolio_weights_final.csv")
     weights_info = {}
@@ -143,6 +144,7 @@ def build_events():
     events = [
         {
             "event_type": "decision.signal_export",
+            "namespace": "private/c3/decisions",
             "ts_utc": ts,
             "payload": {
                 "signals_count": signal_rows,
@@ -155,6 +157,7 @@ def build_events():
         },
         {
             "event_type": "governance.health_gate",
+            "namespace": "private/c3/governance",
             "ts_utc": ts,
             "payload": {
                 "health_score": float(health.get("health_score", 0.0)),
@@ -167,6 +170,7 @@ def build_events():
         },
         {
             "event_type": "ecosystem.hive_state",
+            "namespace": "private/nova/actions",
             "ts_utc": ts,
             "payload": {
                 "hives": list(cross.get("hives", []) or []),
@@ -179,6 +183,7 @@ def build_events():
         },
         {
             "event_type": "portfolio.runtime_state",
+            "namespace": "private/nova/actions",
             "ts_utc": ts,
             "payload": {
                 "weights": weights_info,
@@ -187,6 +192,16 @@ def build_events():
             "trust": 0.8,
         },
     ]
+    if isinstance(immune, dict) and immune:
+        events.append(
+            {
+                "event_type": "governance.immune_drill",
+                "namespace": "private/c3/governance",
+                "ts_utc": ts,
+                "payload": immune,
+                "trust": 0.9 if bool(immune.get("pass", False)) else 0.3,
+            }
+        )
     return events
 
 
@@ -201,6 +216,10 @@ if __name__ == "__main__":
     novaspine_token = str(os.getenv("C3AE_API_TOKEN", "")).strip() or http_token
 
     events = build_events()
+    ns_counts = {}
+    for ev in events:
+        ns = str(ev.get("namespace", "private/nova/actions"))
+        ns_counts[ns] = int(ns_counts.get(ns, 0) + 1)
     # Always materialize local batch artifacts for auditability.
     jsonl_path = RUNS / "novaspine_events.jsonl"
     with jsonl_path.open("w", encoding="utf-8") as f:
@@ -213,6 +232,7 @@ if __name__ == "__main__":
         "namespace": namespace,
         "novaspine_url": novaspine_url,
         "events_count": int(len(events)),
+        "namespaces": ns_counts,
         "events": events,
     }
     (RUNS / "novaspine_last_batch.json").write_text(json.dumps(batch, indent=2))
@@ -240,6 +260,7 @@ if __name__ == "__main__":
             "outbox_file": res.outbox_file,
             "error": res.error,
             "events_count": int(len(events)),
+            "namespaces": ns_counts,
         }
     else:
         sync = {
@@ -254,6 +275,7 @@ if __name__ == "__main__":
             "outbox_file": None,
             "error": "disabled",
             "events_count": int(len(events)),
+            "namespaces": ns_counts,
         }
 
     (RUNS / "novaspine_sync_status.json").write_text(json.dumps(sync, indent=2))

@@ -61,6 +61,8 @@ This now includes:
 - hive build + hive walk-forward diagnostics
 - guardrails, governors, councils, meta/synapses, cross-hive, ecosystem
 - reliability-aware quality governor (nested WF + hive WF + council diagnostics)
+- NovaSpine recall feedback loop (augment -> context boost -> final risk scaling)
+- immune drill governance check (synthetic stress scenarios)
 - final portfolio assembly + system health + alert gate
 - optional NovaSpine bridge (cold/meta memory sync, async-safe)
 
@@ -79,6 +81,10 @@ If your default Python is missing deps, set `Q_PYTHON=/absolute/path/to/venv/bin
 - `runs_plus/execution_constraints_info.json`
 - `runs_plus/novaspine_sync_status.json`
 - `runs_plus/novaspine_last_batch.json`
+- `runs_plus/novaspine_context.json`
+- `runs_plus/novaspine_context_boost.csv`
+- `runs_plus/immune_drill.json`
+- `runs_plus/novaspine_replay_status.json`
 
 ### Tests
 ```bash
@@ -108,6 +114,13 @@ export C3_MEMORY_BACKEND=novaspine_api
 export C3_MEMORY_NOVASPINE_URL=http://127.0.0.1:8420
 # if NovaSpine auth is enabled:
 # export C3AE_API_TOKEN=your_token
+# recall feedback loop controls:
+# export C3_MEMORY_RECALL_ENABLE=1
+# export C3_MEMORY_RECALL_TOPK=6
+# export C3_MEMORY_RECALL_MIN_SCORE=0.005
+# export C3_MEMORY_RECALL_INCLUDE_ALERTS=0
+# immune drill alert gate:
+# export Q_REQUIRE_IMMUNE_PASS=1
 # optional:
 # export C3_MEMORY_NAMESPACE=private/nova/actions
 # export C3_MEMORY_DIR=/absolute/path/to/outbox
@@ -117,3 +130,7 @@ export C3_MEMORY_NOVASPINE_URL=http://127.0.0.1:8420
 python tools/sync_novaspine_memory.py
 ```
 The all-in-one pipeline also runs this bridge automatically.
+It also replays queued outbox batches with:
+```bash
+python tools/replay_novaspine_outbox.py
+```
