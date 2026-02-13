@@ -152,6 +152,13 @@ if __name__ == "__main__":
     # Apply execution constraints for live realism
     ok, rc = run_script("tools/run_execution_constraints.py", ["--replace-final"])
     if not ok and rc is not None: failures.append({"step": "tools/run_execution_constraints.py", "code": rc})
+    # Export Q overlay pack for AION consumption (safe degraded mode if needed)
+    export_args = []
+    mirror_json = str(os.getenv("Q_EXPORT_MIRROR_JSON", "")).strip()
+    if mirror_json:
+        export_args.extend(["--mirror-json", mirror_json])
+    ok, rc = run_script("tools/export_aion_signal_pack.py", export_args)
+    if not ok and rc is not None: failures.append({"step": "tools/export_aion_signal_pack.py", "code": rc})
     # Emit a health snapshot for unattended operation
     ok, rc = run_script("tools/run_system_health.py")
     if not ok and rc is not None: failures.append({"step": "tools/run_system_health.py", "code": rc})

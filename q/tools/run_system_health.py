@@ -90,6 +90,8 @@ if __name__ == "__main__":
         RUNS / "tune_best_config.json",
         RUNS / "portfolio_weights_exec.csv",
         RUNS / "execution_constraints_info.json",
+        RUNS / "q_signal_overlay.json",
+        RUNS / "q_signal_overlay.csv",
     ]
 
     checks = []
