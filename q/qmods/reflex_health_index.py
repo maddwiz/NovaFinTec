@@ -8,8 +8,13 @@ def reflex_health(latent_returns: np.ndarray, lookback=126):
         j = max(0, i - lookback + 1)
         w = r[j:i+1]
         mu = np.nanmean(w)
-        sd = np.nanstd(w) + 1e-12
-        out[i] = max(0.0, (mu / sd) * np.sqrt(252.0))
+        sd = np.nanstd(w)
+        if not np.isfinite(sd) or sd < 1e-6:
+            out[i] = 0.0
+            continue
+        raw = (mu / (sd + 1e-12)) * np.sqrt(252.0)
+        # Clamp to avoid exploding values when window std is tiny.
+        out[i] = float(np.clip(raw, 0.0, 5.0))
     return out
 
 def gate_reflex(reflex_signal: np.ndarray, health: np.ndarray, min_h=0.5):

@@ -133,6 +133,32 @@ def smooth_ema(x, beta=0.2):
         out[i] = (1-beta)*(out[i-1] if i>0 else v) + beta*v
     return out
 
+def align_tail_series(a, T, fill=0.0):
+    if a is None:
+        return None
+    x = np.asarray(a, float).ravel()
+    x = np.nan_to_num(x, nan=fill, posinf=fill, neginf=fill)
+    if len(x) >= T:
+        return x[-T:]
+    if len(x) == 0:
+        return np.full(T, fill, float)
+    out = np.full(T, x[0], float)
+    out[-len(x):] = x
+    return out
+
+def align_tail_matrix(a, T):
+    if a is None:
+        return None
+    x = np.asarray(a, float)
+    if x.ndim == 1:
+        x = x.reshape(-1, 1)
+    x = np.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
+    if x.shape[0] >= T:
+        return x[-T:]
+    out = np.zeros((T, x.shape[1]), float)
+    out[-x.shape[0]:] = x
+    return out
+
 # ---------- main ----------
 if __name__ == "__main__":
     drift = load_series("runs_plus/dna_drift.csv")
@@ -150,28 +176,31 @@ if __name__ == "__main__":
     ])
     A     = build_asset_returns()
 
-    # Align length
-    lens = [arr.shape[0] if hasattr(arr,"shape") else (len(arr) if arr is not None else None)
-            for arr in [drift,bpm,sym,refx,y,Wbase,A]]
-    lens = [L for L in lens if L is not None]
-    if not lens or Wbase is None:
+    if Wbase is None:
         print("(!) Need base weights/returns first."); raise SystemExit(0)
-    T = min(lens)
-    def trim(o):
-        if o is None: return None
-        if hasattr(o,"shape"): return o[:T] if o.shape[0]>=T else o
-        return o[:T] if len(o)>=T else o
-    drift,bpm,sym,refx,y,Wbase,A = [trim(x) for x in [drift,bpm,sym,refx,y,Wbase,A]]
+
+    # Align to base horizon; short legacy signals are tail-aligned and padded.
+    lens = [Wbase.shape[0]]
+    if y is not None: lens.append(len(y))
+    if A is not None: lens.append(A.shape[0])
+    T = int(min(lens))
+    Wbase = align_tail_matrix(Wbase, T)
+    y = align_tail_series(y, T) if y is not None else None
+    A = align_tail_matrix(A, T) if A is not None else None
+    drift = align_tail_series(drift, T) if drift is not None else None
+    bpm = align_tail_series(bpm, T) if bpm is not None else None
+    sym = align_tail_series(sym, T) if sym is not None else None
+    refx = align_tail_series(refx, T) if refx is not None else None
 
     # components
     comps = []; names=[]
-    if drift is not None and np.isfinite(drift).any():
+    if drift is not None and np.isfinite(drift).any() and np.nanstd(drift) > 1e-9:
         comps.append(-z(drift)); names.append("dna")
-    if bpm is not None and np.isfinite(bpm).any():
+    if bpm is not None and np.isfinite(bpm).any() and np.nanstd(bpm) > 1e-9:
         comps.append(-z(bpm));   names.append("bpm")
-    if sym is not None and np.isfinite(sym).any():
+    if sym is not None and np.isfinite(sym).any() and np.nanstd(sym) > 1e-9:
         comps.append(z(sym));    names.append("sym")
-    if refx is not None and np.isfinite(refx).any():
+    if refx is not None and np.isfinite(refx).any() and np.nanstd(refx) > 1e-9:
         comps.append(z(refx));   names.append("reflex")
 
     if not comps:

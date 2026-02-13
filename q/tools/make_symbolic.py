@@ -16,6 +16,17 @@ from qmods.symbolic import run_symbolic
 
 if __name__ == "__main__":
     ev, sig, info = run_symbolic()
+    latent = {}
+    lat_p = ROOT / "runs_plus" / "symbolic_latent.csv"
+    if lat_p.exists():
+        try:
+            ldf = pd.read_csv(lat_p)
+            if "symbolic_latent" in ldf.columns and len(ldf):
+                latent["symbolic_latent"] = float(ldf["symbolic_latent"].iloc[-1])
+            if "symbolic_confidence" in ldf.columns and len(ldf):
+                latent["symbolic_confidence"] = float(ldf["symbolic_confidence"].iloc[-1])
+        except Exception:
+            latent = {}
     latest = {}
     latest_conf = {}
     if not sig.empty and {"ASSET", "DATE", "sym_signal"}.issubset(sig.columns):
@@ -42,11 +53,12 @@ if __name__ == "__main__":
                     "url": "",
                 }
             )
-    payload = {"symbolic": latest, "confidence": latest_conf, "headlines": heads}
+    payload = {"symbolic": latest, "confidence": latest_conf, "headlines": heads, "latent": latent}
     (ROOT / "runs_plus" / "symbolic.json").write_text(json.dumps(payload, indent=2))
 
     print("✅ Wrote runs_plus/symbolic_events.csv")
     print("✅ Wrote runs_plus/symbolic_signal.csv")
+    print("✅ Wrote runs_plus/symbolic_latent.csv")
     print("✅ Wrote runs_plus/symbolic_summary.json")
     print("✅ Wrote runs_plus/symbolic.json")
     print("Top words:", list((info.get("top_words") or {}).keys())[:10])

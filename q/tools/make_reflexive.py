@@ -5,6 +5,7 @@
 from pathlib import Path
 import json
 import sys
+import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -14,6 +15,15 @@ from qmods.reflexive import run_reflexive
 
 if __name__ == "__main__":
     ev, sig, info = run_reflexive()
+    latent = {}
+    lat_p = ROOT / "runs_plus" / "reflex_latent.csv"
+    if lat_p.exists():
+        try:
+            ldf = pd.read_csv(lat_p)
+            if "reflex_latent" in ldf.columns and len(ldf):
+                latent["reflex_latent"] = float(ldf["reflex_latent"].iloc[-1])
+        except Exception:
+            latent = {}
     weights = {}
     conf = {}
     if not sig.empty and {"ASSET", "DATE", "reflex_signal"}.issubset(sig.columns):
@@ -33,10 +43,13 @@ if __name__ == "__main__":
     else:
         exposure_scaler = 1.0
 
-    payload = {"weights": weights, "confidence": conf, "exposure_scaler": exposure_scaler}
+    payload = {"weights": weights, "confidence": conf, "exposure_scaler": exposure_scaler, "latent": latent}
     (ROOT / "runs_plus" / "reflexive.json").write_text(json.dumps(payload, indent=2))
 
     print("✅ Wrote runs_plus/reflexive_events.csv")
     print("✅ Wrote runs_plus/reflexive_signal.csv")
+    print("✅ Wrote runs_plus/reflex_signal.csv")
+    print("✅ Wrote runs_plus/reflex_latent.csv")
+    print("✅ Wrote runs_plus/reflex_returns.csv")
     print("✅ Wrote runs_plus/reflexive_summary.json")
     print("✅ Wrote runs_plus/reflexive.json")

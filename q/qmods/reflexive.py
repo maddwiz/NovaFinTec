@@ -37,7 +37,6 @@ def _load_latents():
         acol = lowers.get("asset") or "ASSET"
         df[dcol] = pd.to_datetime(df[dcol], errors="coerce")
         df = df.dropna(subset=[dcol]).rename(columns={dcol:"DATE", acol:"ASSET"})
-        # numeric latent columns only
         lat_cols = [c for c in df.columns if c not in ["DATE","ASSET"]]
         lat_cols = [c for c in lat_cols if pd.api.types.is_numeric_dtype(df[c])]
         if lat_cols:
@@ -51,13 +50,72 @@ def _load_latents():
         acol = lowers.get("asset") or "ASSET"
         df[dcol] = pd.to_datetime(df[dcol], errors="coerce")
         df = df.dropna(subset=[dcol]).rename(columns={dcol:"DATE", acol:"ASSET"})
-        # try to find numeric columns to act as latents
         lat_cols = [c for c in df.columns if c not in ["DATE","ASSET","text","headline","title"]]
         lat_cols = [c for c in lat_cols if pd.api.types.is_numeric_dtype(df[c])]
         if lat_cols:
             return df[["DATE","ASSET"] + lat_cols].sort_values(["DATE","ASSET"])
-    # Nothing found
-    return pd.DataFrame(columns=["DATE","ASSET"])
+    return _load_surrogate_latents()
+
+def _load_surrogate_latents():
+    # Build reflexive latent substrate from symbolic + dna + heartbeat when dreams are unavailable.
+    symp = RUNS / "symbolic_signal.csv"
+    dnap = RUNS / "dna_drift.csv"
+    hbp = RUNS / "heartbeat_bpm.csv"
+    if symp.exists():
+        try:
+            s = pd.read_csv(symp)
+            if {"DATE", "ASSET", "sym_signal"}.issubset(s.columns):
+                s["DATE"] = pd.to_datetime(s["DATE"], errors="coerce")
+                s = s.dropna(subset=["DATE"]).sort_values(["DATE", "ASSET"]).copy()
+                s["L_sym"] = pd.to_numeric(s["sym_signal"], errors="coerce").fillna(0.0)
+                s["L_sent"] = pd.to_numeric(s.get("sym_sent", 0.0), errors="coerce").fillna(0.0)
+                s["L_affect"] = pd.to_numeric(s.get("sym_affect", 0.0), errors="coerce").fillna(0.0)
+                out = s[["DATE", "ASSET", "L_sym", "L_sent", "L_affect"]].copy()
+                if dnap.exists():
+                    d = pd.read_csv(dnap)
+                    if {"DATE", "dna_drift"}.issubset(d.columns):
+                        d["DATE"] = pd.to_datetime(d["DATE"], errors="coerce")
+                        d = d.dropna(subset=["DATE"])[["DATE", "dna_drift"]].copy()
+                        out = out.merge(d, on="DATE", how="left")
+                        out["dna_drift"] = pd.to_numeric(out["dna_drift"], errors="coerce").fillna(0.0)
+                if hbp.exists():
+                    hb = pd.read_csv(hbp)
+                    if {"DATE", "heartbeat_bpm"}.issubset(hb.columns):
+                        hb["DATE"] = pd.to_datetime(hb["DATE"], errors="coerce")
+                        hb = hb.dropna(subset=["DATE"])[["DATE", "heartbeat_bpm"]]
+                        out = out.merge(hb, on="DATE", how="left")
+                        hbv = pd.to_numeric(out["heartbeat_bpm"], errors="coerce")
+                        out["heartbeat_bpm"] = hbv.fillna(hbv.median() if hbv.notna().any() else 60.0)
+                return out.sort_values(["DATE", "ASSET"])
+        except Exception:
+            pass
+
+    # Last fallback: market-level latent from returns.
+    dr = RUNS / "daily_returns.csv"
+    if dr.exists():
+        try:
+            r = np.loadtxt(dr, delimiter=",").ravel()
+        except Exception:
+            try:
+                r = np.loadtxt(dr, delimiter=",", skiprows=1).ravel()
+            except Exception:
+                r = None
+        if r is not None and len(r) > 10:
+            idx = pd.date_range(end=pd.Timestamp.today().normalize(), periods=len(r), freq="B")
+            s = pd.Series(r, index=idx)
+            out = pd.DataFrame(
+                {
+                    "DATE": idx,
+                    "ASSET": "ALL",
+                    "L_ret": s.values,
+                    "L_mom5": s.rolling(5, min_periods=2).mean().fillna(0.0).values,
+                    "L_mom21": s.rolling(21, min_periods=5).mean().fillna(0.0).values,
+                    "L_vol": s.rolling(21, min_periods=5).std(ddof=1).fillna(0.0).values,
+                }
+            )
+            return out
+
+    return pd.DataFrame(columns=["DATE", "ASSET"])
 
 def _compress_latents_to_1d(df):
     """Row-wise mean of z-scored latents per asset/day (robust, no sklearn)."""
@@ -124,6 +182,8 @@ def run_reflexive():
         # write empty shells so the rest of the pipeline is happy
         pd.DataFrame(columns=["DATE","ASSET","reflex_raw"]).to_csv(RUNS/"reflexive_events.csv", index=False)
         pd.DataFrame(columns=["DATE","ASSET","reflex_signal","reflex_raw"]).to_csv(RUNS/"reflexive_signal.csv", index=False)
+        pd.DataFrame(columns=["DATE", "reflex_latent"]).to_csv(RUNS/"reflex_latent.csv", index=False)
+        pd.DataFrame(columns=["DATE", "reflex_returns"]).to_csv(RUNS/"reflex_returns.csv", index=False)
         info = {"rows":0,"assets":[],"date_min":None,"date_max":None}
         (RUNS/"reflexive_summary.json").write_text(json.dumps(info, indent=2))
         return lat, pd.DataFrame(), info
@@ -150,12 +210,45 @@ def run_reflexive():
         sigs.append(g[["DATE","ASSET","reflex_signal","reflex_raw","reflex_base","feedback","reflex_confidence"]])
     sig = pd.concat(sigs, ignore_index=True).sort_values(["DATE","ASSET"])
     sig.to_csv(RUNS/"reflexive_signal.csv", index=False)
+    # Compatibility alias consumed by some older scripts.
+    sig[["DATE", "ASSET", "reflex_signal"]].to_csv(RUNS/"reflex_signal.csv", index=False)
+
+    # Market-level latent for legacy tuner.
+    mk = sig.groupby("DATE", as_index=False).agg(
+        reflex_latent=("reflex_signal", "mean"),
+        reflex_confidence=("reflex_confidence", "mean"),
+    ).sort_values("DATE")
+    mk.to_csv(RUNS/"reflex_latent.csv", index=False)
+
+    # Build reflex sleeve returns if daily returns are available.
+    dailyp = RUNS / "daily_returns.csv"
+    wrote_reflex_ret = False
+    if dailyp.exists():
+        try:
+            rr = np.loadtxt(dailyp, delimiter=",").ravel()
+        except Exception:
+            try:
+                rr = np.loadtxt(dailyp, delimiter=",", skiprows=1).ravel()
+            except Exception:
+                rr = None
+        if rr is not None and len(rr) > 2:
+            L = min(len(rr), len(mk))
+            pos = mk["reflex_latent"].values[:L]
+            ret = np.asarray(rr[:L], float)
+            pnl = np.roll(pos, 1) * ret
+            pnl[0] = 0.0
+            pd.DataFrame({"DATE": mk["DATE"].iloc[:L], "reflex_returns": pnl}).to_csv(RUNS/"reflex_returns.csv", index=False)
+            wrote_reflex_ret = True
+    if not wrote_reflex_ret:
+        zr = np.zeros(len(mk), float)
+        pd.DataFrame({"DATE": mk["DATE"], "reflex_returns": zr}).to_csv(RUNS/"reflex_returns.csv", index=False)
 
     info = {
         "rows": int(len(ev)),
         "assets": sorted(list(map(str, ev["ASSET"].unique()))),
         "date_min": str(ev["DATE"].min().date()),
-        "date_max": str(ev["DATE"].max().date())
+        "date_max": str(ev["DATE"].max().date()),
+        "latent_source": "dreams_or_surrogate",
     }
     (RUNS/"reflexive_summary.json").write_text(json.dumps(info, indent=2))
     return ev, sig, info

@@ -47,9 +47,32 @@ sanction sanctions recession recessionary inflation stagflation volatility volat
 
 WORD_RE = re.compile(r"[a-zA-Z][a-zA-Z\-']+")
 UPPER_TICK_RE = re.compile(r"\b[A-Z]{1,5}(?:\.[A-Z])?\b")
+CASHTAG_RE = re.compile(r"\$([A-Z]{1,5}(?:\.[A-Z])?)\b")
 
 def _read_possible_sources():
     rows = []
+    nev = RUNS / "news_events.csv"
+    if nev.exists():
+        try:
+            df = pd.read_csv(nev)
+            rows.extend(_rows_from_df(df))
+        except Exception:
+            pass
+    njs = RUNS / "news.json"
+    if njs.exists():
+        try:
+            obj = json.loads(njs.read_text())
+            items = obj if isinstance(obj, list) else obj.get("headlines", [])
+            for h in items:
+                rows.append(
+                    {
+                        "date": h.get("date") or h.get("timestamp"),
+                        "asset": h.get("asset", SAFE_ASSET),
+                        "text": " ".join([str(h.get("title", "")), str(h.get("text", ""))]).strip(),
+                    }
+                )
+        except Exception:
+            pass
     # trusted_news.csv if present
     tn = RUNS / "trusted_news.csv"
     if tn.exists():
@@ -127,11 +150,45 @@ def _load_asset_universe():
             assets.add(sym.replace(".", ""))
     return assets
 
+def _build_asset_aliases(known_assets: set[str]):
+    aliases = {}
+    for sym in sorted(known_assets):
+        if not sym:
+            continue
+        aliases[sym.lower()] = sym
+    names = RUNS / "asset_names.csv"
+    if names.exists():
+        try:
+            df = pd.read_csv(names)
+            lowers = {c.lower(): c for c in df.columns}
+            sym_col = lowers.get("asset") or lowers.get("symbol") or lowers.get("ticker")
+            name_col = lowers.get("name") or lowers.get("asset_name")
+            if sym_col and name_col:
+                for _, row in df.iterrows():
+                    sym = str(row.get(sym_col, "")).upper().strip()
+                    if sym not in known_assets:
+                        continue
+                    nm = str(row.get(name_col, "")).lower().strip()
+                    if nm:
+                        aliases[nm] = sym
+        except Exception:
+            pass
+    return aliases
 
-def _infer_assets_from_text(text: str, known_assets: set[str]):
+
+def _infer_assets_from_text(text: str, known_assets: set[str], aliases: dict[str, str] | None = None):
     if not known_assets:
         return []
     found = []
+    txt = str(text or "")
+    for tok in CASHTAG_RE.findall(txt):
+        t = tok.upper()
+        if t in known_assets:
+            found.append(t)
+        else:
+            td = t.replace(".", "")
+            if td in known_assets:
+                found.append(td)
     for tok in UPPER_TICK_RE.findall(str(text or "")):
         t = tok.upper()
         if t in known_assets:
@@ -140,6 +197,13 @@ def _infer_assets_from_text(text: str, known_assets: set[str]):
         td = t.replace(".", "")
         if td in known_assets:
             found.append(td)
+    if aliases:
+        low = txt.lower()
+        for k, sym in aliases.items():
+            if len(k) < 4:
+                continue
+            if k in low:
+                found.append(sym)
     uniq = []
     seen = set()
     for t in found:
@@ -154,6 +218,7 @@ def build_events():
     if not rows:
         return pd.DataFrame(columns=["DATE","ASSET","text","sent","affect","confidence","pos","neg","fear","len","top_words"])
     known_assets = _load_asset_universe()
+    aliases = _build_asset_aliases(known_assets)
     # clean / score
     out = []
     for r in rows:
@@ -165,8 +230,8 @@ def build_events():
             text = r.get("text") or ""
             sent, affect, confidence, top, aux = _score_text(text)
             assets = [raw_asset]
-            if raw_asset in ("", SAFE_ASSET):
-                inferred = _infer_assets_from_text(text, known_assets)
+            if raw_asset in ("", SAFE_ASSET) or (known_assets and raw_asset not in known_assets):
+                inferred = _infer_assets_from_text(text, known_assets, aliases=aliases)
                 assets = inferred if inferred else [SAFE_ASSET]
 
             for asset in assets:
@@ -197,8 +262,15 @@ def build_daily_signal(events: pd.DataFrame):
         return pd.DataFrame(columns=["DATE","ASSET","sym_signal","sym_sent","sym_affect"])
     # aggregate per day/asset (mean)
     events = events.copy()
+    events["DATE"] = pd.to_datetime(events["DATE"], errors="coerce")
+    events = events.dropna(subset=["DATE"]).sort_values(["DATE", "ASSET"])
     events["confidence"] = pd.to_numeric(events.get("confidence", 0.0), errors="coerce").fillna(0.0).clip(0.0, 1.0)
-    events["w"] = np.maximum(events["confidence"], 0.10)
+    if len(events):
+        days_old = (events["DATE"].max() - events["DATE"]).dt.days.clip(lower=0).astype(float)
+        decay = np.exp(-np.log(2.0) * (days_old / 30.0))
+    else:
+        decay = 1.0
+    events["w"] = np.maximum(events["confidence"], 0.10) * decay
 
     def _wavg(g, col):
         w = g["w"].values.astype(float)
@@ -213,6 +285,7 @@ def build_daily_signal(events: pd.DataFrame):
         sent_w=("sent_w", "sum"),
         affect_w=("affect_w", "sum"),
         confidence=("confidence", "mean"),
+        events_n=("text", "count"),
     )
     grp["sent"] = grp["sent_w"] / (grp["w_sum"] + 1e-12)
     grp["affect"] = grp["affect_w"] / (grp["w_sum"] + 1e-12)
@@ -226,8 +299,9 @@ def build_daily_signal(events: pd.DataFrame):
         # combine: sentiment minus affect (fear as risk)
         raw = g["sym_sent"] - 0.5*g["sym_affect"]
         g["sym_signal"] = np.clip(raw * (0.50 + 0.50 * g["confidence"]), -1.0, 1.0)
+        g["sym_regime"] = np.tanh(_tanh_zscore(g["events_n"].astype(float), win=63))
         g["ASSET"] = asset
-        sigs.append(g[["DATE","ASSET","sym_signal","sym_sent","sym_affect","confidence"]])
+        sigs.append(g[["DATE","ASSET","sym_signal","sym_sent","sym_affect","sym_regime","confidence","events_n"]])
     out = pd.concat(sigs, ignore_index=True).sort_values(["DATE","ASSET"])
     return out
 
@@ -247,13 +321,35 @@ def summarize(events: pd.DataFrame):
         info["top_words"] = dict(bag.most_common(20))
     return info
 
+def build_symbolic_latent(sig: pd.DataFrame):
+    if sig.empty:
+        return pd.DataFrame(columns=["DATE", "symbolic_latent", "symbolic_confidence", "symbolic_event_intensity"])
+    s = sig.copy()
+    s["DATE"] = pd.to_datetime(s["DATE"], errors="coerce")
+    s = s.dropna(subset=["DATE"])
+    s["confidence"] = pd.to_numeric(s.get("confidence", 0.0), errors="coerce").fillna(0.0).clip(0.0, 1.0)
+    s["events_n"] = pd.to_numeric(s.get("events_n", 1.0), errors="coerce").fillna(1.0).clip(lower=0.0)
+    s["w"] = np.maximum(s["confidence"], 0.10)
+    s["wx"] = s["w"] * pd.to_numeric(s["sym_signal"], errors="coerce").fillna(0.0)
+    out = s.groupby("DATE", as_index=False).agg(
+        w_sum=("w", "sum"),
+        wx=("wx", "sum"),
+        symbolic_confidence=("confidence", "mean"),
+        symbolic_event_intensity=("events_n", "sum"),
+    )
+    out["symbolic_latent"] = np.clip(out["wx"] / (out["w_sum"] + 1e-12), -1.0, 1.0)
+    return out[["DATE", "symbolic_latent", "symbolic_confidence", "symbolic_event_intensity"]].sort_values("DATE")
+
 def run_symbolic():
     RUNS.mkdir(parents=True, exist_ok=True)
     ev = build_events()
     ev.to_csv(RUNS/"symbolic_events.csv", index=False)
     sig = build_daily_signal(ev)
     sig.to_csv(RUNS/"symbolic_signal.csv", index=False)
+    latent = build_symbolic_latent(sig)
+    latent.to_csv(RUNS/"symbolic_latent.csv", index=False)
     info = summarize(ev)
+    info["latent_rows"] = int(len(latent))
     (RUNS/"symbolic_summary.json").write_text(json.dumps(info, indent=2))
     return ev, sig, info
 

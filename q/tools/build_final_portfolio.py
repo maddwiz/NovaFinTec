@@ -2,7 +2,7 @@
 # Final portfolio assembler:
 # Picks best base weights then applies (if available):
 #   cluster caps → adaptive caps → drawdown scaler → turnover governor
-#   → council gate → council/meta leverage
+#   → council gate → council/meta leverage → heartbeat/legacy scalers
 # Outputs:
 #   runs_plus/portfolio_weights_final.csv
 # Appends a card to report_*.
@@ -27,8 +27,36 @@ def load_mat(rel):
 def load_series(rel):
     p = ROOT/rel
     if not p.exists(): return None
-    try:    return np.loadtxt(p, delimiter=",").ravel()
-    except: return np.loadtxt(p, delimiter=",", skiprows=1).ravel()
+    try:
+        a = np.loadtxt(p, delimiter=",")
+    except Exception:
+        try:
+            a = np.loadtxt(p, delimiter=",", skiprows=1)
+        except Exception:
+            vals = []
+            try:
+                with p.open("r", encoding="utf-8", errors="ignore") as f:
+                    first = True
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        parts = [s.strip() for s in line.split(",")]
+                        if first and any(tok.lower() in ("date", "time", "timestamp") for tok in parts):
+                            first = False
+                            continue
+                        first = False
+                        try:
+                            vals.append(float(parts[-1]))
+                        except Exception:
+                            continue
+            except Exception:
+                return None
+            return np.asarray(vals, float).ravel() if vals else None
+    a = np.asarray(a, float)
+    if a.ndim == 2 and a.shape[1] >= 1:
+        a = a[:, -1]
+    return a.ravel()
 
 def first_mat(paths):
     for rel in paths:
@@ -97,16 +125,32 @@ if __name__ == "__main__":
         W[:L] = W[:L] * lv
         steps.append("meta_mix_leverage")
 
-    # 8) Save final
+    # 8) Heartbeat exposure scaler (risk metabolism)
+    hb = load_series("runs_plus/heartbeat_exposure_scaler.csv")
+    if hb is not None:
+        L = min(len(hb), W.shape[0])
+        hs = np.clip(hb[:L], 0.40, 1.20).reshape(-1, 1)
+        W[:L] = W[:L] * hs
+        steps.append("heartbeat_scaler")
+
+    # 9) Legacy blended scaler from DNA/Heartbeat/Symbolic/Reflex tuner.
+    lex = load_series("runs_plus/legacy_exposure.csv")
+    if lex is not None:
+        L = min(len(lex), W.shape[0])
+        ls = np.clip(lex[:L], 0.40, 1.30).reshape(-1, 1)
+        W[:L] = W[:L] * ls
+        steps.append("legacy_scaler")
+
+    # 10) Save final
     outp = RUNS/"portfolio_weights_final.csv"
     np.savetxt(outp, W, delimiter=",")
 
-    # 9) Small JSON breadcrumb
+    # 11) Small JSON breadcrumb
     (RUNS/"final_portfolio_info.json").write_text(
         json.dumps({"steps": steps, "T": int(T), "N": int(N)}, indent=2)
     )
 
-    # 10) Report card
+    # 12) Report card
     html = f"<p>Built <b>portfolio_weights_final.csv</b> (T={T}, N={N}). Steps: {', '.join(steps)}.</p>"
     append_card("Final Portfolio ✔", html)
 

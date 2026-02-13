@@ -72,6 +72,10 @@ if __name__ == "__main__":
 
     # (C) Build council votes (real if present, else sleeves or synthetic)
     run_script("tools/make_council_votes.py")
+    # (D) Build symbolic/heartbeat/reflexive layers
+    run_script("tools/make_symbolic.py")
+    run_script("tools/make_heartbeat.py")
+    run_script("tools/make_reflexive.py")
 
     # ---------- PHASE 1: Guardrails ----------
     # Parameter stability, turnover, disagreement gate + DD scaling + report card
@@ -102,6 +106,8 @@ if __name__ == "__main__":
     run_script("tools/run_adaptive_caps.py")
     # Feature neutralization between two feature sets
     run_script("tools/run_feature_neutralizer.py")
+    # Legacy smooth scaler from DNA/heartbeat/symbolic/reflexive layers
+    run_script("tools/tune_legacy_knobs.py")
     # Assemble final portfolio weights from available layers
     run_script("tools/build_final_portfolio.py")
 
