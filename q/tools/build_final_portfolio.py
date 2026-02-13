@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # Final portfolio assembler:
 # Picks best base weights then applies (if available):
-#   cluster caps → adaptive caps → drawdown scaler → council gate
+#   cluster caps → adaptive caps → drawdown scaler → turnover governor
+#   → council gate → council/meta leverage
 # Outputs:
 #   runs_plus/portfolio_weights_final.csv
 # Appends a card to report_*.
@@ -84,16 +85,28 @@ if __name__ == "__main__":
         W[:L] = W[:L] * g
         steps.append("council_gate")
 
-    # 7) Save final
+    # 7) Council/meta leverage (scalar per t) from mix confidence
+    lev = load_series("runs_plus/meta_mix_leverage.csv")
+    if lev is None:
+        mix = load_series("runs_plus/meta_mix.csv")
+        if mix is not None:
+            lev = np.clip(1.0 + 0.20 * np.abs(mix), 0.80, 1.30)
+    if lev is not None:
+        L = min(len(lev), W.shape[0])
+        lv = np.clip(lev[:L], 0.70, 1.40).reshape(-1, 1)
+        W[:L] = W[:L] * lv
+        steps.append("meta_mix_leverage")
+
+    # 8) Save final
     outp = RUNS/"portfolio_weights_final.csv"
     np.savetxt(outp, W, delimiter=",")
 
-    # 8) Small JSON breadcrumb
+    # 9) Small JSON breadcrumb
     (RUNS/"final_portfolio_info.json").write_text(
         json.dumps({"steps": steps, "T": int(T), "N": int(N)}, indent=2)
     )
 
-    # 9) Report card
+    # 10) Report card
     html = f"<p>Built <b>portfolio_weights_final.csv</b> (T={T}, N={N}). Steps: {', '.join(steps)}.</p>"
     append_card("Final Portfolio ✔", html)
 

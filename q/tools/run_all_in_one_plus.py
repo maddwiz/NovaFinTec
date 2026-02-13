@@ -84,6 +84,8 @@ if __name__ == "__main__":
     run_script("tools/run_meta_stack.py")
     # Tiny MLP fusion of councils → synapses_pred.csv
     run_script("tools/run_synapses.py")
+    # Confidence-aware blend of meta + synapses
+    run_script("tools/run_council_meta_mix.py")
     # Cross-hive arbitration (weights per hive)
     run_script("tools/run_cross_hive.py")
     # Ecosystem age governor (atrophy/split/fusion dynamics on hive weights)
@@ -100,6 +102,8 @@ if __name__ == "__main__":
     run_script("tools/run_adaptive_caps.py")
     # Feature neutralization between two feature sets
     run_script("tools/run_feature_neutralizer.py")
+    # Assemble final portfolio weights from available layers
+    run_script("tools/build_final_portfolio.py")
 
     # ---------- REPORT ----------
     # Many scripts already append cards; try to open the best report file.
