@@ -20,6 +20,19 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 from qmods.concentration_governor import govern_matrix
 
+TRACE_STEPS = [
+    "council_gate",
+    "meta_mix_leverage",
+    "heartbeat_scaler",
+    "legacy_scaler",
+    "hive_diversification",
+    "global_governor",
+    "quality_governor",
+    "novaspine_context_boost",
+    "novaspine_hive_boost",
+    "shock_mask_guard",
+]
+
 def load_mat(rel):
     p = ROOT/rel
     if not p.exists(): return None
@@ -91,6 +104,16 @@ if __name__ == "__main__":
     steps = [f"base={source}"]
 
     T, N = W.shape
+    trace = {}
+
+    def _trace_put(name, vec=None):
+        x = np.ones(T, dtype=float)
+        if vec is not None:
+            v = np.asarray(vec, float).ravel()
+            L = min(T, len(v))
+            if L > 0:
+                x[:L] = v[:L]
+        trace[name] = x
 
     # 2) Cluster caps
     Wc = load_mat("runs_plus/weights_cluster_capped.csv")
@@ -118,6 +141,7 @@ if __name__ == "__main__":
         g = gate[:L].reshape(-1,1)
         W[:L] = W[:L] * g
         steps.append("council_gate")
+        _trace_put("council_gate", np.clip(gate[:L], 0.0, 1.0))
 
     # 7) Council/meta leverage (scalar per t) from mix confidence
     lev = load_series("runs_plus/meta_mix_leverage.csv")
@@ -130,6 +154,7 @@ if __name__ == "__main__":
         lv = np.clip(lev[:L], 0.70, 1.40).reshape(-1, 1)
         W[:L] = W[:L] * lv
         steps.append("meta_mix_leverage")
+        _trace_put("meta_mix_leverage", lv.ravel())
 
     # 8) Heartbeat exposure scaler (risk metabolism)
     hb = load_series("runs_plus/heartbeat_exposure_scaler.csv")
@@ -138,6 +163,7 @@ if __name__ == "__main__":
         hs = np.clip(hb[:L], 0.40, 1.20).reshape(-1, 1)
         W[:L] = W[:L] * hs
         steps.append("heartbeat_scaler")
+        _trace_put("heartbeat_scaler", hs.ravel())
 
     # 9) Legacy blended scaler from DNA/Heartbeat/Symbolic/Reflex tuner.
     lex = load_series("runs_plus/legacy_exposure.csv")
@@ -146,6 +172,7 @@ if __name__ == "__main__":
         ls = np.clip(lex[:L], 0.40, 1.30).reshape(-1, 1)
         W[:L] = W[:L] * ls
         steps.append("legacy_scaler")
+        _trace_put("legacy_scaler", ls.ravel())
 
     # 10) Hive diversification governor from ecosystem layer.
     hg = load_series("runs_plus/hive_diversification_governor.csv")
@@ -154,6 +181,7 @@ if __name__ == "__main__":
         hs = np.clip(hg[:L], 0.75, 1.08).reshape(-1, 1)
         W[:L] = W[:L] * hs
         steps.append("hive_diversification")
+        _trace_put("hive_diversification", hs.ravel())
 
     # 11) Global governor (regime * stability) from guardrails.
     gg = load_series("runs_plus/global_governor.csv")
@@ -172,6 +200,7 @@ if __name__ == "__main__":
         g = np.clip(gg[:L], 0.30, 1.15).reshape(-1, 1)
         W[:L] = W[:L] * g
         steps.append("global_governor")
+        _trace_put("global_governor", g.ravel())
 
     # 12) Reliability quality governor from nested/hive/council diagnostics.
     qg = load_series("runs_plus/quality_governor.csv")
@@ -180,6 +209,7 @@ if __name__ == "__main__":
         qs = np.clip(qg[:L], 0.45, 1.20).reshape(-1, 1)
         W[:L] = W[:L] * qs
         steps.append("quality_governor")
+        _trace_put("quality_governor", qs.ravel())
 
     # 13) NovaSpine recall-context boost (if available).
     ncb = load_series("runs_plus/novaspine_context_boost.csv")
@@ -188,6 +218,7 @@ if __name__ == "__main__":
         nb = np.clip(ncb[:L], 0.85, 1.15).reshape(-1, 1)
         W[:L] = W[:L] * nb
         steps.append("novaspine_context_boost")
+        _trace_put("novaspine_context_boost", nb.ravel())
 
     # 14) NovaSpine per-hive alignment boost (global projection).
     nhb = load_series("runs_plus/novaspine_hive_boost.csv")
@@ -196,6 +227,7 @@ if __name__ == "__main__":
         hb = np.clip(nhb[:L], 0.85, 1.15).reshape(-1, 1)
         W[:L] = W[:L] * hb
         steps.append("novaspine_hive_boost")
+        _trace_put("novaspine_hive_boost", hb.ravel())
 
     # 15) Shock/news mask exposure cut.
     sm = load_series("runs_plus/shock_mask.csv")
@@ -205,6 +237,7 @@ if __name__ == "__main__":
         sc = (1.0 - alpha * np.clip(sm[:L], 0.0, 1.0)).reshape(-1, 1)
         W[:L] = W[:L] * sc
         steps.append("shock_mask_guard")
+        _trace_put("shock_mask_guard", sc.ravel())
 
     # 16) Concentration governor (top1/top3 + HHI caps).
     use_conc = str(os.getenv("Q_USE_CONCENTRATION_GOV", "1")).strip().lower() in {"1", "true", "yes", "on"}
@@ -227,13 +260,40 @@ if __name__ == "__main__":
             )
         )
 
+    # Build governor trace artifact for auditability.
+    for name in TRACE_STEPS:
+        if name not in trace:
+            _trace_put(name, None)
+    trace_mat = np.column_stack([trace[name] for name in TRACE_STEPS])
+    trace_total = np.prod(trace_mat, axis=1)
+    trace_out = np.column_stack([trace_mat, trace_total])
+    trace_cols = TRACE_STEPS + ["runtime_total_scalar"]
+    np.savetxt(
+        RUNS / "final_governor_trace.csv",
+        trace_out,
+        delimiter=",",
+        header=",".join(trace_cols),
+        comments="",
+    )
+
     # 17) Save final
     outp = RUNS/"portfolio_weights_final.csv"
     np.savetxt(outp, W, delimiter=",")
 
     # 18) Small JSON breadcrumb
     (RUNS/"final_portfolio_info.json").write_text(
-        json.dumps({"steps": steps, "T": int(T), "N": int(N)}, indent=2)
+        json.dumps(
+            {
+                "steps": steps,
+                "T": int(T),
+                "N": int(N),
+                "governor_trace_file": str(RUNS / "final_governor_trace.csv"),
+                "runtime_total_scalar_mean": float(np.mean(trace_total)),
+                "runtime_total_scalar_min": float(np.min(trace_total)),
+                "runtime_total_scalar_max": float(np.max(trace_total)),
+            },
+            indent=2,
+        )
     )
 
     # 19) Report card

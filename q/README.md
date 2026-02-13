@@ -90,6 +90,7 @@ export Q_MAX_CONCENTRATION_TOP1_AFTER=0.30
 - `runs_plus/quality_snapshot.json`
 - `runs_plus/quality_runtime_modifier.csv`
 - `runs_plus/hive_transparency.json`
+- `runs_plus/final_governor_trace.csv`
 - `runs_plus/execution_constraints_info.json`
 - `runs_plus/novaspine_sync_status.json`
 - `runs_plus/novaspine_last_batch.json`

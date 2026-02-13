@@ -59,6 +59,13 @@ def _load_matrix(path: Path):
     return a
 
 
+def _load_series(path: Path):
+    m = _load_matrix(path)
+    if m is None or m.size == 0:
+        return None
+    return m[:, -1].ravel()
+
+
 def _append_card(title, html):
     for name in ["report_all.html", "report_best_plus.html", "report_plus.html", "report.html"]:
         p = ROOT / name
@@ -120,6 +127,7 @@ def build_events():
     nctx = _load_json(RUNS / "novaspine_context.json") or {}
     nhive = _load_json(RUNS / "novaspine_hive_feedback.json") or {}
     htx = _load_json(RUNS / "hive_transparency.json") or {}
+    gov_trace = _load_series(RUNS / "final_governor_trace.csv")
 
     W = _load_matrix(RUNS / "portfolio_weights_final.csv")
     weights_info = {}
@@ -240,6 +248,12 @@ def build_events():
                 },
                 "final_steps": list((final_info or {}).get("steps", []) or []),
                 "pipeline_failed_count": int((pipeline or {}).get("failed_count", 0)),
+                "runtime_total_scalar": {
+                    "latest": float(gov_trace[-1]) if gov_trace is not None and len(gov_trace) else None,
+                    "mean": float(np.mean(gov_trace)) if gov_trace is not None and len(gov_trace) else None,
+                    "min": float(np.min(gov_trace)) if gov_trace is not None and len(gov_trace) else None,
+                    "max": float(np.max(gov_trace)) if gov_trace is not None and len(gov_trace) else None,
+                },
             },
             "trust": float(
                 np.clip(
