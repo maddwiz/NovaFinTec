@@ -30,6 +30,7 @@ TRAIN_MIN = int(os.environ.get("NWF_TRAIN_MIN", "504"))
 OUTER_STEP = int(os.environ.get("NWF_OUTER_STEP", "63"))
 INNER_MIN = int(os.environ.get("NWF_INNER_MIN", "252"))
 INNER_STEP = int(os.environ.get("NWF_INNER_STEP", "21"))
+INNER_FOLDS = int(os.environ.get("NWF_INNER_FOLDS", "4"))
 EMBARGO = int(os.environ.get("NWF_EMBARGO", "5"))
 MIN_ROWS = int(os.environ.get("NWF_MIN_ROWS", "900"))
 MAX_ROWS = int(os.environ.get("NWF_MAX_ROWS", "3000"))
@@ -122,17 +123,30 @@ def _inner_score(ret_train: np.ndarray, pos_train: np.ndarray, cfg: dict) -> flo
     n = len(ret_train)
     if n < max(120, INNER_MIN + INNER_STEP):
         return -1e9
-    # fast nested inner split:
-    # train chunk [0 : n - INNER_STEP - EMBARGO], validate on tail
-    val_end = n
-    val_start = max(INNER_MIN, val_end - INNER_STEP)
-    val_start = min(val_start + EMBARGO, val_end - 1)
-    if val_end - val_start < 10:
+    # Multi-fold inner score to reduce overfitting to one tail segment.
+    folds = int(max(1, INNER_FOLDS))
+    scores = []
+    for k in range(folds):
+        val_end = n - k * INNER_STEP
+        val_start = val_end - INNER_STEP
+        if val_start < 0:
+            break
+        # Embargo around validation start.
+        val_start = min(val_start + EMBARGO, val_end - 1)
+        train_end = max(0, val_start - EMBARGO)
+        if train_end < INNER_MIN:
+            continue
+        if val_end - val_start < 10:
+            continue
+        p = _transform_pos(pos_train[val_start:val_end], cfg["cap"], cfg["deadband"], cfg["span"])
+        r = ret_train[val_start:val_end]
+        pnl = _pnl_from_pos_ret(p, r, COST_BPS)
+        scores.append(_sharpe(pnl))
+    if not scores:
         return -1e9
-    p = _transform_pos(pos_train[val_start:val_end], cfg["cap"], cfg["deadband"], cfg["span"])
-    r = ret_train[val_start:val_end]
-    pnl = _pnl_from_pos_ret(p, r, COST_BPS)
-    return _sharpe(pnl)
+    # Favor high average with lower variance across folds.
+    sc = np.asarray(scores, float)
+    return float(np.mean(sc) - 0.15 * np.std(sc, ddof=1) if len(sc) > 1 else np.mean(sc))
 
 
 def run_asset_nested(ret: np.ndarray, pos: np.ndarray) -> tuple[dict, list[str]]:
@@ -236,6 +250,7 @@ if __name__ == "__main__":
             "outer_step": OUTER_STEP,
             "inner_min": INNER_MIN,
             "inner_step": INNER_STEP,
+            "inner_folds": INNER_FOLDS,
             "embargo": EMBARGO,
             "max_rows": MAX_ROWS,
             "cost_bps": COST_BPS,

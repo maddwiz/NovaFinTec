@@ -178,3 +178,8 @@ export TURNOVER_MAX_STEP=0.35
 export TURNOVER_BUDGET_WINDOW=5
 export TURNOVER_BUDGET_LIMIT=1.00
 ```
+Nested WF robustness:
+```bash
+export NWF_INNER_FOLDS=4
+export NWF_EMBARGO=5
+```
