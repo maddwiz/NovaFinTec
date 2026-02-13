@@ -170,6 +170,9 @@ if __name__ == "__main__":
     # Confidence-aware blend of meta + synapses
     ok, rc = run_script("tools/run_council_meta_mix.py")
     if not ok and rc is not None: failures.append({"step": "tools/run_council_meta_mix.py", "code": rc})
+    # Optional NovaSpine per-hive memory feedback.
+    ok, rc = run_script("tools/run_novaspine_hive_feedback.py")
+    if not ok and rc is not None: failures.append({"step": "tools/run_novaspine_hive_feedback.py", "code": rc})
     # Cross-hive arbitration (weights per hive)
     ok, rc = run_script("tools/run_cross_hive.py")
     if not ok and rc is not None: failures.append({"step": "tools/run_cross_hive.py", "code": rc})

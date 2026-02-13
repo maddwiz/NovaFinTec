@@ -97,6 +97,8 @@ if __name__ == "__main__":
         RUNS / "novaspine_last_batch.json",
         RUNS / "novaspine_context.json",
         RUNS / "novaspine_context_boost.csv",
+        RUNS / "novaspine_hive_feedback.json",
+        RUNS / "novaspine_hive_boost.csv",
         RUNS / "novaspine_replay_status.json",
         RUNS / "immune_drill.json",
     ]
@@ -127,6 +129,7 @@ if __name__ == "__main__":
     hive_gov = _load_series(RUNS / "hive_diversification_governor.csv")
     quality_gov = _load_series(RUNS / "quality_governor.csv")
     nsp_ctx_boost = _load_series(RUNS / "novaspine_context_boost.csv")
+    nsp_hive_boost = _load_series(RUNS / "novaspine_hive_boost.csv")
 
     shape = {}
     if w is not None:
@@ -147,6 +150,9 @@ if __name__ == "__main__":
     if nsp_ctx_boost is not None:
         shape["novaspine_context_boost_rows"] = int(len(nsp_ctx_boost))
         shape["novaspine_context_boost_mean"] = float(np.mean(nsp_ctx_boost))
+    if nsp_hive_boost is not None:
+        shape["novaspine_hive_boost_rows"] = int(len(nsp_hive_boost))
+        shape["novaspine_hive_boost_mean"] = float(np.mean(nsp_hive_boost))
 
     # Alignment diagnostics
     issues = []

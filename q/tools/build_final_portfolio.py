@@ -183,16 +183,24 @@ if __name__ == "__main__":
         W[:L] = W[:L] * nb
         steps.append("novaspine_context_boost")
 
-    # 14) Save final
+    # 14) NovaSpine per-hive alignment boost (global projection).
+    nhb = load_series("runs_plus/novaspine_hive_boost.csv")
+    if nhb is not None:
+        L = min(len(nhb), W.shape[0])
+        hb = np.clip(nhb[:L], 0.85, 1.15).reshape(-1, 1)
+        W[:L] = W[:L] * hb
+        steps.append("novaspine_hive_boost")
+
+    # 15) Save final
     outp = RUNS/"portfolio_weights_final.csv"
     np.savetxt(outp, W, delimiter=",")
 
-    # 15) Small JSON breadcrumb
+    # 16) Small JSON breadcrumb
     (RUNS/"final_portfolio_info.json").write_text(
         json.dumps({"steps": steps, "T": int(T), "N": int(N)}, indent=2)
     )
 
-    # 16) Report card
+    # 17) Report card
     html = f"<p>Built <b>portfolio_weights_final.csv</b> (T={T}, N={N}). Steps: {', '.join(steps)}.</p>"
     append_card("Final Portfolio ✔", html)
 

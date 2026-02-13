@@ -70,6 +70,32 @@ def dynamic_quality_multipliers(index_dates, hives):
         out[hname] = mult.reindex(idx).ffill().fillna(1.0).values
     return out
 
+
+def novaspine_hive_multipliers(hives):
+    """
+    Optional per-hive multipliers from NovaSpine feedback.
+    Returns dict hive->mult in [0.80, 1.20].
+    """
+    p = RUNS / "novaspine_hive_feedback.json"
+    out = {str(h): 1.0 for h in hives}
+    if not p.exists():
+        return out
+    try:
+        obj = json.loads(p.read_text())
+    except Exception:
+        return out
+    ph = obj.get("per_hive", {}) if isinstance(obj, dict) else {}
+    if not isinstance(ph, dict):
+        return out
+    for h in list(out.keys()):
+        rec = ph.get(h, {})
+        try:
+            b = float(rec.get("boost", 1.0))
+        except Exception:
+            b = 1.0
+        out[h] = float(np.clip(b, 0.80, 1.20))
+    return out
+
 if __name__ == "__main__":
     p = RUNS / "hive_signals.csv"
     if not p.exists():
@@ -139,6 +165,12 @@ if __name__ == "__main__":
             mult = float(priors.get(hive, 1.0))
             scores[hive] = scores[hive] * mult
 
+    # Optional NovaSpine per-hive memory boosts.
+    ns_mult = novaspine_hive_multipliers(pivot_sig.columns.tolist())
+    if ns_mult:
+        for hive in list(scores.keys()):
+            scores[hive] = scores[hive] * float(ns_mult.get(hive, 1.0))
+
     # Optional dynamic quality multipliers from per-hive OOS streams.
     dyn_mult = dynamic_quality_multipliers(pivot_sig.index, pivot_sig.columns.tolist())
     dyn_means = {}
@@ -181,6 +213,7 @@ if __name__ == "__main__":
         "mean_turnover": turn,
         "quality_priors": {k: float(v) for k, v in priors.items()},
         "dynamic_quality_multiplier_mean": dyn_means,
+        "novaspine_hive_boosts": {k: float(v) for k, v in ns_mult.items()},
         "date_min": str(out["DATE"].min().date()) if len(out) else None,
         "date_max": str(out["DATE"].max().date()) if len(out) else None,
         "latest_weights": {k: float(out.iloc[-1][k]) for k in names} if len(out) else {},

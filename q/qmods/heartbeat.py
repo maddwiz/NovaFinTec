@@ -6,10 +6,15 @@ import json
 import numpy as np
 import pandas as pd
 
-# headless plotting
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
+# Optional plotting (headless). Core heartbeat outputs do not require matplotlib.
+try:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+except Exception:
+    matplotlib = None
+    plt = None
 
 @dataclass
 class HBConfig:
@@ -73,8 +78,21 @@ def _write_outputs(
 ):
     d = bpm.dropna()
     s = scaler.reindex(d.index).ffill().fillna(1.0)
-    hb_map = {ts.strftime("%Y-%m-%d"): float(val) for ts, val in d.items()}
-    sc_map = {ts.strftime("%Y-%m-%d"): float(val) for ts, val in s.items()}
+
+    def _fmt_ts(ts):
+        try:
+            return ts.strftime("%Y-%m-%d")
+        except Exception:
+            try:
+                t = pd.to_datetime(ts, errors="coerce")
+                if pd.notna(t):
+                    return t.strftime("%Y-%m-%d")
+            except Exception:
+                pass
+            return str(ts)
+
+    hb_map = {_fmt_ts(ts): float(val) for ts, val in d.items()}
+    sc_map = {_fmt_ts(ts): float(val) for ts, val in s.items()}
 
     payload = {
         "heartbeat": hb_map,
@@ -85,12 +103,12 @@ def _write_outputs(
     Path(out_json).parent.mkdir(parents=True, exist_ok=True)
     Path(out_json).write_text(json.dumps(payload, indent=2))
 
-    hb_csv = pd.DataFrame({"DATE": pd.to_datetime(d.index), "heartbeat_bpm": d.values})
-    sc_csv = pd.DataFrame({"DATE": pd.to_datetime(s.index), "heartbeat_exposure_scaler": s.values})
+    hb_csv = pd.DataFrame({"DATE": d.index, "heartbeat_bpm": d.values})
+    sc_csv = pd.DataFrame({"DATE": s.index, "heartbeat_exposure_scaler": s.values})
     hb_csv.to_csv(out_bpm_csv, index=False)
     sc_csv.to_csv(out_scaler_csv, index=False)
 
-    if not d.empty:
+    if plt is not None and not d.empty:
         plt.figure(figsize=(8, 3))
         d.plot(label="BPM")
         (60 + (180 - 60) * (1 - s)).plot(label="Risk Budget Proxy", alpha=0.6)
@@ -100,6 +118,10 @@ def _write_outputs(
         plt.tight_layout()
         plt.savefig(out_png, dpi=150)
         plt.close()
+    elif plt is None:
+        png_path = Path(out_png)
+        png_path.parent.mkdir(parents=True, exist_ok=True)
+        png_path.touch(exist_ok=True)
 
 def compute_heartbeat(prices: pd.DataFrame,
                       out_json: str = "runs_plus/heartbeat.json",

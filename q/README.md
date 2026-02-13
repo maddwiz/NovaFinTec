@@ -65,6 +65,7 @@ This now includes:
 - immune drill governance check (synthetic stress scenarios)
 - final portfolio assembly + system health + alert gate
 - optional NovaSpine bridge (cold/meta memory sync, async-safe)
+- optional NovaSpine hive memory feedback (per-hive boosts + final projection)
 
 ### Strict production cycle
 ```bash
@@ -83,6 +84,8 @@ If your default Python is missing deps, set `Q_PYTHON=/absolute/path/to/venv/bin
 - `runs_plus/novaspine_last_batch.json`
 - `runs_plus/novaspine_context.json`
 - `runs_plus/novaspine_context_boost.csv`
+- `runs_plus/novaspine_hive_feedback.json`
+- `runs_plus/novaspine_hive_boost.csv`
 - `runs_plus/immune_drill.json`
 - `runs_plus/novaspine_replay_status.json`
 
@@ -119,6 +122,9 @@ export C3_MEMORY_NOVASPINE_URL=http://127.0.0.1:8420
 # export C3_MEMORY_RECALL_TOPK=6
 # export C3_MEMORY_RECALL_MIN_SCORE=0.005
 # export C3_MEMORY_RECALL_INCLUDE_ALERTS=0
+# per-hive recall controls:
+# export C3_MEMORY_HIVE_RECALL_TOPK=4
+# export C3_MEMORY_HIVE_RECALL_MIN_SCORE=0.005
 # immune drill alert gate:
 # export Q_REQUIRE_IMMUNE_PASS=1
 # optional:
@@ -133,4 +139,8 @@ The all-in-one pipeline also runs this bridge automatically.
 It also replays queued outbox batches with:
 ```bash
 python tools/replay_novaspine_outbox.py
+```
+and can be called directly for per-hive memory boosts:
+```bash
+python tools/run_novaspine_hive_feedback.py
 ```
