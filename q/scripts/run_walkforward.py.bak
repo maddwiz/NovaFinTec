@@ -1,0 +1,83 @@
+
+#!/usr/bin/env python3
+import argparse, os, json
+import pandas as pd
+from pathlib import Path
+from qengine.data import load_csv
+from qengine.signals import dna_signal, trend_signal, momentum_signal, simple_ensemble
+from qengine.risk import apply_risk
+from qengine.crisis import crisis_anchor_from_vix, crisis_anchor_from_internal
+from qengine.walkforward import walkforward
+from qengine.explain import explain_trades
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--data", required=True, help="Folder with CSVs")
+    ap.add_argument("--asset", required=True, help="Filename of CSV, e.g., SPY.csv")
+    ap.add_argument("--vix", default="", help="Optional VIX CSV for crisis anchor")
+    ap.add_argument("--out", required=True, help="Output folder")
+    ap.add_argument("--target_vol", type=float, default=0.20)
+    ap.add_argument("--cap", type=float, default=0.25)
+    ap.add_argument("--dd_th", type=float, default=-0.10)
+    ap.add_argument("--max_flips_60", type=int, default=6)
+    args = ap.parse_args()
+
+    outdir = Path(args.out); outdir.mkdir(parents=True, exist_ok=True)
+
+    df = load_csv(os.path.join(args.data, args.asset))
+    feats = pd.DataFrame(index=df.index)
+    feats["Close"] = df["Close"]
+
+    # signals
+    dna_sig, drift, vel = dna_signal(df["Close"])
+    feats["dna_sig"] = dna_sig; feats["dna_drift"] = drift; feats["dna_vel"] = vel
+    feats["trend_sig"] = trend_signal(df["Close"])
+    feats["mom_sig"] = momentum_signal(df["Close"])
+
+    # ensemble (equal weights baseline; bandit version in make_position of updated script)
+    position_sig = simple_ensemble({"dna":feats["dna_sig"], "trend":feats["trend_sig"], "mom":feats["mom_sig"]})
+
+    # crisis anchors
+    if args.vix and os.path.exists(os.path.join(args.data, args.vix)):
+        vix = load_csv(os.path.join(args.data, args.vix))
+        vix = vix.reindex(feats.index).ffill()
+        feats["vix"] = vix["Close"]
+        crisis_mult = crisis_anchor_from_vix(vix["Close"])
+    else:
+        crisis_mult = crisis_anchor_from_internal(feats["dna_drift"])
+
+    def make_position(train_df, test_df):
+        sig = position_sig.reindex(test_df.index).fillna(0.0)
+        cm = crisis_mult.reindex(test_df.index).fillna(1.0)
+        sig = sig * cm
+        pos, strat_r, eq = apply_risk(sig, test_df["Close"],
+                                      target_vol=args.target_vol,
+                                      cap=args.cap,
+                                      dd_th=args.dd_th,
+                                      max_flips_60=args.max_flips_60)
+        return pos
+
+    full_pos, metrics = walkforward(feats, make_position)
+    metrics.to_csv(outdir/"metrics_per_fold.csv", index=False)
+
+    test_df = feats.loc[full_pos.index]
+    cards = explain_trades(test_df, full_pos, notes="dna+trend+mom; crisis anchor; vol targeting; cap 25%")
+    cards.to_csv(outdir/"explain_cards.csv")
+
+    r = (df["Close"].loc[full_pos.index]).pct_change().fillna(0.0)
+    strat = full_pos.shift(1).fillna(0.0) * r
+    eq = (1.0 + strat).cumprod()
+    eq.to_csv(outdir/"equity_curve.csv", header=["equity"])
+
+    hit = ((full_pos.shift(1).fillna(0.0).apply(lambda x: 0 if x==0 else (1 if x>0 else -1))) ==
+           (r.apply(lambda x: 0 if x==0 else (1 if x>0 else -1)))).mean()
+    sharpe = (strat.mean()*252) / (strat.std(ddof=1)*(252**0.5)) if strat.std(ddof=1)>0 else 0.0
+    peak = eq.cummax(); mdd = (eq/peak - 1.0).min()
+    summary = {"asset": args.asset, "hit_rate": float(hit), "sharpe": float(sharpe), "max_dd": float(mdd)}
+    with open(outdir/"summary.json","w") as f:
+        json.dump(summary, f, indent=2)
+
+    print(json.dumps(summary, indent=2))
+
+if __name__ == "__main__":
+    main()

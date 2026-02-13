@@ -1,0 +1,8 @@
+{
+  "allow": [
+    "wsj.com", "bloomberg.com", "ft.com",
+    "reuters.com", "apnews.com",
+    "federalreserve.gov", "bea.gov", "bls.gov", "treasury.gov",
+    "ecb.europa.eu", "bankofengland.co.uk"
+  ]
+}

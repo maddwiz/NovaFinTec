@@ -1,0 +1,93 @@
+#!/usr/bin/env python3
+# tools/sweep_portfolio_micro.py
+# Micro grid around current portfolio knobs:
+#   TOP_K in {28, 30, 32, 34}
+#   CAP_PER in {0.08, 0.10, 0.12}
+# For each combo:
+#   - rewrite tools/portfolio_from_runs_plus.py
+#   - rebuild portfolio & report
+#   - rebuild regime & regime+DNA (for fairness)
+#   - run vol-target and record OOS Sharpe
+# Saves: runs_plus/sweep_portfolio_micro.csv (best rows at top by vt_oos)
+
+from pathlib import Path
+import re, json, subprocess, sys
+import pandas as pd
+import numpy as np
+
+ROOT = Path(__file__).resolve().parents[1]
+RUNS = ROOT / "runs_plus"
+PORT_BUILDER = ROOT / "tools" / "portfolio_from_runs_plus.py"
+
+TOPK_SET = [28, 30, 32, 34]
+CAP_SET  = [0.08, 0.10, 0.12]
+
+def run(cmd):
+    r = subprocess.run(cmd, cwd=str(ROOT))
+    if r.returncode != 0:
+        sys.exit(r.returncode)
+
+def read_json(p):
+    p = RUNS / p
+    return json.loads(p.read_text()) if p.exists() else {}
+
+def metric_or(d, path, default=np.nan):
+    cur = d
+    for k in path:
+        if isinstance(cur, dict) and k in cur:
+            cur = cur[k]
+        else:
+            return default
+    try:
+        return float(cur)
+    except Exception:
+        return default
+
+if __name__ == "__main__":
+    original = PORT_BUILDER.read_text()
+    rows = []
+    try:
+        for topk in TOPK_SET:
+            for cap in CAP_SET:
+                txt = re.sub(r"(TOP_K\s*=\s*)[0-9]+", rf"\g<1>{topk}", original)
+                txt = re.sub(r"(CAP_PER\s*=\s*)[0-9.]+", rf"\g<1>{cap}", txt)
+                PORT_BUILDER.write_text(txt)
+
+                # Rebuild main + report
+                run(["python", "tools/portfolio_from_runs_plus.py"])
+                run(["python", "tools/build_report_plus.py"])
+
+                # Rebuild regime & DNA to keep cards consistent
+                run(["python", "tools/make_regime.py"])
+                run(["python", "tools/apply_regime_governor.py"])
+                run(["python", "tools/patch_regime_weights_with_dna.py"])
+                run(["python", "tools/apply_regime_governor_dna.py"])
+
+                # Vol-target (uses current TARGET_ANN in portfolio_vol_target.py)
+                run(["python", "tools/portfolio_vol_target.py"])
+
+                main = read_json("final_portfolio_summary.json")
+                reg  = read_json("final_portfolio_regime_summary.json")
+                dna  = read_json("final_portfolio_regime_dna_summary.json")
+                vt   = read_json("final_portfolio_vt_summary.json")
+
+                rows.append(dict(
+                    top_k=topk,
+                    cap_per=cap,
+                    main_oos=metric_or(main, ["out_sample","sharpe"]),
+                    reg_oos =metric_or(reg,  ["out_sample","sharpe"]),
+                    dna_oos =metric_or(dna,  ["out_sample","sharpe"]),
+                    vt_oos  =metric_or(vt,   ["out_sample","sharpe"]),
+                    main_dd =metric_or(main, ["out_sample","maxdd"]),
+                    vt_dd   =metric_or(vt,   ["out_sample","maxdd"]),
+                ))
+
+        df = pd.DataFrame(rows).sort_values(["vt_oos","main_oos"], ascending=False)
+        outp = RUNS / "sweep_portfolio_micro.csv"
+        df.to_csv(outp, index=False)
+        # show top dozen
+        print(df.head(12).to_string(index=False))
+        print("Saved:", outp)
+    finally:
+        # restore original file
+        PORT_BUILDER.write_text(original)

@@ -1,0 +1,17 @@
+- 2025-09-07 16:34:14 UTC | asset=IWM.csv | hit=0.486 | sh=0.390 | dna=dna:138fb289d489d8b8 | drift=0.9375
+- 2025-09-07 16:34:15 UTC | asset=RSP.csv | hit=0.490 | sh=0.622 | dna=dna:88a1a6dc9c3966f3 | drift=0.8125
+- 2025-09-07 16:34:16 UTC | asset=LQD_TR.csv | hit=0.491 | sh=0.689 | dna=dna:8025715ca70d86dd | drift=0.9375
+- 2025-09-07 16:34:17 UTC | asset=HYG_TR.csv | hit=0.518 | sh=0.741 | dna=dna:6382f7be7d6713b3 | drift=1.0
+- 2025-09-08 16:31:52 UTC | asset=IWM.csv | hit=0.508 | sh=0.000 | dna=dna:138fb289d489d8b8 | drift=0.9375
+- 2025-09-08 16:31:53 UTC | asset=RSP.csv | hit=0.518 | sh=0.000 | dna=dna:88a1a6dc9c3966f3 | drift=0.8125
+- 2025-09-08 16:31:55 UTC | asset=LQD_TR.csv | hit=0.534 | sh=0.000 | dna=dna:8025715ca70d86dd | drift=0.9375
+- 2025-09-08 16:31:56 UTC | asset=HYG_TR.csv | hit=0.551 | sh=0.000 | dna=dna:6382f7be7d6713b3 | drift=1.0
+- 2025-09-08 16:38:03 UTC | asset=IWM.csv | hit=0.508 | sh=0.389 | dna=dna:138fb289d489d8b8 | drift=0.9375
+- 2025-09-08 16:38:04 UTC | asset=RSP.csv | hit=0.518 | sh=0.358 | dna=dna:88a1a6dc9c3966f3 | drift=0.8125
+- 2025-09-08 16:38:06 UTC | asset=LQD_TR.csv | hit=0.534 | sh=0.384 | dna=dna:8025715ca70d86dd | drift=0.9375
+- 2025-09-08 16:38:07 UTC | asset=HYG_TR.csv | hit=0.551 | sh=0.383 | dna=dna:6382f7be7d6713b3 | drift=1.0
+- 2025-09-08 17:07:43 UTC | asset=IWM.csv | hit=0.508 | sh=0.389 | dna=dna:138fb289d489d8b8 | drift=0.9375
+- 2025-09-08 17:07:45 UTC | asset=RSP.csv | hit=0.518 | sh=0.358 | dna=dna:88a1a6dc9c3966f3 | drift=0.8125
+- 2025-09-08 17:07:47 UTC | asset=LQD_TR.csv | hit=0.534 | sh=0.384 | dna=dna:8025715ca70d86dd | drift=0.9375
+- 2025-09-08 17:07:49 UTC | asset=HYG_TR.csv | hit=0.551 | sh=0.383 | dna=dna:6382f7be7d6713b3 | drift=1.0
+Thu Sep 11 15:34:47 MDT 2025  Tuned best: DNA=0.10 REFL=0.30 SYM=0.05 HB=0.80 -> Sharpe≈0.721, Hit≈0.663, MaxDD≈-0.332

@@ -1,0 +1,61 @@
+import numpy as np, pandas as pd
+from .bandit import ExpWeightsBandit
+
+def _z(s, w=60):
+    s = s.astype(float)
+    m = s.rolling(w, min_periods=max(10, w//5)).mean()
+    sd = s.rolling(w, min_periods=max(10, w//5)).std().replace(0, np.nan)
+    return ((s - m) / sd).fillna(0.0)
+
+def vix_macro_dir(vix_close: pd.Series) -> pd.Series:
+    v = vix_close.astype(float).ffill()
+    vz = _z(v, 60)
+    dv = v.pct_change().fillna(0.0)
+    x = (-(vz>0.5).astype(float)) + ((vz<-0.5).astype(float)) + (-(dv>0).astype(float)) + ((dv<0).astype(float))
+    return x.apply(lambda y: 1.0 if y>0 else (-1.0 if y<0 else 0.0))
+
+def vix_term_dir(vix_9d: pd.Series, vix_1m: pd.Series=None, vix_3m: pd.Series=None) -> pd.Series:
+    a = vix_9d.astype(float).ffill()
+    b = (vix_1m.astype(float).ffill() if vix_1m is not None else a.rolling(5,min_periods=1).mean())
+    c = (vix_3m.astype(float).ffill() if vix_3m is not None else b.rolling(5,min_periods=1).mean())
+    contango = (b - a) + (c - b)
+    return contango.apply(lambda k: -1.0 if k>0 else (1.0 if k<0 else 0.0))
+
+def curve_dir(dgs10: pd.Series, dgs3m: pd.Series) -> pd.Series:
+    s = (dgs10.astype(float) - dgs3m.astype(float)).ffill()
+    dz = _z(s, 120)
+    ds = s.diff().fillna(0.0)
+    x = (dz>0).astype(float) + (ds>0).astype(float) - (dz<0).astype(float) - (ds<0).astype(float)
+    return x.apply(lambda y: 1.0 if y>0 else (-1.0 if y<0 else 0.0))
+
+def credit_dir(hyg: pd.Series, lqd: pd.Series) -> pd.Series:
+    # risk-on if HYG/LQD rising, risk-off if falling
+    ratio = (hyg.astype(float) / lqd.astype(float)).ffill()
+    r = ratio.pct_change().fillna(0.0)
+    rz = _z(r, 60)
+    x = (r>0).astype(float) + (rz>0.5).astype(float) - (r<0).astype(float) - (rz<-0.5).astype(float)
+    return x.apply(lambda y: 1.0 if y>0 else (-1.0 if y<0 else 0.0))
+
+def fit_price_council(train_df: pd.DataFrame, eta: float=0.6) -> dict:
+    signals = {"dna": train_df["dna_sig"], "trend": train_df["trend_sig"], "mom": train_df["mom_sig"]}
+    returns = train_df["Close"].pct_change().fillna(0.0)
+    b = ExpWeightsBandit(eta=eta).fit(signals, returns)
+    return b.get_weights()
+
+def apply_price_council(test_df: pd.DataFrame, W: dict) -> pd.Series:
+    parts = [test_df["dna_sig"]*W.get("dna",0.0),
+             test_df["trend_sig"]*W.get("trend",0.0),
+             test_df["mom_sig"]*W.get("mom",0.0)]
+    s = sum(parts)
+    return s.apply(lambda x: 1.0 if x>0 else (-1.0 if x<0 else 0.0))
+
+def fit_meta(signals_dir: dict, returns: pd.Series, eta: float=0.6) -> dict:
+    b = ExpWeightsBandit(eta=eta).fit(signals_dir, returns)
+    return b.get_weights()
+
+def apply_meta(signals_dir: dict, Wmeta: dict) -> pd.Series:
+    s = None
+    for k, vec in signals_dir.items():
+        w = Wmeta.get(k, 0.0)
+        s = (vec*w) if s is None else (s + vec*w)
+    return s.apply(lambda x: 1.0 if x>0 else (-1.0 if x<0 else 0.0))

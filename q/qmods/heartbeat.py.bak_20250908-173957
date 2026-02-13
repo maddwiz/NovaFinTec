@@ -1,0 +1,8 @@
+import numpy as np, pandas as pd
+
+def heartbeat_bpm(close: pd.Series, lookback: int = 21) -> pd.Series:
+    ret = close.pct_change()
+    vol = ret.rolling(lookback, min_periods=lookback).std() * (252**0.5)
+    # Map vol to bpm: vol 0.05 -> ~65 bpm, vol 0.60 -> ~130 bpm
+    bpm = 65 + (np.clip(vol, 0.05, 0.60) - 0.05) * (65 / 0.55)
+    return bpm.round(1)

@@ -23,3 +23,16 @@ aion/state/*
 # Local PID / temp output
 *.pid
 *.out
+
+# Q runtime artifacts
+q/runs/
+q/runs_cv/
+q/runs_concept/
+q/runs_plus/
+q/runs_plus_park/
+q/report*.html
+q/*.png
+q/*.gif
+q/*.mp4
+q/q_snapshot_*.txt
+q/snapshots/
