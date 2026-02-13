@@ -142,6 +142,9 @@ if __name__ == "__main__":
     # (D) Build symbolic/heartbeat/reflexive layers
     ok, rc = run_script("tools/make_symbolic.py")
     if not ok and rc is not None: failures.append({"step": "tools/make_symbolic.py", "code": rc})
+    # Build shock/news mask early for downstream risk gating.
+    ok, rc = run_script("tools/run_news_sentinel.py")
+    if not ok and rc is not None: failures.append({"step": "tools/run_news_sentinel.py", "code": rc})
     ok, rc = run_script("tools/make_heartbeat.py")
     if not ok and rc is not None: failures.append({"step": "tools/make_heartbeat.py", "code": rc})
     ok, rc = run_script("tools/make_reflexive.py")

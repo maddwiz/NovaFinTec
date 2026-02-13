@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import numpy as np
@@ -101,6 +102,7 @@ if __name__ == "__main__":
     mix = _load_json(RUNS / "meta_mix_info.json") or {}
     nctx = _load_json(RUNS / "novaspine_context.json") or {}
     eco = _load_json(RUNS / "hive_evolution.json") or {}
+    shock_info = _load_json(RUNS / "shock_mask_info.json") or {}
 
     hive_sh = None
     hive_hit = None
@@ -195,6 +197,14 @@ if __name__ == "__main__":
         except Exception:
             nctx_q = None
 
+    shock_q = None
+    try:
+        sr = float(shock_info.get("shock_rate", np.nan))
+        if np.isfinite(sr):
+            shock_q = float(np.clip(1.0 - sr / 0.30, 0.0, 1.0))
+    except Exception:
+        shock_q = None
+
     # Blend across subsystems, using whatever is available.
     quality, quality_detail = blend_quality(
         {
@@ -203,6 +213,7 @@ if __name__ == "__main__":
             "council": (council_q, 0.20),
             "system_health": (health_q, 0.13),
             "ecosystem": (eco_q, 0.07),
+            "shock_env": (shock_q, 0.05),
             "novaspine_context": (nctx_q, 0.12),
         }
     )
@@ -250,6 +261,13 @@ if __name__ == "__main__":
         except Exception:
             pass
 
+    # Shock mask modifier.
+    sm = _load_series(RUNS / "shock_mask.csv")
+    if sm is not None and len(sm):
+        L = min(T, len(sm))
+        alpha = float(np.clip(float(os.getenv("Q_SHOCK_ALPHA", "0.35")), 0.0, 1.0))
+        runtime_mod[:L] *= np.clip(1.0 - 0.80 * alpha * np.clip(sm[:L], 0.0, 1.0), 0.70, 1.0)
+
     qg = np.clip(qg * runtime_mod, 0.55, 1.15)
     if len(qg) > 1:
         for t in range(1, len(qg)):
@@ -270,6 +288,7 @@ if __name__ == "__main__":
             "hive_wf": {"score": float(hive_q), "detail": hive_detail},
             "council": {"score": float(council_q), "detail": council_detail},
             "ecosystem": {"score": float(eco_q) if eco_q is not None else None},
+            "shock_env": {"score": float(shock_q) if shock_q is not None else None},
             "system_health": {"score": float(health_q)},
             "novaspine_context": {"score": float(nctx_q) if nctx_q is not None else None},
         },
@@ -282,6 +301,8 @@ if __name__ == "__main__":
             "synapses_ensemble_dispersion": (RUNS / "synapses_ensemble_dispersion.csv").exists(),
             "meta_mix_info": (RUNS / "meta_mix_info.json").exists(),
             "hive_evolution": (RUNS / "hive_evolution.json").exists(),
+            "shock_mask_info": (RUNS / "shock_mask_info.json").exists(),
+            "shock_mask": (RUNS / "shock_mask.csv").exists(),
             "system_health": (RUNS / "system_health.json").exists(),
             "novaspine_context": (RUNS / "novaspine_context.json").exists(),
         },

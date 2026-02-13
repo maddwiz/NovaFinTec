@@ -197,7 +197,16 @@ if __name__ == "__main__":
         W[:L] = W[:L] * hb
         steps.append("novaspine_hive_boost")
 
-    # 15) Concentration governor (top1/top3 + HHI caps).
+    # 15) Shock/news mask exposure cut.
+    sm = load_series("runs_plus/shock_mask.csv")
+    if sm is not None:
+        L = min(len(sm), W.shape[0])
+        alpha = float(np.clip(float(os.getenv("Q_SHOCK_ALPHA", "0.35")), 0.0, 1.0))
+        sc = (1.0 - alpha * np.clip(sm[:L], 0.0, 1.0)).reshape(-1, 1)
+        W[:L] = W[:L] * sc
+        steps.append("shock_mask_guard")
+
+    # 16) Concentration governor (top1/top3 + HHI caps).
     use_conc = str(os.getenv("Q_USE_CONCENTRATION_GOV", "1")).strip().lower() in {"1", "true", "yes", "on"}
     if use_conc:
         top1 = float(np.clip(float(os.getenv("Q_CONCENTRATION_TOP1_CAP", "0.18")), 0.01, 1.0))
@@ -218,16 +227,16 @@ if __name__ == "__main__":
             )
         )
 
-    # 16) Save final
+    # 17) Save final
     outp = RUNS/"portfolio_weights_final.csv"
     np.savetxt(outp, W, delimiter=",")
 
-    # 17) Small JSON breadcrumb
+    # 18) Small JSON breadcrumb
     (RUNS/"final_portfolio_info.json").write_text(
         json.dumps({"steps": steps, "T": int(T), "N": int(N)}, indent=2)
     )
 
-    # 18) Report card
+    # 19) Report card
     html = f"<p>Built <b>portfolio_weights_final.csv</b> (T={T}, N={N}). Steps: {', '.join(steps)}.</p>"
     append_card("Final Portfolio ✔", html)
 

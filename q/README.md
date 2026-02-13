@@ -58,6 +58,7 @@ python tools/run_all_in_one_plus.py
 ```
 This now includes:
 - symbolic + heartbeat + reflexive generation
+- shock/news sentinel gating
 - hive build + hive walk-forward diagnostics
 - guardrails, governors, councils, meta/synapses, cross-hive, ecosystem
 - adaptive cross-hive arbitration (time-varying alpha/inertia from disagreement/divergence)
@@ -190,4 +191,12 @@ export Q_USE_CONCENTRATION_GOV=1
 export Q_CONCENTRATION_TOP1_CAP=0.18
 export Q_CONCENTRATION_TOP3_CAP=0.42
 export Q_CONCENTRATION_MAX_HHI=0.14
+```
+Shock/news controls:
+```bash
+export NEWS_SHOCK_Z=2.5
+export NEWS_SHOCK_MIN_LEN=2
+export NEWS_SHOCK_COOLDOWN=3
+export NEWS_SHOCK_QUANTILE=0.985
+export Q_SHOCK_ALPHA=0.35
 ```
