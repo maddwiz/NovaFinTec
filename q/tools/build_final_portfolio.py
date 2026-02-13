@@ -8,11 +8,17 @@
 # Appends a card to report_*.
 
 import json
+import os
 import numpy as np
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNS = ROOT / "runs_plus"; RUNS.mkdir(exist_ok=True)
+
+import sys
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from qmods.concentration_governor import govern_matrix
 
 def load_mat(rel):
     p = ROOT/rel
@@ -191,16 +197,37 @@ if __name__ == "__main__":
         W[:L] = W[:L] * hb
         steps.append("novaspine_hive_boost")
 
-    # 15) Save final
+    # 15) Concentration governor (top1/top3 + HHI caps).
+    use_conc = str(os.getenv("Q_USE_CONCENTRATION_GOV", "1")).strip().lower() in {"1", "true", "yes", "on"}
+    if use_conc:
+        top1 = float(np.clip(float(os.getenv("Q_CONCENTRATION_TOP1_CAP", "0.18")), 0.01, 1.0))
+        top3 = float(np.clip(float(os.getenv("Q_CONCENTRATION_TOP3_CAP", "0.42")), 0.01, 1.0))
+        hhi = float(np.clip(float(os.getenv("Q_CONCENTRATION_MAX_HHI", "0.14")), 0.01, 1.0))
+        W, cstats = govern_matrix(W, top1_cap=top1, top3_cap=top3, max_hhi=hhi)
+        steps.append("concentration_governor")
+        (RUNS / "concentration_governor_info.json").write_text(
+            json.dumps(
+                {
+                    "enabled": True,
+                    "top1_cap": top1,
+                    "top3_cap": top3,
+                    "max_hhi": hhi,
+                    "stats": cstats,
+                },
+                indent=2,
+            )
+        )
+
+    # 16) Save final
     outp = RUNS/"portfolio_weights_final.csv"
     np.savetxt(outp, W, delimiter=",")
 
-    # 16) Small JSON breadcrumb
+    # 17) Small JSON breadcrumb
     (RUNS/"final_portfolio_info.json").write_text(
         json.dumps({"steps": steps, "T": int(T), "N": int(N)}, indent=2)
     )
 
-    # 17) Report card
+    # 18) Report card
     html = f"<p>Built <b>portfolio_weights_final.csv</b> (T={T}, N={N}). Steps: {', '.join(steps)}.</p>"
     append_card("Final Portfolio ✔", html)
 

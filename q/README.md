@@ -184,3 +184,10 @@ Nested WF robustness:
 export NWF_INNER_FOLDS=4
 export NWF_EMBARGO=5
 ```
+Concentration governor:
+```bash
+export Q_USE_CONCENTRATION_GOV=1
+export Q_CONCENTRATION_TOP1_CAP=0.18
+export Q_CONCENTRATION_TOP3_CAP=0.42
+export Q_CONCENTRATION_MAX_HHI=0.14
+```
