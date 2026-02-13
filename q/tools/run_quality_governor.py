@@ -151,6 +151,13 @@ if __name__ == "__main__":
         syn_disp_q = float(np.clip(1.0 - syn_disp_mean / 0.35, 0.0, 1.0))
     else:
         syn_disp_q = None
+    meta_cal_q = None
+    try:
+        mcal = float(mix.get("mean_confidence_calibrated", np.nan))
+        if np.isfinite(mcal):
+            meta_cal_q = float(np.clip(mcal, 0.0, 1.0))
+    except Exception:
+        meta_cal_q = None
 
     eco_q = None
     try:
@@ -187,6 +194,7 @@ if __name__ == "__main__":
             "council_hit": (hit_quality(council_hit), 0.25),
             "council_conf": (float(np.clip(council_conf, 0.0, 1.0)) if np.isfinite(council_conf) else None, 0.30),
             "synapses_agreement": (syn_disp_q, 0.10),
+            "meta_calibration": (meta_cal_q, 0.15),
         }
     )
     health_q = float(np.clip(float(health.get("health_score", 50.0)) / 100.0, 0.0, 1.0))
@@ -280,6 +288,13 @@ if __name__ == "__main__":
         alpha = float(np.clip(float(os.getenv("Q_SHOCK_ALPHA", "0.35")), 0.0, 1.0))
         runtime_mod[:L] *= np.clip(1.0 - 0.80 * alpha * np.clip(sm[:L], 0.0, 1.0), 0.70, 1.0)
 
+    # Meta/council reliability governor from confidence calibration.
+    mrg = _load_series(RUNS / "meta_mix_reliability_governor.csv")
+    if mrg is not None and len(mrg):
+        L = min(T, len(mrg))
+        mm = np.clip(np.asarray(mrg[:L], float), 0.70, 1.20)
+        runtime_mod[:L] *= np.clip(mm, 0.75, 1.15)
+
     # Dream coherence modifier from dream/reflex/symbolic consistency.
     dcg = _load_series(RUNS / "dream_coherence_governor.csv")
     if dcg is not None and len(dcg):
@@ -321,6 +336,7 @@ if __name__ == "__main__":
             "synapses_ensemble_dispersion": (RUNS / "synapses_ensemble_dispersion.csv").exists(),
             "meta_mix_info": (RUNS / "meta_mix_info.json").exists(),
             "hive_evolution": (RUNS / "hive_evolution.json").exists(),
+            "meta_mix_reliability_governor": (RUNS / "meta_mix_reliability_governor.csv").exists(),
             "shock_mask_info": (RUNS / "shock_mask_info.json").exists(),
             "shock_mask": (RUNS / "shock_mask.csv").exists(),
             "dream_coherence_info": (RUNS / "dream_coherence_info.json").exists(),

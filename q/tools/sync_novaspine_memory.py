@@ -115,6 +115,7 @@ def build_events():
     health = _load_json(RUNS / "system_health.json") or {}
     alerts = _load_json(RUNS / "health_alerts.json") or {}
     quality = _load_json(RUNS / "quality_snapshot.json") or {}
+    mix = _load_json(RUNS / "meta_mix_info.json") or {}
     dream = _load_json(RUNS / "dream_coherence_info.json") or {}
     cross = _load_json(RUNS / "cross_hive_summary.json") or {}
     eco = _load_json(RUNS / "hive_evolution.json") or {}
@@ -131,6 +132,7 @@ def build_events():
     drift_watch = _load_json(RUNS / "portfolio_drift_watch.json") or {}
     gov_trace = _load_series(RUNS / "final_governor_trace.csv")
     hb_stress = _load_series(RUNS / "heartbeat_stress.csv")
+    meta_rel = _load_series(RUNS / "meta_mix_reliability_governor.csv")
 
     W = _load_matrix(RUNS / "portfolio_weights_final.csv")
     weights_info = {}
@@ -254,6 +256,13 @@ def build_events():
                     "signals": int(len((dream or {}).get("signals", []) or [])) if isinstance(dream, dict) else 0,
                     "mean_coherence": _safe_float((dream or {}).get("mean_coherence", 0.0)),
                     "mean_governor": _safe_float((dream or {}).get("mean_governor", 0.0)),
+                },
+                "meta_mix_reliability": {
+                    "mean_governor": float(np.mean(meta_rel)) if meta_rel is not None and len(meta_rel) else None,
+                    "mean_confidence_raw": _safe_float((mix or {}).get("mean_confidence_raw", 0.0)),
+                    "mean_confidence_calibrated": _safe_float((mix or {}).get("mean_confidence_calibrated", 0.0)),
+                    "brier_raw": _safe_float((mix or {}).get("brier_raw", 0.0)),
+                    "brier_calibrated": _safe_float((mix or {}).get("brier_calibrated", 0.0)),
                 },
                 "final_steps": list((final_info or {}).get("steps", []) or []),
                 "pipeline_failed_count": int((pipeline or {}).get("failed_count", 0)),

@@ -97,6 +97,9 @@ export Q_MAX_HEARTBEAT_STRESS=0.85
 - `runs_plus/dream_coherence_governor.csv`
 - `runs_plus/dream_coherence_info.json`
 - `runs_plus/heartbeat_stress.csv`
+- `runs_plus/meta_mix_confidence_raw.csv`
+- `runs_plus/meta_mix_confidence_calibrated.csv`
+- `runs_plus/meta_mix_reliability_governor.csv`
 - `runs_plus/hive_transparency.json`
 - `runs_plus/hive_dynamic_quality.csv`
 - `runs_plus/final_governor_trace.csv`

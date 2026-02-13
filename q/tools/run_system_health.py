@@ -94,6 +94,9 @@ if __name__ == "__main__":
         RUNS / "synapses_summary.json",
         RUNS / "meta_stack_summary.json",
         RUNS / "hive_transparency.json",
+        RUNS / "meta_mix_confidence_raw.csv",
+        RUNS / "meta_mix_confidence_calibrated.csv",
+        RUNS / "meta_mix_reliability_governor.csv",
         RUNS / "tune_best_config.json",
         RUNS / "quality_runtime_modifier.csv",
         RUNS / "turnover_budget_rolling_after.csv",
@@ -141,6 +144,7 @@ if __name__ == "__main__":
     gov = _load_series(RUNS / "global_governor.csv")
     hive_gov = _load_series(RUNS / "hive_diversification_governor.csv")
     quality_gov = _load_series(RUNS / "quality_governor.csv")
+    meta_rel = _load_series(RUNS / "meta_mix_reliability_governor.csv")
     dream_gov = _load_series(RUNS / "dream_coherence_governor.csv")
     nsp_ctx_boost = _load_series(RUNS / "novaspine_context_boost.csv")
     nsp_hive_boost = _load_series(RUNS / "novaspine_hive_boost.csv")
@@ -163,6 +167,11 @@ if __name__ == "__main__":
     if quality_gov is not None:
         shape["quality_governor_rows"] = int(len(quality_gov))
         shape["quality_governor_mean"] = float(np.mean(quality_gov))
+    if meta_rel is not None:
+        shape["meta_mix_reliability_rows"] = int(len(meta_rel))
+        shape["meta_mix_reliability_mean"] = float(np.mean(meta_rel))
+        shape["meta_mix_reliability_min"] = float(np.min(meta_rel))
+        shape["meta_mix_reliability_max"] = float(np.max(meta_rel))
     if hb_stress is not None:
         shape["heartbeat_stress_rows"] = int(len(hb_stress))
         shape["heartbeat_stress_mean"] = float(np.mean(hb_stress))

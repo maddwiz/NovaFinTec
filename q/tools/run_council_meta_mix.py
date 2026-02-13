@@ -10,11 +10,19 @@
 #   runs_plus/meta_mix_info.json      (best params + diagnostics)
 
 import json
+import sys
 from pathlib import Path
 
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from qmods.confidence_calibration import (
+    apply_empirical_calibrator,
+    fit_empirical_calibrator,
+    reliability_governor_from_calibrated,
+)
 RUNS = ROOT / "runs_plus"
 RUNS.mkdir(exist_ok=True)
 
@@ -165,10 +173,29 @@ if __name__ == "__main__":
     best_smooth = smooth_signal(best_raw, beta=best["smooth_beta"])
     best_pos = np.tanh(best["gross"] * best_smooth)
     mix_conf = np.clip(best["alpha_meta"] * mc + (1.0 - best["alpha_meta"]) * sc, 0.0, 1.0)
+    raw_conf = np.clip(0.55 * mix_conf + 0.45 * np.abs(best_pos), 0.0, 1.0)
+
+    # Confidence calibration: map raw confidence to empirical directional hit rates.
+    # Pred at t maps to y[t+1], so use lag-aligned outcomes for fit.
+    lag_pos = best_pos[:-1]
+    out_hit = (np.sign(lag_pos) == np.sign(y_fwd)).astype(float)
+    conf_pred = raw_conf[:-1]
+    cal = fit_empirical_calibrator(conf_pred, out_hit, n_bins=10, min_count=24)
+    conf_cal = apply_empirical_calibrator(raw_conf, cal)
+    rel_gov = reliability_governor_from_calibrated(conf_cal, lo=0.72, hi=1.16, smooth=0.88)
+
     leverage = np.clip(1.0 + 0.25 * np.abs(best_pos) * mix_conf, 0.80, 1.35)
 
     np.savetxt(RUNS / "meta_mix.csv", best_pos, delimiter=",")
     np.savetxt(RUNS / "meta_mix_leverage.csv", leverage, delimiter=",")
+    np.savetxt(RUNS / "meta_mix_confidence_raw.csv", raw_conf, delimiter=",")
+    np.savetxt(RUNS / "meta_mix_confidence_calibrated.csv", conf_cal, delimiter=",")
+    np.savetxt(RUNS / "meta_mix_reliability_governor.csv", rel_gov, delimiter=",")
+
+    hit_pred = float(np.mean(out_hit)) if len(out_hit) else 0.0
+    hit_cal = float(np.mean(np.where(conf_pred >= 0.5, 1.0, 0.0) == out_hit)) if len(out_hit) else 0.0
+    brier_raw = float(np.mean((conf_pred - out_hit) ** 2)) if len(out_hit) else None
+    brier_cal = float(np.mean((conf_cal[:-1] - out_hit) ** 2)) if len(out_hit) else None
 
     info = {
         "length": int(T),
@@ -180,8 +207,16 @@ if __name__ == "__main__":
         "downside_vol": best["downside_vol"],
         "turnover": best["turnover"],
         "hit_rate": best["hit_rate"],
+        "directional_hit_rate": hit_pred,
+        "confidence_hit_rate_at_0_5": hit_cal,
+        "brier_raw": brier_raw,
+        "brier_calibrated": brier_cal,
+        "mean_confidence_raw": float(np.mean(raw_conf)) if len(raw_conf) else 0.0,
+        "mean_confidence_calibrated": float(np.mean(conf_cal)) if len(conf_cal) else 0.0,
         "mean_leverage": float(np.mean(leverage)) if len(leverage) else 1.0,
         "mean_confidence": float(np.mean(mix_conf)) if len(mix_conf) else 0.0,
+        "mean_reliability_governor": float(np.mean(rel_gov)) if len(rel_gov) else 1.0,
+        "calibration": cal,
     }
     (RUNS / "meta_mix_info.json").write_text(json.dumps(info, indent=2))
 
@@ -191,6 +226,9 @@ if __name__ == "__main__":
             f"<p>alpha(meta)={best['alpha_meta']:.2f}, beta={best['smooth_beta']:.2f}, gross={best['gross']:.2f}</p>"
             f"<p>Sharpe={best['sharpe']:.3f}, downside={best['downside_vol']:.3f}, turnover={best['turnover']:.3f}, "
             f"hit={best['hit_rate']:.3f}, mean lev={info['mean_leverage']:.3f}</p>"
+            f"<p>Conf raw={info['mean_confidence_raw']:.3f}, cal={info['mean_confidence_calibrated']:.3f}, "
+            f"rel gov={info['mean_reliability_governor']:.3f}, brier(raw/cal)="
+            f"{(info['brier_raw'] or 0.0):.4f}/{(info['brier_calibrated'] or 0.0):.4f}</p>"
         ),
     )
     print(

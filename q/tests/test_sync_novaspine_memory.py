@@ -23,6 +23,15 @@ def test_build_events_includes_governance_audit_events(tmp_path, monkeypatch):
     _write_json(tmp_path / "system_health.json", {"health_score": 88})
     _write_json(tmp_path / "health_alerts.json", {"ok": True, "alerts": []})
     _write_json(tmp_path / "quality_snapshot.json", {"quality_score": 0.66, "quality_governor_mean": 0.84})
+    _write_json(
+        tmp_path / "meta_mix_info.json",
+        {
+            "mean_confidence_raw": 0.58,
+            "mean_confidence_calibrated": 0.62,
+            "brier_raw": 0.241,
+            "brier_calibrated": 0.229,
+        },
+    )
     _write_json(tmp_path / "dream_coherence_info.json", {"status": "ok", "signals": ["reflex_latent", "meta_mix"], "mean_coherence": 0.62, "mean_governor": 0.93})
     _write_json(tmp_path / "cross_hive_summary.json", {"hives": ["EQ", "FX"], "mean_turnover": 0.2, "latest_weights": {"EQ": 0.6}})
     _write_json(tmp_path / "hive_evolution.json", {"events": [{"event": "split_applied"}]})
@@ -39,6 +48,7 @@ def test_build_events_includes_governance_audit_events(tmp_path, monkeypatch):
     _write_json(tmp_path / "portfolio_drift_watch.json", {"drift": {"status": "ok", "latest_l1": 0.4, "mean_l1": 0.2, "p95_l1": 0.35}})
     np.savetxt(tmp_path / "final_governor_trace.csv", np.array([[1.0, 0.9], [1.0, 0.85]], float), delimiter=",")
     np.savetxt(tmp_path / "heartbeat_stress.csv", np.array([0.45, 0.60], float), delimiter=",")
+    np.savetxt(tmp_path / "meta_mix_reliability_governor.csv", np.array([0.95, 1.01], float), delimiter=",")
 
     np.savetxt(tmp_path / "portfolio_weights_final.csv", np.array([[0.1, -0.1], [0.2, -0.2]], float), delimiter=",")
 
@@ -61,6 +71,9 @@ def test_build_events_includes_governance_audit_events(tmp_path, monkeypatch):
     hb = rc.get("payload", {}).get("heartbeat_stress", {})
     assert float(hb.get("latest")) > 0.0
     assert float(hb.get("mean")) > 0.0
+    mmr = rc.get("payload", {}).get("meta_mix_reliability", {})
+    assert float(mmr.get("mean_governor")) > 0.0
+    assert float(mmr.get("mean_confidence_calibrated")) > 0.0
     trusts = [float(e.get("trust", 0.0)) for e in events]
     assert all(0.0 <= t <= 1.0 for t in trusts)
 
