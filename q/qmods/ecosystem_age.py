@@ -90,7 +90,8 @@ def govern_hive_weights(
 
     T = len(w)
     H = len(hives)
-    governed = w[hives].astype(float).values
+    # Force a writable dense copy; some pandas/NumPy builds can expose read-only views.
+    governed = w[hives].to_numpy(dtype=float, copy=True)
     vitality = np.zeros((T, H), dtype=float)
     vol = np.zeros((T, H), dtype=float)
 
