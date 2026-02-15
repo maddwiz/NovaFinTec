@@ -250,6 +250,20 @@ def breakout_down(df: pd.DataFrame, lookback: int = 20) -> pd.Series:
     return df["close"] < prior_low
 
 
+def inside_bar(df: pd.DataFrame) -> pd.Series:
+    return (df["high"] < df["high"].shift(1)) & (df["low"] > df["low"].shift(1))
+
+
+def inside_bar_breakout(df: pd.DataFrame) -> pd.Series:
+    ib_prev = inside_bar(df).shift(1).eq(True)
+    return ib_prev & (df["close"] > df["high"].shift(1))
+
+
+def inside_bar_breakdown(df: pd.DataFrame) -> pd.Series:
+    ib_prev = inside_bar(df).shift(1).eq(True)
+    return ib_prev & (df["close"] < df["low"].shift(1))
+
+
 def _double_top_window(arr: np.ndarray, tolerance: float = 0.006) -> float:
     if len(arr) < 12:
         return 0.0

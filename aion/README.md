@@ -40,7 +40,7 @@ IB connection attempts also scan `AION_IB_PORT_CANDIDATES` (default: `IB_PORT,40
 `AION_IB_APP_CANDIDATES` can define comma-separated IB .app fallback paths for auto-restart.
 `AION_AUTO_IB_WARMUP=1` (default) waits up to `AION_IB_WARMUP_SECONDS` for API handshake readiness before startup proceeds.
 Signal engine upgrades include live flag/triangle pattern detection, confluence voting, and regime-aware entry thresholds.
-Pattern set now also includes live head-and-shoulders, inverse head-and-shoulders, and wedge breakout/breakdown detection.
+Pattern set now also includes live head-and-shoulders, inverse head-and-shoulders, wedge breakout/breakdown, and inside-bar breakout/breakdown detection.
 
 Useful tuning env vars:
 - `AION_CONFLUENCE_LONG_MIN`, `AION_CONFLUENCE_SHORT_MIN`

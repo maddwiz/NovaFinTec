@@ -21,6 +21,8 @@ from .indicators import (
     fib_levels,
     head_and_shoulders_top,
     inverse_head_and_shoulders_bottom,
+    inside_bar_breakdown,
+    inside_bar_breakout,
     is_bear_harami,
     is_bear_engulf,
     is_bull_harami,
@@ -83,6 +85,8 @@ def compute_features(df: pd.DataFrame, cfg) -> pd.DataFrame:
 
     out["breakout_up"] = breakout_up(out, lookback=20)
     out["breakout_down"] = breakout_down(out, lookback=20)
+    out["inside_bar_breakout"] = inside_bar_breakout(out)
+    out["inside_bar_breakdown"] = inside_bar_breakdown(out)
     out["double_top"] = double_top(out["close"], lookback=24)
     out["double_bottom"] = double_bottom(out["close"], lookback=24)
     out["head_and_shoulders_top"] = head_and_shoulders_top(out["close"], lookback=30)
@@ -267,6 +271,12 @@ def _breakout_component(row: pd.Series):
     if bool(row["breakout_down"]):
         short += 0.75
         reasons_s.append("Price breakout down")
+    if bool(row.get("inside_bar_breakout", False)):
+        long += 0.44
+        reasons_l.append("Inside-bar breakout")
+    if bool(row.get("inside_bar_breakdown", False)):
+        short += 0.44
+        reasons_s.append("Inside-bar breakdown")
     if bool(row.get("breakout_retest_up", False)):
         long += 0.48
         reasons_l.append("Breakout retest held")
@@ -472,6 +482,7 @@ def _confluence_component(row: pd.Series):
             "bull_flag_breakout",
             "ascending_triangle_breakout",
             "falling_wedge_breakout",
+            "inside_bar_breakout",
             "inverse_head_and_shoulders_bottom",
         ]
     )
@@ -486,6 +497,7 @@ def _confluence_component(row: pd.Series):
             "bear_flag_breakdown",
             "descending_triangle_breakdown",
             "rising_wedge_breakdown",
+            "inside_bar_breakdown",
             "head_and_shoulders_top",
         ]
     )
