@@ -164,6 +164,21 @@ def _overlay_age_hours(path: Path):
     return float((datetime.now(timezone.utc) - ts).total_seconds() / 3600.0)
 
 
+def _parse_utc_ts(raw):
+    s = str(raw or "").strip()
+    if not s:
+        return None
+    if s.endswith("Z"):
+        s = s[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(s)
+    except Exception:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
 def check_external_overlay(
     path: Path,
     max_age_hours: float = 12.0,
@@ -180,7 +195,19 @@ def check_external_overlay(
     if not isinstance(payload, dict):
         return False, "External overlay payload must be a JSON object", {"exists": True}
 
-    age_h = _overlay_age_hours(path)
+    age_mtime_h = _overlay_age_hours(path)
+    age_h = None
+    age_source = "unknown"
+    generated_at_utc = None
+    if isinstance(payload, dict):
+        gen_dt = _parse_utc_ts(payload.get("generated_at_utc", payload.get("generated_at")))
+        if gen_dt is not None:
+            generated_at_utc = gen_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+            age_h = float((datetime.now(timezone.utc) - gen_dt).total_seconds() / 3600.0)
+            age_source = "payload"
+    if age_h is None and age_mtime_h is not None:
+        age_h = float(age_mtime_h)
+        age_source = "mtime"
     if age_h is None:
         return False, "Cannot determine external overlay file age", {"exists": True}
 
@@ -220,6 +247,8 @@ def check_external_overlay(
     details = {
         "exists": True,
         "age_hours": age_h,
+        "age_source": age_source,
+        "generated_at_utc": generated_at_utc,
         "max_age_hours": max_age,
         "signals": int(sig_count),
         "degraded_safe_mode": degraded,

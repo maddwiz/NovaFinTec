@@ -1,5 +1,6 @@
 import json
 import os
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from aion.exec.doctor import _overlay_remediation, check_external_overlay
@@ -11,9 +12,11 @@ def _write(path: Path, payload: dict):
 
 def test_check_external_overlay_ok(tmp_path: Path):
     p = tmp_path / "overlay.json"
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     _write(
         p,
         {
+            "generated_at_utc": ts,
             "signals": {"AAPL": {"bias": 0.2, "confidence": 0.7}},
             "quality_gate": {"ok": True},
             "runtime_context": {"runtime_multiplier": 0.9, "risk_flags": []},
@@ -25,6 +28,8 @@ def test_check_external_overlay_ok(tmp_path: Path):
     assert "healthy" in msg.lower()
     assert details["signals"] == 1
     assert details["runtime_context_present"] is True
+    assert details["age_source"] == "payload"
+    assert details["generated_at_utc"] == ts
 
 
 def test_check_external_overlay_flags_degraded_and_qgate(tmp_path: Path):
@@ -103,3 +108,45 @@ def test_overlay_remediation_provides_actionable_tips(tmp_path: Path):
     assert "quality gate" in joined
     assert "runtime_context" in joined
     assert "fracture" in joined
+
+
+def test_check_external_overlay_prefers_payload_timestamp_over_mtime(tmp_path: Path):
+    p = tmp_path / "overlay.json"
+    fresh = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    _write(
+        p,
+        {
+            "generated_at_utc": fresh,
+            "signals": {"AAPL": {"bias": 0.2, "confidence": 0.7}},
+            "quality_gate": {"ok": True},
+            "runtime_context": {"runtime_multiplier": 0.9, "risk_flags": []},
+            "degraded_safe_mode": False,
+        },
+    )
+    old_ts = 946684800
+    os.utime(p, (old_ts, old_ts))
+    ok, _msg, details = check_external_overlay(p, max_age_hours=1.0, require_runtime_context=True)
+    assert ok is True
+    assert details["age_source"] == "payload"
+
+
+def test_check_external_overlay_stale_from_payload_timestamp(tmp_path: Path):
+    p = tmp_path / "overlay.json"
+    stale = (datetime.now(timezone.utc) - timedelta(hours=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    _write(
+        p,
+        {
+            "generated_at_utc": stale,
+            "signals": {"AAPL": {"bias": 0.2, "confidence": 0.7}},
+            "quality_gate": {"ok": True},
+            "runtime_context": {"runtime_multiplier": 0.9, "risk_flags": []},
+            "degraded_safe_mode": False,
+        },
+    )
+    now_ts = datetime.now(timezone.utc).timestamp()
+    os.utime(p, (now_ts, now_ts))
+    ok, msg, details = check_external_overlay(p, max_age_hours=12.0, require_runtime_context=True)
+    assert ok is False
+    assert "stale>" in msg
+    assert details["age_source"] == "payload"
+    assert "overlay_stale" in details["risk_flags"]
