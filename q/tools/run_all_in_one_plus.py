@@ -97,6 +97,27 @@ def try_open_report():
             return
     print("(!) No report HTML found to open.")
 
+
+def has_any_report(root: Path | None = None) -> bool:
+    r = ROOT if root is None else Path(root)
+    for n in ["report_best_plus.html", "report_all.html", "report_plus.html", "report.html"]:
+        if (r / n).exists():
+            return True
+    return False
+
+
+def ensure_report_exists():
+    if has_any_report():
+        return True
+    # Attempt lightweight builders only when report is missing.
+    for tool in ["tools/build_report_plus.py", "tools/build_report.py"]:
+        ok, _rc = run_script(tool)
+        if ok and has_any_report():
+            print("✅ Built missing report artifact.")
+            return True
+    return has_any_report()
+
+
 def ensure_env():
     # make sure PYTHONPATH includes project root
     os.environ.setdefault("PYTHONPATH", str(ROOT))
@@ -251,7 +272,8 @@ if __name__ == "__main__":
     if not ok and rc is not None: failures.append({"step": "tools/sync_novaspine_memory.py", "code": rc})
 
     # ---------- REPORT ----------
-    # Many scripts already append cards; try to open the best report file.
+    # Many scripts already append cards; ensure a report exists then open best file.
+    ensure_report_exists()
     try_open_report()
 
     write_pipeline_status(failures, strict_mode=strict)

@@ -70,6 +70,7 @@ This now includes:
 - NovaSpine recall feedback loop (augment -> context boost -> final risk scaling)
 - immune drill governance check (synthetic stress scenarios)
 - final portfolio assembly + system health + alert gate
+- auto-report fallback build when no report HTML exists
 - optional NovaSpine bridge (cold/meta memory sync, async-safe)
 - optional NovaSpine hive memory feedback (per-hive boosts + final projection)
 - hive transparency card/artifact (per-hive Sharpe/hit/DD + weight + memory boost)
