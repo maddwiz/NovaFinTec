@@ -74,3 +74,14 @@ def test_runtime_position_risk_scale_compounds_degraded_and_fracture():
         ext_runtime_diag={"flags": ["fracture_alert"], "degraded": True, "quality_gate_ok": False, "regime": "defensive"},
     )
     assert 0.2 <= s < 0.7
+
+
+def test_runtime_risk_caps_nested_leakage_alert_tightens_caps():
+    trades, opens = _runtime_risk_caps(
+        max_trades_cap=20,
+        max_open_positions_cap=8,
+        ext_runtime_scale=1.0,
+        ext_runtime_diag={"flags": ["nested_leakage_alert"], "degraded": False, "quality_gate_ok": True, "regime": "balanced"},
+    )
+    assert trades <= 13
+    assert opens <= 2

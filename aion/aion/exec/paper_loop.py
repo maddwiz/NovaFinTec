@@ -167,6 +167,14 @@ def _runtime_risk_caps(
         max_open_positions_runtime = min(max_open_positions_runtime, max(1, min(3, int(max_open_positions_cap))))
         max_trades_cap_runtime = min(max_trades_cap_runtime, max(1, int(round(int(max_trades_cap) * 0.80))))
 
+    # Nested-WF leakage quality flags from Q runtime context.
+    if "nested_leakage_alert" in flags:
+        max_open_positions_runtime = min(max_open_positions_runtime, max(1, min(2, int(max_open_positions_cap))))
+        max_trades_cap_runtime = min(max_trades_cap_runtime, max(1, int(round(int(max_trades_cap) * 0.65))))
+    elif "nested_leakage_warn" in flags:
+        max_open_positions_runtime = min(max_open_positions_runtime, max(1, min(3, int(max_open_positions_cap))))
+        max_trades_cap_runtime = min(max_trades_cap_runtime, max(1, int(round(int(max_trades_cap) * 0.85))))
+
     if degraded or (not quality_ok) or regime == "defensive":
         max_open_positions_runtime = min(max_open_positions_runtime, max(1, int(round(int(max_open_positions_cap) * 0.75))))
 

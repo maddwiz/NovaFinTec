@@ -305,6 +305,29 @@ def _runtime_context(runs_dir: Path):
         comps["execution_adaptive_risk_modifier"] = {"value": float(emod), "found": True}
         active_vals.append(float(emod))
 
+    # Nested WF leakage/coverage diagnostics modifier.
+    nested = _load_json(runs_dir / "nested_wf_summary.json") or {}
+    n_assets = _safe_float(nested.get("assets", np.nan), default=np.nan)
+    n_util = _safe_float(nested.get("avg_outer_fold_utilization", np.nan), default=np.nan)
+    n_low = _safe_float(nested.get("low_utilization_assets", np.nan), default=np.nan)
+    n_train = _safe_float(nested.get("avg_train_ratio_mean", np.nan), default=np.nan)
+    n_params = nested.get("params", {}) if isinstance(nested.get("params"), dict) else {}
+    n_gap = _safe_float(n_params.get("purge_embargo_ratio", np.nan), default=np.nan)
+    if math.isfinite(n_assets) and n_assets >= 5 and math.isfinite(n_util):
+        util_mod = _clamp(0.82 + 0.28 * n_util, 0.70, 1.08)
+        low_frac = float(np.clip(n_low / max(1.0, n_assets), 0.0, 1.0)) if math.isfinite(n_low) else 0.0
+        low_mod = _clamp(1.00 - 0.22 * low_frac, 0.74, 1.00)
+        train_mod = _clamp(0.86 + 0.20 * (n_train if math.isfinite(n_train) else 0.75), 0.78, 1.05)
+        if math.isfinite(n_gap):
+            gap_mod = _clamp(1.00 - 0.18 * max(0.0, n_gap - 0.35), 0.76, 1.00)
+        else:
+            gap_mod = 1.00
+        nested_mod = _clamp(util_mod * low_mod * train_mod * gap_mod, 0.60, 1.05)
+        comps["nested_wf_leakage_modifier"] = {"value": float(nested_mod), "found": True}
+        active_vals.append(float(nested_mod))
+    else:
+        low_frac = np.nan
+
     if active_vals:
         arr = np.clip(np.asarray(active_vals, float), 0.20, 2.00)
         mult = float(np.exp(np.mean(np.log(arr + 1e-12))))
@@ -347,6 +370,12 @@ def _runtime_context(runs_dir: Path):
             risk_flags.append("exec_risk_hard")
         elif exec_adapt < 0.75:
             risk_flags.append("exec_risk_tight")
+
+    if math.isfinite(n_assets) and n_assets >= 5 and math.isfinite(n_util):
+        if (n_util < 0.30) or (math.isfinite(low_frac) and low_frac > 0.65):
+            risk_flags.append("nested_leakage_alert")
+        elif (n_util < 0.45) or (math.isfinite(low_frac) and low_frac > 0.45):
+            risk_flags.append("nested_leakage_warn")
 
     return {
         "runtime_multiplier": mult,

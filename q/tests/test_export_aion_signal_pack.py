@@ -77,3 +77,17 @@ def test_runtime_context_includes_execution_adaptive_risk_modifier(tmp_path: Pat
     ctx = ex._runtime_context(tmp_path)
     assert ctx["components"]["execution_adaptive_risk_modifier"]["found"] is True
     assert "exec_risk_hard" in ctx["risk_flags"]
+
+
+def test_runtime_context_flags_nested_leakage_alert(tmp_path: Path):
+    (tmp_path / "nested_wf_summary.json").write_text(
+        (
+            '{"assets":12,"avg_outer_fold_utilization":0.28,'
+            '"low_utilization_assets":9,"avg_train_ratio_mean":0.55,'
+            '"params":{"purge_embargo_ratio":0.92}}'
+        ),
+        encoding="utf-8",
+    )
+    ctx = ex._runtime_context(tmp_path)
+    assert ctx["components"]["nested_wf_leakage_modifier"]["found"] is True
+    assert "nested_leakage_alert" in ctx["risk_flags"]
