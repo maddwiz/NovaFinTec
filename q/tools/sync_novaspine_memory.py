@@ -128,6 +128,7 @@ def build_events():
     final_info = _load_json(RUNS / "final_portfolio_info.json") or {}
     conc = _load_json(RUNS / "concentration_governor_info.json") or {}
     shock = _load_json(RUNS / "shock_mask_info.json") or {}
+    fracture = _load_json(RUNS / "regime_fracture_info.json") or {}
     pipeline = _load_json(RUNS / "pipeline_status.json") or {}
     nctx = _load_json(RUNS / "novaspine_context.json") or {}
     nhive = _load_json(RUNS / "novaspine_hive_feedback.json") or {}
@@ -248,6 +249,12 @@ def build_events():
                     "shock_rate": _safe_float((shock or {}).get("shock_rate", 0.0)),
                     "params": (shock or {}).get("params", {}) if isinstance(shock, dict) else {},
                 },
+                "regime_fracture": {
+                    "state": str((fracture or {}).get("state", "na")) if isinstance(fracture, dict) else "na",
+                    "latest_score": _safe_float((fracture or {}).get("latest_score", 0.0)),
+                    "latest_governor": _safe_float((fracture or {}).get("latest_governor", 1.0), 1.0),
+                    "risk_flags": list((fracture or {}).get("risk_flags", []) or []) if isinstance(fracture, dict) else [],
+                },
                 "turnover_budget": turnover_budget,
                 "concentration": {
                     "enabled": bool((conc or {}).get("enabled", False)) if isinstance(conc, dict) else False,
@@ -339,6 +346,11 @@ def build_events():
             "payload": {
                 "runtime_context": runtime_ctx if isinstance(runtime_ctx, dict) else {},
                 "hive_transparency_summary": (htx or {}).get("summary", {}) if isinstance(htx, dict) else {},
+                "regime_fracture": {
+                    "state": str((fracture or {}).get("state", "na")) if isinstance(fracture, dict) else "na",
+                    "latest_score": _safe_float((fracture or {}).get("latest_score", 0.0)),
+                    "latest_governor": _safe_float((fracture or {}).get("latest_governor", 1.0), 1.0),
+                },
             },
             "trust": float(np.clip(_safe_float((runtime_ctx or {}).get("runtime_multiplier", 1.0), 1.0), 0.0, 1.0)),
         },

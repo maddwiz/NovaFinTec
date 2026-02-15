@@ -49,6 +49,7 @@ def test_build_events_includes_governance_audit_events(tmp_path, monkeypatch):
     _write_json(tmp_path / "final_portfolio_info.json", {"steps": ["quality_governor", "concentration_governor"]})
     _write_json(tmp_path / "concentration_governor_info.json", {"enabled": True, "top1_cap": 0.18, "top3_cap": 0.42, "max_hhi": 0.14, "stats": {"hhi_after": 0.11}})
     _write_json(tmp_path / "shock_mask_info.json", {"shock_days": 10, "shock_rate": 0.05, "params": {"z": 2.5}})
+    _write_json(tmp_path / "regime_fracture_info.json", {"state": "fracture_warn", "latest_score": 0.76, "latest_governor": 0.84, "risk_flags": ["fracture_warn"]})
     _write_json(tmp_path / "pipeline_status.json", {"failed_count": 0})
     _write_json(tmp_path / "novaspine_context.json", {"status": "ok", "context_resonance": 0.6, "context_boost": 1.03})
     _write_json(tmp_path / "novaspine_hive_feedback.json", {"status": "ok", "global_boost": 1.02, "per_hive": {"EQ": {"boost": 1.04}}})
@@ -83,6 +84,9 @@ def test_build_events_includes_governance_audit_events(tmp_path, monkeypatch):
     hb = rc.get("payload", {}).get("heartbeat_stress", {})
     assert float(hb.get("latest")) > 0.0
     assert float(hb.get("mean")) > 0.0
+    frac = rc.get("payload", {}).get("regime_fracture", {})
+    assert frac.get("state") == "fracture_warn"
+    assert float(frac.get("latest_score")) > 0.0
     mmr = rc.get("payload", {}).get("meta_mix_reliability", {})
     assert float(mmr.get("mean_governor")) > 0.0
     assert float(mmr.get("mean_confidence_calibrated")) > 0.0
@@ -99,6 +103,9 @@ def test_build_events_includes_governance_audit_events(tmp_path, monkeypatch):
     assert float(sym.get("mean_stress")) > 0.0
     hp = rc.get("payload", {}).get("hive_persistence", {})
     assert float(hp.get("mean_governor")) > 0.0
+    drc = [e for e in events if e.get("event_type") == "decision.runtime_context"][0]
+    dfrac = drc.get("payload", {}).get("regime_fracture", {})
+    assert dfrac.get("state") == "fracture_warn"
     trusts = [float(e.get("trust", 0.0)) for e in events]
     assert all(0.0 <= t <= 1.0 for t in trusts)
 

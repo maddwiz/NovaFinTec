@@ -118,6 +118,7 @@ AION_MODE=brain AION_TASK=dashboard ./run_aion.sh
 ```
 Then open `http://127.0.0.1:8787` (or your configured `AION_DASHBOARD_HOST`/`AION_DASHBOARD_PORT`).
 Dashboard now includes a `Q Overlay` health tile driven by Doctor checks.
+Dashboard status payload now surfaces `external_fracture_state` derived from Q overlay risk flags.
 Doctor remediation output now includes Q-overlay-specific recovery tips when stale/degraded.
 
 - IB conflict recovery:

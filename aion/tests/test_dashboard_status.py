@@ -24,7 +24,7 @@ def test_status_payload_includes_external_overlay_fields(tmp_path: Path, monkeyp
                     "name": "external_overlay",
                     "ok": False,
                     "msg": "External overlay issues: degraded_safe_mode=true",
-                    "details": {"degraded_safe_mode": True, "signals": 0},
+                    "details": {"degraded_safe_mode": True, "signals": 0, "risk_flags": ["fracture_alert"]},
                 }
             ],
         },
@@ -38,4 +38,6 @@ def test_status_payload_includes_external_overlay_fields(tmp_path: Path, monkeyp
     assert s["external_overlay_ok"] is False
     assert "degraded_safe_mode=true" in str(s["external_overlay_msg"])
     assert s["external_overlay"]["signals"] == 0
+    assert "fracture_alert" in s["external_overlay_risk_flags"]
+    assert s["external_fracture_state"] == "alert"
     assert s["watchlist_count"] == 2

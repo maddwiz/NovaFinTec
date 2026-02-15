@@ -88,6 +88,15 @@ def _status_payload():
     equity_metrics = perf.get("equity_metrics", {})
     ext = _doctor_check(doctor, "external_overlay") or {}
     ext_details = ext.get("details", {}) if isinstance(ext.get("details"), dict) else {}
+    risk_flags = ext_details.get("risk_flags", []) if isinstance(ext_details, dict) else []
+    if not isinstance(risk_flags, list):
+        risk_flags = []
+    risk_flags = [str(x).strip().lower() for x in risk_flags if str(x).strip()]
+    fracture_state = "none"
+    if "fracture_alert" in risk_flags:
+        fracture_state = "alert"
+    elif "fracture_warn" in risk_flags:
+        fracture_state = "warn"
 
     return {
         "ib": doctor.get("ib", {}),
@@ -96,6 +105,8 @@ def _status_payload():
         "external_overlay_ok": bool(ext.get("ok", True)),
         "external_overlay_msg": ext.get("msg"),
         "external_overlay": ext_details,
+        "external_overlay_risk_flags": risk_flags,
+        "external_fracture_state": fracture_state,
         "monitor_ts": monitor.get("ts"),
         "alert_count": len(monitor.get("alerts", [])),
         "system_event_count": len(monitor.get("system_events", [])),
@@ -203,6 +214,8 @@ def _html_template():
         ib: s.ib,
         external_overlay_ok: s.external_overlay_ok,
         external_overlay: s.external_overlay,
+        external_overlay_risk_flags: s.external_overlay_risk_flags,
+        external_fracture_state: s.external_fracture_state,
         external_overlay_msg: s.external_overlay_msg,
         monitor_ts: s.monitor_ts,
         winrate: s.trade_metrics?.winrate,
