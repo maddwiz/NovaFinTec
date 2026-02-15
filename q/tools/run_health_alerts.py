@@ -61,6 +61,7 @@ def build_alert_payload(
     min_exec_turnover_retention = float(thresholds.get("min_exec_turnover_retention", 0.05))
     max_exec_turnover_retention = float(thresholds.get("max_exec_turnover_retention", 1.10))
     max_stale_required = int(thresholds.get("max_stale_required_count", 0))
+    max_quality_gov_step = float(thresholds.get("max_quality_governor_abs_step", 0.12))
 
     issues = []
     score = float(health.get("health_score", 0.0))
@@ -162,6 +163,7 @@ def build_alert_payload(
 
     q_mean = quality.get("quality_governor_mean", None)
     q_score = quality.get("quality_score", None)
+    q_step = quality.get("quality_governor_max_abs_step", None)
     try:
         q_mean = float(q_mean) if q_mean is not None else None
     except Exception:
@@ -170,10 +172,16 @@ def build_alert_payload(
         q_score = float(q_score) if q_score is not None else None
     except Exception:
         q_score = None
+    try:
+        q_step = float(q_step) if q_step is not None else None
+    except Exception:
+        q_step = None
     if q_mean is not None and q_mean < min_quality_gov:
         issues.append(f"quality_governor_mean<{min_quality_gov} ({q_mean:.3f})")
     if q_score is not None and q_score < min_quality_score:
         issues.append(f"quality_score<{min_quality_score} ({q_score:.3f})")
+    if q_step is not None and np.isfinite(q_step) and q_step > max_quality_gov_step:
+        issues.append(f"quality_governor_abs_step>{max_quality_gov_step} ({q_step:.3f})")
 
     dream_score = None
     if isinstance(quality, dict):
@@ -262,6 +270,7 @@ def build_alert_payload(
             "min_exec_turnover_retention": min_exec_turnover_retention,
             "max_exec_turnover_retention": max_exec_turnover_retention,
             "max_stale_required_count": max_stale_required,
+            "max_quality_governor_abs_step": max_quality_gov_step,
         },
         "observed": {
             "health_score": score,
@@ -277,6 +286,7 @@ def build_alert_payload(
             "global_governor_mean": gmean,
             "quality_governor_mean": q_mean,
             "quality_score": q_score,
+            "quality_governor_max_abs_step": q_step,
             "dream_coherence": dream_score,
             "immune_ok": immune_ok,
             "immune_pass": immune_pass,
@@ -312,6 +322,7 @@ if __name__ == "__main__":
     min_exec_turnover_retention = float(os.getenv("Q_MIN_EXEC_TURNOVER_RETENTION", "0.05"))
     max_exec_turnover_retention = float(os.getenv("Q_MAX_EXEC_TURNOVER_RETENTION", "1.10"))
     max_stale_required = int(os.getenv("Q_MAX_STALE_REQUIRED_COUNT", "0"))
+    max_quality_gov_step = float(os.getenv("Q_MAX_QUALITY_GOV_ABS_STEP", "0.12"))
 
     health = _load_json(RUNS / "system_health.json") or {}
     guards = _load_json(RUNS / "guardrails_summary.json") or {}
@@ -351,6 +362,7 @@ if __name__ == "__main__":
             "min_exec_turnover_retention": min_exec_turnover_retention,
             "max_exec_turnover_retention": max_exec_turnover_retention,
             "max_stale_required_count": max_stale_required,
+            "max_quality_governor_abs_step": max_quality_gov_step,
         },
     )
     (RUNS / "health_alerts.json").write_text(json.dumps(payload, indent=2))

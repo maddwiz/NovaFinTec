@@ -192,6 +192,23 @@ def _execution_constraint_quality(exec_info: dict | None, health_issues: list[st
     return q, detail
 
 
+def _cap_step_change(series: np.ndarray, max_step: float | None, lo: float, hi: float):
+    s = np.asarray(series, float).copy()
+    if s.size <= 1:
+        return np.clip(s, lo, hi)
+    m = None if max_step is None else float(max_step)
+    if m is None or (not np.isfinite(m)) or m <= 0.0:
+        return np.clip(s, lo, hi)
+    m = float(np.clip(m, 1e-6, 1.0))
+    for t in range(1, len(s)):
+        d = float(s[t] - s[t - 1])
+        if d > m:
+            s[t] = s[t - 1] + m
+        elif d < -m:
+            s[t] = s[t - 1] - m
+    return np.clip(s, lo, hi)
+
+
 if __name__ == "__main__":
     nested = _load_json(RUNS / "nested_wf_summary.json") or {}
     health = _load_json(RUNS / "system_health.json") or {}
@@ -524,11 +541,18 @@ if __name__ == "__main__":
     if exec_q is not None:
         runtime_mod *= float(np.clip(0.82 + 0.35 * exec_q, 0.70, 1.10))
 
-    qg = np.clip(qg * runtime_mod, 0.55, 1.15)
+    q_lo = float(np.clip(float(os.getenv("Q_QUALITY_GOV_LO", "0.58")), 0.30, 1.20))
+    q_hi = float(np.clip(float(os.getenv("Q_QUALITY_GOV_HI", "1.15")), 0.50, 1.30))
+
+    qg = np.clip(qg * runtime_mod, q_lo, q_hi)
     if len(qg) > 1:
         for t in range(1, len(qg)):
             qg[t] = 0.86 * qg[t - 1] + 0.14 * qg[t]
-        qg = np.clip(qg, 0.55, 1.15)
+        qg = np.clip(qg, q_lo, q_hi)
+    max_step = float(np.clip(float(os.getenv("Q_QUALITY_GOV_MAX_STEP", "0.06")), 0.005, 0.50))
+    qg = _cap_step_change(qg, max_step=max_step, lo=q_lo, hi=q_hi)
+    step_abs_max = float(np.max(np.abs(np.diff(qg)))) if len(qg) > 1 else 0.0
+    step_abs_mean = float(np.mean(np.abs(np.diff(qg)))) if len(qg) > 1 else 0.0
 
     np.savetxt(RUNS / "quality_governor.csv", qg, delimiter=",")
     np.savetxt(RUNS / "quality_runtime_modifier.csv", runtime_mod, delimiter=",")
@@ -538,6 +562,9 @@ if __name__ == "__main__":
         "quality_governor_mean": float(np.mean(qg)) if len(qg) else None,
         "quality_governor_min": float(np.min(qg)) if len(qg) else None,
         "quality_governor_max": float(np.max(qg)) if len(qg) else None,
+        "quality_governor_max_abs_step": step_abs_max,
+        "quality_governor_mean_abs_step": step_abs_mean,
+        "quality_governor_max_step_cfg": max_step,
         "length": int(T),
         "components": {
             "nested_wf": {"score": float(nested_q), "detail": nested_detail},

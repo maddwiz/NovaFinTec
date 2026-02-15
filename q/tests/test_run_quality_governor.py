@@ -1,4 +1,5 @@
 import tools.run_quality_governor as rqg
+import numpy as np
 
 
 def test_execution_constraint_quality_high_for_reasonable_retention():
@@ -47,3 +48,12 @@ def test_execution_constraint_quality_drops_when_turnover_increases():
     assert q is not None
     assert float(detail["turnover_retention"]) > 1.0
     assert float(q) < 0.60
+
+
+def test_cap_step_change_limits_adjacent_moves():
+    x = np.array([0.60, 0.90, 0.30, 1.10], dtype=float)
+    y = rqg._cap_step_change(x, max_step=0.10, lo=0.55, hi=1.15)
+    d = np.diff(y)
+    assert float(np.max(np.abs(d))) <= 0.10 + 1e-12
+    assert float(np.min(y)) >= 0.55 - 1e-12
+    assert float(np.max(y)) <= 1.15 + 1e-12

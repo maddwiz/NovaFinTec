@@ -236,3 +236,37 @@ def test_build_alert_payload_triggers_stale_required_alert():
         },
     )
     assert any("stale_required_count>" in a for a in payload["alerts"])
+
+
+def test_build_alert_payload_triggers_quality_governor_step_alert():
+    payload = rha.build_alert_payload(
+        health={"health_score": 95, "issues": []},
+        guards={"global_governor": {"mean": 0.85}},
+        nested={"assets": 4, "avg_oos_sharpe": 0.8},
+        quality={
+            "quality_governor_mean": 0.88,
+            "quality_score": 0.72,
+            "quality_governor_max_abs_step": 0.18,
+        },
+        immune={"ok": True, "pass": True},
+        pipeline={"failed_count": 0},
+        shock={"shock_rate": 0.05},
+        concentration={"stats": {"hhi_after": 0.12, "top1_after": 0.18}},
+        drift_watch={"drift": {"status": "ok", "latest_l1": 0.5}},
+        thresholds={
+            "min_health_score": 70,
+            "min_global_governor_mean": 0.45,
+            "min_quality_gov_mean": 0.60,
+            "min_quality_score": 0.45,
+            "require_immune_pass": False,
+            "max_health_issues": 2,
+            "min_nested_sharpe": 0.2,
+            "min_nested_assets": 3,
+            "max_shock_rate": 0.25,
+            "max_concentration_hhi_after": 0.18,
+            "max_concentration_top1_after": 0.30,
+            "max_portfolio_l1_drift": 1.2,
+            "max_quality_governor_abs_step": 0.12,
+        },
+    )
+    assert any("quality_governor_abs_step>" in a for a in payload["alerts"])
