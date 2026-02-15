@@ -115,6 +115,27 @@ def roc(series: pd.Series, length: int = 10) -> pd.Series:
     return (series - prev) / (prev.abs() + 1e-9)
 
 
+def rolling_vwap(df: pd.DataFrame, length: int = 20) -> pd.Series:
+    """
+    Rolling VWAP using typical price and volume.
+    Falls back to SMA(close) if volume is unavailable.
+    """
+    close = pd.to_numeric(df.get("close"), errors="coerce")
+    vol = df.get("volume")
+    if vol is None:
+        return close.rolling(int(max(1, length))).mean()
+
+    vol = pd.to_numeric(vol, errors="coerce").fillna(0.0)
+    typical = (
+        pd.to_numeric(df.get("high"), errors="coerce")
+        + pd.to_numeric(df.get("low"), errors="coerce")
+        + close
+    ) / 3.0
+    pv = typical * vol
+    l = int(max(1, length))
+    return pv.rolling(l).sum() / (vol.rolling(l).sum() + 1e-9)
+
+
 # Candlestick patterns
 
 def is_bull_engulf(df: pd.DataFrame) -> pd.Series:

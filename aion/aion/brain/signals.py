@@ -35,6 +35,7 @@ from .indicators import (
     mfi,
     obv,
     roc,
+    rolling_vwap,
     rsi,
     stochastic,
 )
@@ -55,6 +56,9 @@ def compute_features(df: pd.DataFrame, cfg) -> pd.DataFrame:
     out["macd"], out["macd_signal"], out["macd_hist"] = macd(out["close"])
     out["bb_upper"], out["bb_mid"], out["bb_lower"], out["bb_width"] = bollinger_bands(out["close"], cfg.BB_LEN, cfg.BB_STD)
     out["stoch_k"], out["stoch_d"] = stochastic(out, cfg.STOCH_LEN, cfg.STOCH_SMOOTH)
+    vwap_len = int(getattr(cfg, "VWAP_LEN", 20))
+    out["vwap"] = rolling_vwap(out, vwap_len)
+    out["vwap_gap_pct"] = (out["close"] - out["vwap"]) / (out["close"].abs() + 1e-9)
     out["obv"] = obv(out)
     out["obv_prev"] = out["obv"].shift(1)
     div = _divergence_features(out, cfg)
@@ -92,6 +96,8 @@ def compute_features(df: pd.DataFrame, cfg) -> pd.DataFrame:
     out["stoch_cross_down"] = (out["stoch_k"] < out["stoch_d"]) & (out["stoch_k"].shift(1) >= out["stoch_d"].shift(1))
     out["rsi_cross_50_up"] = (out["rsi"] > 50) & (out["rsi"].shift(1) <= 50)
     out["rsi_cross_50_down"] = (out["rsi"] < 50) & (out["rsi"].shift(1) >= 50)
+    out["vwap_cross_up"] = (out["close"] > out["vwap"]) & (out["close"].shift(1) <= out["vwap"].shift(1))
+    out["vwap_cross_down"] = (out["close"] < out["vwap"]) & (out["close"].shift(1) >= out["vwap"].shift(1))
 
     vol = out.get("volume")
     if vol is None:
@@ -286,6 +292,12 @@ def _confirmation_component(row: pd.Series):
     if bool(row.get("rsi_cross_50_down", False)):
         short += 0.20
         reasons_s.append("RSI crossed below 50")
+    if bool(row.get("vwap_cross_up", False)):
+        long += 0.22
+        reasons_l.append("VWAP bullish cross")
+    if bool(row.get("vwap_cross_down", False)):
+        short += 0.22
+        reasons_s.append("VWAP bearish cross")
 
     cci_v = float(row.get("cci", 0.0))
     if cci_v > 100:
@@ -325,6 +337,7 @@ def _confirmation_component(row: pd.Series):
         reasons_s.append("Bearish OBV divergence")
 
     vol_rel = float(row.get("volume_rel", 1.0))
+    vwap_gap = float(row.get("vwap_gap_pct", 0.0))
     if vol_rel >= 1.6:
         if float(row.get("close", 0.0)) >= float(row.get("open", 0.0)):
             long += 0.16
@@ -332,6 +345,12 @@ def _confirmation_component(row: pd.Series):
         else:
             short += 0.16
             reasons_s.append("Volume expansion on down bar")
+    if vol_rel >= 1.1 and vwap_gap >= 0.002:
+        long += 0.15
+        reasons_l.append("Holding above VWAP on volume")
+    elif vol_rel >= 1.1 and vwap_gap <= -0.002:
+        short += 0.15
+        reasons_s.append("Holding below VWAP on volume")
 
     dist_high = float(row.get("dist_high_20", 1.0))
     dist_low = float(row.get("dist_low_20", 1.0))
@@ -448,6 +467,7 @@ def _confluence_component(row: pd.Series):
         float(row.get("mfi", 50.0)) >= 50,
         float(row.get("roc", 0.0)) >= 0,
         float(row.get("obv", 0.0)) >= float(row.get("obv_prev", 0.0)),
+        close_v >= float(row.get("vwap", close_v)),
         close_v >= float(row.get("bb_mid", close_v)),
         (float(row.get("volume_rel", 1.0)) >= 1.0 and close_v >= open_v),
         bool(row.get("breakout_up", False) or row.get("double_bottom", False)),
@@ -464,6 +484,7 @@ def _confluence_component(row: pd.Series):
         float(row.get("mfi", 50.0)) <= 50,
         float(row.get("roc", 0.0)) <= 0,
         float(row.get("obv", 0.0)) <= float(row.get("obv_prev", 0.0)),
+        close_v <= float(row.get("vwap", close_v)),
         close_v <= float(row.get("bb_mid", close_v)),
         (float(row.get("volume_rel", 1.0)) >= 1.0 and close_v <= open_v),
         bool(row.get("breakout_down", False) or row.get("double_top", False)),
