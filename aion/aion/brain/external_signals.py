@@ -84,6 +84,7 @@ def load_external_signal_bundle(path: Path, min_confidence: float = 0.55, max_bi
         "runtime_multiplier": 1.0,
         "risk_flags": [],
         "regime": "unknown",
+        "source_mode": "unknown",
         "degraded_safe_mode": False,
         "quality_gate_ok": True,
     }
@@ -113,6 +114,7 @@ def load_external_signal_bundle(path: Path, min_confidence: float = 0.55, max_bi
                 out["risk_flags"] = [str(x).strip().lower() for x in flags if str(x).strip()]
 
         out["degraded_safe_mode"] = bool(payload.get("degraded_safe_mode", False))
+        out["source_mode"] = str(payload.get("source_mode", "unknown")).strip() or "unknown"
         qg = payload.get("quality_gate", {})
         if isinstance(qg, dict):
             out["quality_gate_ok"] = bool(qg.get("ok", True))
@@ -161,7 +163,7 @@ def runtime_overlay_scale(
     Returns (scale, diagnostics_dict).
     """
     if not isinstance(bundle, dict):
-        return 1.0, {"active": False, "flags": [], "degraded": False, "quality_gate_ok": True}
+        return 1.0, {"active": False, "flags": [], "degraded": False, "quality_gate_ok": True, "source_mode": "unknown"}
 
     scale = _clamp(_safe_float(bundle.get("runtime_multiplier", 1.0), 1.0), 0.20, 1.20)
     degraded = bool(bundle.get("degraded_safe_mode", False))
@@ -182,5 +184,6 @@ def runtime_overlay_scale(
         "quality_gate_ok": q_ok,
         "runtime_multiplier": _safe_float(bundle.get("runtime_multiplier", 1.0), 1.0),
         "regime": str(bundle.get("regime", "unknown")),
+        "source_mode": str(bundle.get("source_mode", "unknown")),
     }
     return scale, diag

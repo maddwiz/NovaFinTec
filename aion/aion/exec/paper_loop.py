@@ -427,6 +427,7 @@ def main() -> int:
                     bool(ext_runtime_diag.get("degraded", False)),
                     bool(ext_runtime_diag.get("quality_gate_ok", True)),
                     str(ext_runtime_diag.get("regime", "unknown")),
+                    str(ext_runtime_diag.get("source_mode", "unknown")),
                     int(max_trades_cap_runtime),
                 )
                 if sig != last_ext_runtime_sig:
@@ -434,13 +435,13 @@ def main() -> int:
                     log_run(
                         "External runtime overlay "
                         f"scale={sig[0]:.3f} flags={flag_txt} "
-                        f"degraded={sig[2]} quality_ok={sig[3]} regime={sig[4]} "
-                        f"max_trades={sig[5]}/{max_trades_cap}"
+                        f"degraded={sig[2]} quality_ok={sig[3]} regime={sig[4]} source={sig[5]} "
+                        f"max_trades={sig[6]}/{max_trades_cap}"
                     )
                     if cfg.MONITORING_ENABLED and (sig[2] or (not sig[3]) or bool(sig[1])):
                         monitor.record_system_event(
                             "external_overlay_runtime",
-                            f"scale={sig[0]:.3f} flags={flag_txt} max_trades={sig[5]}/{max_trades_cap}",
+                            f"scale={sig[0]:.3f} flags={flag_txt} source={sig[5]} max_trades={sig[6]}/{max_trades_cap}",
                         )
                     last_ext_runtime_sig = sig
 

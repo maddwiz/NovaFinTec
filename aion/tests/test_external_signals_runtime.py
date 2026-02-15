@@ -12,6 +12,7 @@ def test_load_external_signal_bundle_reads_runtime_context(tmp_path: Path):
                 "global": {"bias": 0.2, "confidence": 0.8},
                 "signals": {"AAPL": {"bias": 0.5, "confidence": 0.7}},
                 "runtime_context": {"runtime_multiplier": 0.84, "regime": "balanced", "risk_flags": ["drift_warn"]},
+                "source_mode": "wf_table",
                 "degraded_safe_mode": False,
                 "quality_gate": {"ok": True},
             }
@@ -24,6 +25,7 @@ def test_load_external_signal_bundle_reads_runtime_context(tmp_path: Path):
     assert "__GLOBAL__" in b["signals"]
     assert b["runtime_multiplier"] == 0.84
     assert b["regime"] == "balanced"
+    assert b["source_mode"] == "wf_table"
     assert "drift_warn" in b["risk_flags"]
     assert b["quality_gate_ok"] is True
 
@@ -36,6 +38,7 @@ def test_runtime_overlay_scale_penalizes_flags_and_degraded():
             "degraded_safe_mode": True,
             "quality_gate_ok": False,
             "regime": "defensive",
+            "source_mode": "final_weights_fallback",
         },
         min_scale=0.55,
         max_scale=1.05,
@@ -47,4 +50,5 @@ def test_runtime_overlay_scale_penalizes_flags_and_degraded():
     assert diag["active"] is True
     assert diag["degraded"] is True
     assert diag["quality_gate_ok"] is False
+    assert diag["source_mode"] == "final_weights_fallback"
     assert "drift_alert" in diag["flags"]

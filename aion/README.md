@@ -60,6 +60,7 @@ When Q runtime risk degrades, AION now automatically scales overlay impact and
 reduces effective trades-per-day cap for safer operation.
 `run_aion.sh` now auto-exports these defaults and prints the active overlay path at startup.
 `AION_AUTO_REFRESH_Q_OVERLAY=1` (default) refreshes the Q overlay pack before trade-loop start.
+Runtime log lines for external overlay now include Q `source_mode` for traceability.
 
 ## Tasks
 
