@@ -142,3 +142,76 @@ def test_runtime_overlay_scale_applies_nested_leakage_penalty():
         nested_leak_alert_scale=0.76,
     )
     assert scale_alert < scale_warn < 1.0
+
+
+def test_runtime_overlay_scale_applies_drift_and_quality_step_penalties():
+    scale_warn, _ = runtime_overlay_scale(
+        {
+            "runtime_multiplier": 1.0,
+            "risk_flags": ["drift_warn"],
+            "degraded_safe_mode": False,
+            "quality_gate_ok": True,
+        },
+        min_scale=0.35,
+        max_scale=1.10,
+        flag_scale=0.97,
+        drift_warn_scale=0.92,
+        drift_alert_scale=0.80,
+    )
+    scale_alert, _ = runtime_overlay_scale(
+        {
+            "runtime_multiplier": 1.0,
+            "risk_flags": ["drift_alert"],
+            "degraded_safe_mode": False,
+            "quality_gate_ok": True,
+        },
+        min_scale=0.35,
+        max_scale=1.10,
+        flag_scale=0.97,
+        drift_warn_scale=0.92,
+        drift_alert_scale=0.80,
+    )
+    scale_step, _ = runtime_overlay_scale(
+        {
+            "runtime_multiplier": 1.0,
+            "risk_flags": ["quality_governor_step_spike"],
+            "degraded_safe_mode": False,
+            "quality_gate_ok": True,
+        },
+        min_scale=0.35,
+        max_scale=1.10,
+        flag_scale=0.97,
+        quality_step_spike_scale=0.85,
+    )
+    assert scale_alert < scale_warn < 1.0
+    assert 0.35 <= scale_step < 1.0
+
+
+def test_runtime_overlay_scale_applies_hive_stress_penalty():
+    scale_warn, _ = runtime_overlay_scale(
+        {
+            "runtime_multiplier": 1.0,
+            "risk_flags": ["hive_stress_warn"],
+            "degraded_safe_mode": False,
+            "quality_gate_ok": True,
+        },
+        min_scale=0.35,
+        max_scale=1.10,
+        flag_scale=0.96,
+        hive_stress_warn_scale=0.90,
+        hive_stress_alert_scale=0.74,
+    )
+    scale_alert, _ = runtime_overlay_scale(
+        {
+            "runtime_multiplier": 1.0,
+            "risk_flags": ["hive_stress_alert"],
+            "degraded_safe_mode": False,
+            "quality_gate_ok": True,
+        },
+        min_scale=0.35,
+        max_scale=1.10,
+        flag_scale=0.96,
+        hive_stress_warn_scale=0.90,
+        hive_stress_alert_scale=0.74,
+    )
+    assert scale_alert < scale_warn < 1.0
