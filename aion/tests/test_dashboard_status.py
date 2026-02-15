@@ -65,5 +65,6 @@ def test_status_payload_includes_external_overlay_fields(tmp_path: Path, monkeyp
     assert s["runtime_controls"]["max_trades_cap_runtime"] == 9
     assert s["runtime_controls"]["external_position_risk_scale"] == 0.82
     assert s["runtime_controls_age_sec"] is not None
+    assert s["runtime_controls_stale_threshold_sec"] >= 60
     assert s["runtime_controls_stale"] is False
     assert s["watchlist_count"] == 2

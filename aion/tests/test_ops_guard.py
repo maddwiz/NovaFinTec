@@ -116,6 +116,20 @@ def test_trade_runtime_controls_stale_detection(tmp_path: Path, monkeypatch):
     assert og._trade_runtime_controls_stale(now_ts=now) is True
 
 
+def test_trade_runtime_controls_stale_threshold_scales_with_watchlist(tmp_path: Path, monkeypatch):
+    st = tmp_path / "state"
+    st.mkdir(parents=True, exist_ok=True)
+    p = st / "runtime_controls.json"
+    p.write_text('{"loop_seconds": 30, "watchlist_size": 180}', encoding="utf-8")
+    monkeypatch.setattr(og.cfg, "STATE_DIR", st)
+    monkeypatch.setattr(og.cfg, "LOOP_SECONDS", 30)
+    monkeypatch.setattr(og.cfg, "OPS_GUARD_TRADE_STALE_SEC", 120)
+    now = 1000.0
+    os.utime(p, (now - 300, now - 300))
+    assert og._trade_runtime_controls_stale_threshold_sec(now_ts=now) > 300.0
+    assert og._trade_runtime_controls_stale(now_ts=now) is False
+
+
 def test_guard_cycle_restarts_trade_when_runtime_controls_stale(tmp_path: Path, monkeypatch):
     st = tmp_path / "state"
     st.mkdir(parents=True, exist_ok=True)
@@ -149,6 +163,7 @@ def test_guard_cycle_restarts_trade_when_runtime_controls_stale(tmp_path: Path, 
     payload = og.guard_cycle({"restart_history": {}})
     assert stopped["n"] == 1
     assert payload["restarts"]["trade"]["attempt"] == "started"
+    assert payload["config"]["trade_stale_threshold_sec"] >= 60
 
 
 def test_guard_cycle_restarts_trade_when_duplicate_instances(tmp_path: Path, monkeypatch):
@@ -176,3 +191,32 @@ def test_guard_cycle_restarts_trade_when_duplicate_instances(tmp_path: Path, mon
     payload = og.guard_cycle({"restart_history": {}})
     assert stopped["n"] == 1
     assert payload["restarts"]["trade"]["attempt"] == "started"
+
+
+def test_guard_cycle_forces_duplicate_cleanup_during_cooldown(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(og.cfg, "OPS_GUARD_TARGETS", ["trade"])
+    monkeypatch.setattr(og.cfg, "OPS_GUARD_STATUS_FILE", tmp_path / "ops_guard_status.json")
+    monkeypatch.setattr(og.cfg, "OPS_GUARD_INCIDENT_LOG", tmp_path / "ops_incidents.log")
+    monkeypatch.setattr(og.cfg, "OPS_GUARD_RESTART_COOLDOWN_SEC", 120)
+    monkeypatch.setattr(og.cfg, "OPS_GUARD_MAX_RESTARTS_PER_HOUR", 6)
+    monkeypatch.setattr(og.time, "time", lambda: 1000.0)
+    monkeypatch.setattr(og, "_trade_runtime_controls_stale", lambda now_ts=None: False)
+
+    calls = {"n": 0}
+
+    def fake_status(_targets=None):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return {"trade": {"module": "aion.exec.paper_loop", "running": True, "pids": [111, 112]}}
+        return {"trade": {"module": "aion.exec.paper_loop", "running": True, "pids": [333]}}
+
+    stopped = {"n": 0}
+    monkeypatch.setattr(og, "status_snapshot", fake_status)
+    monkeypatch.setattr(og, "start_task", lambda _task: True)
+    monkeypatch.setattr(og, "stop_task", lambda _task: stopped.__setitem__("n", stopped["n"] + 1) or 2)
+
+    # Last restart was very recent: should normally fail cooldown.
+    payload = og.guard_cycle({"restart_history": {"trade": [950.0]}})
+    assert stopped["n"] == 1
+    assert payload["restarts"]["trade"]["attempt"] == "started"
+    assert payload["restarts"]["trade"]["skip"] is None

@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 
 from .. import config as cfg
+from .runtime_health import runtime_controls_stale_info
 
 TASK_TO_MODULE = {
     "trade": "aion.exec.paper_loop",
@@ -163,25 +164,33 @@ def _can_restart(now_ts: float, history: list[float], cooldown_sec: float, max_r
 
 
 def _trade_runtime_controls_age_sec(now_ts: float | None = None) -> float | None:
-    p = cfg.STATE_DIR / "runtime_controls.json"
-    if not p.exists():
-        return None
-    try:
-        st = p.stat()
-    except Exception:
-        return None
-    ts = time.time() if now_ts is None else float(now_ts)
-    age = ts - float(st.st_mtime)
-    if age < 0:
-        age = 0.0
-    return float(age)
+    info = runtime_controls_stale_info(
+        cfg.STATE_DIR / "runtime_controls.json",
+        default_loop_seconds=int(cfg.LOOP_SECONDS),
+        base_stale_seconds=int(cfg.OPS_GUARD_TRADE_STALE_SEC),
+        now_ts=now_ts,
+    )
+    return info.get("age_sec")
+
+
+def _trade_runtime_controls_stale_threshold_sec(now_ts: float | None = None) -> float:
+    info = runtime_controls_stale_info(
+        cfg.STATE_DIR / "runtime_controls.json",
+        default_loop_seconds=int(cfg.LOOP_SECONDS),
+        base_stale_seconds=int(cfg.OPS_GUARD_TRADE_STALE_SEC),
+        now_ts=now_ts,
+    )
+    return float(info.get("threshold_sec", float(max(60, int(cfg.OPS_GUARD_TRADE_STALE_SEC)))))
 
 
 def _trade_runtime_controls_stale(now_ts: float | None = None) -> bool:
-    age = _trade_runtime_controls_age_sec(now_ts=now_ts)
-    if age is None:
-        return False
-    return bool(age > float(max(30, int(cfg.OPS_GUARD_TRADE_STALE_SEC))))
+    info = runtime_controls_stale_info(
+        cfg.STATE_DIR / "runtime_controls.json",
+        default_loop_seconds=int(cfg.LOOP_SECONDS),
+        base_stale_seconds=int(cfg.OPS_GUARD_TRADE_STALE_SEC),
+        now_ts=now_ts,
+    )
+    return bool(info.get("stale", False))
 
 
 def status_snapshot(targets: list[str] | None = None) -> dict:
@@ -237,6 +246,9 @@ def guard_cycle(state: dict) -> dict:
             cooldown_sec=cfg.OPS_GUARD_RESTART_COOLDOWN_SEC,
             max_restarts_per_hour=cfg.OPS_GUARD_MAX_RESTARTS_PER_HOUR,
         )
+        if (not allowed) and ("duplicate_instances" in reasons) and cooldown_reason == "cooldown":
+            allowed = True
+            cooldown_reason = "forced_duplicate_cleanup"
         if not allowed:
             skipped[task] = cooldown_reason
             continue
@@ -279,6 +291,7 @@ def guard_cycle(state: dict) -> dict:
             "interval_sec": int(cfg.OPS_GUARD_INTERVAL_SEC),
             "restart_cooldown_sec": int(cfg.OPS_GUARD_RESTART_COOLDOWN_SEC),
             "max_restarts_per_hour": int(cfg.OPS_GUARD_MAX_RESTARTS_PER_HOUR),
+            "trade_stale_threshold_sec": float(_trade_runtime_controls_stale_threshold_sec(now_ts=now_ts)),
         },
     }
     _write_status(payload)

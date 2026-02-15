@@ -762,6 +762,8 @@ def main() -> int:
                 {
                     "ts": dt.datetime.now().isoformat(),
                     "day": day_key,
+                    "loop_seconds": int(cfg.LOOP_SECONDS),
+                    "watchlist_size": int(len(wl)),
                     "trades_today": int(trades_today),
                     "open_positions": int(len(open_positions)),
                     "max_trades_cap_runtime": int(max_trades_cap_runtime),
