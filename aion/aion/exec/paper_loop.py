@@ -671,6 +671,7 @@ def main() -> int:
             global_external = None
             ext_runtime_scale = 1.0
             ext_position_risk_scale = 1.0
+            ext_overlay_age_hours = None
             ext_runtime_diag = {"active": False, "flags": [], "degraded": False, "quality_gate_ok": True}
             if cfg.EXT_SIGNAL_ENABLED:
                 ext_bundle = load_external_signal_bundle(
@@ -678,6 +679,11 @@ def main() -> int:
                     min_confidence=cfg.EXT_SIGNAL_MIN_CONFIDENCE,
                     max_bias=cfg.EXT_SIGNAL_MAX_BIAS,
                     max_age_hours=cfg.EXT_SIGNAL_MAX_AGE_HOURS,
+                )
+                ext_overlay_age_hours = (
+                    _safe_float(ext_bundle.get("overlay_age_hours", None), None)
+                    if isinstance(ext_bundle, dict)
+                    else None
                 )
                 external_signals = ext_bundle.get("signals", {}) if isinstance(ext_bundle, dict) else {}
                 global_external = external_signals.get("__GLOBAL__")
@@ -726,6 +732,7 @@ def main() -> int:
                     bool(ext_runtime_diag.get("degraded", False)),
                     bool(ext_runtime_diag.get("quality_gate_ok", True)),
                     bool(ext_runtime_diag.get("overlay_stale", False)),
+                    None if ext_overlay_age_hours is None else round(float(ext_overlay_age_hours), 3),
                     str(ext_runtime_diag.get("regime", "unknown")),
                     str(ext_runtime_diag.get("source_mode", "unknown")),
                     int(max_trades_cap_runtime),
@@ -739,16 +746,19 @@ def main() -> int:
                     log_run(
                         "External runtime overlay "
                         f"scale={sig[0]:.3f} pos_risk_scale={sig[1]:.3f} flags={flag_txt} "
-                        f"degraded={sig[3]} quality_ok={sig[4]} overlay_stale={sig[5]} regime={sig[6]} source={sig[7]} "
-                        f"max_trades={sig[8]}/{max_trades_cap} max_open={sig[9]}/{max_open_positions_cap} "
-                        f"risk_per_trade={sig[10]:.4f} max_notional_pct={sig[11]:.4f} max_gross_lev={sig[12]:.3f}"
+                        f"degraded={sig[3]} quality_ok={sig[4]} overlay_stale={sig[5]} "
+                        f"overlay_age_h={(f'{sig[6]:.2f}' if isinstance(sig[6], float) else 'na')} "
+                        f"regime={sig[7]} source={sig[8]} "
+                        f"max_trades={sig[9]}/{max_trades_cap} max_open={sig[10]}/{max_open_positions_cap} "
+                        f"risk_per_trade={sig[11]:.4f} max_notional_pct={sig[12]:.4f} max_gross_lev={sig[13]:.3f}"
                     )
                     if cfg.MONITORING_ENABLED and (sig[3] or (not sig[4]) or sig[5] or bool(sig[2])):
                         monitor.record_system_event(
                             "external_overlay_runtime",
-                            f"scale={sig[0]:.3f} pos_risk_scale={sig[1]:.3f} flags={flag_txt} source={sig[7]} "
-                            f"overlay_stale={sig[5]} max_trades={sig[8]}/{max_trades_cap} "
-                            f"max_open={sig[9]}/{max_open_positions_cap} risk_per_trade={sig[10]:.4f}",
+                            f"scale={sig[0]:.3f} pos_risk_scale={sig[1]:.3f} flags={flag_txt} source={sig[8]} "
+                            f"overlay_stale={sig[5]} overlay_age_h={(f'{sig[6]:.2f}' if isinstance(sig[6], float) else 'na')} "
+                            f"max_trades={sig[9]}/{max_trades_cap} max_open={sig[10]}/{max_open_positions_cap} "
+                            f"risk_per_trade={sig[11]:.4f}",
                         )
                     last_ext_runtime_sig = sig
 
@@ -822,6 +832,10 @@ def main() -> int:
                     "external_regime": str(ext_runtime_diag.get("regime", "unknown")),
                     "external_degraded": bool(ext_runtime_diag.get("degraded", False)),
                     "external_quality_gate_ok": bool(ext_runtime_diag.get("quality_gate_ok", True)),
+                    "external_overlay_stale": bool(ext_runtime_diag.get("overlay_stale", False)),
+                    "external_overlay_age_hours": (
+                        None if ext_overlay_age_hours is None else float(ext_overlay_age_hours)
+                    ),
                     "killswitch_block_new_entries": bool(killswitch_block_new_entries),
                     "policy_block_new_entries": bool(policy_block_new_entries),
                     "policy_loss_hit": bool(policy_loss_hit),

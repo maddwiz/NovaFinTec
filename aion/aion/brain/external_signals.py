@@ -272,6 +272,7 @@ def runtime_overlay_scale(
         "flags": flags,
         "degraded": degraded,
         "overlay_stale": overlay_stale,
+        "overlay_age_hours": bundle.get("overlay_age_hours", None),
         "quality_gate_ok": q_ok,
         "runtime_multiplier": _safe_float(bundle.get("runtime_multiplier", 1.0), 1.0),
         "regime": str(bundle.get("regime", "unknown")),

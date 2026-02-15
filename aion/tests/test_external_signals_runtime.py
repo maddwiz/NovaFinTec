@@ -29,6 +29,7 @@ def test_load_external_signal_bundle_reads_runtime_context(tmp_path: Path):
     assert b["source_mode"] == "wf_table"
     assert "drift_warn" in b["risk_flags"]
     assert b["quality_gate_ok"] is True
+    assert isinstance(b["overlay_age_hours"], float)
 
 
 def test_runtime_overlay_scale_penalizes_flags_and_degraded():
@@ -317,3 +318,4 @@ def test_runtime_overlay_scale_penalizes_overlay_stale():
     )
     assert stale < clean
     assert diag["overlay_stale"] is True
+    assert "overlay_age_hours" in diag
