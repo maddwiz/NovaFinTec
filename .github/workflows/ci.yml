@@ -35,4 +35,5 @@ jobs:
             aion/tests/test_doctor_external_overlay.py \
             aion/tests/test_dashboard_status.py \
             aion/tests/test_config_external_overlay_path.py \
-            aion/tests/test_novaspine_bridge.py
+            aion/tests/test_novaspine_bridge.py \
+            aion/tests/test_runtime_risk_caps.py

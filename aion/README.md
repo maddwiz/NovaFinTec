@@ -59,6 +59,8 @@ By default AION now reads Q overlay from `../q/runs_plus/q_signal_overlay.json`
 (`AION_Q_HOME` / `AION_EXT_SIGNAL_FILE` can override this).
 When Q runtime risk degrades, AION now automatically scales overlay impact and
 reduces effective trades-per-day cap for safer operation.
+Fracture flags now also tighten concurrent position caps (`max_open_positions`)
+during `fracture_warn` / `fracture_alert` states.
 `run_aion.sh` now auto-exports these defaults and prints the active overlay path at startup.
 `AION_AUTO_REFRESH_Q_OVERLAY=1` (default) refreshes the Q overlay pack before trade-loop start.
 Runtime log lines for external overlay now include Q `source_mode` for traceability.
