@@ -32,6 +32,7 @@ INNER_MIN = int(os.environ.get("NWF_INNER_MIN", "252"))
 INNER_STEP = int(os.environ.get("NWF_INNER_STEP", "21"))
 INNER_FOLDS = int(os.environ.get("NWF_INNER_FOLDS", "4"))
 EMBARGO = int(os.environ.get("NWF_EMBARGO", "5"))
+PURGE = int(os.environ.get("NWF_PURGE", "3"))
 MIN_ROWS = int(os.environ.get("NWF_MIN_ROWS", "900"))
 MAX_ROWS = int(os.environ.get("NWF_MAX_ROWS", "3000"))
 COST_BPS = float(os.environ.get("NWF_COST_BPS", "1.0"))
@@ -123,25 +124,52 @@ def _inner_score(ret_train: np.ndarray, pos_train: np.ndarray, cfg: dict) -> flo
     n = len(ret_train)
     if n < max(120, INNER_MIN + INNER_STEP):
         return -1e9
-    # Multi-fold inner score to reduce overfitting to one tail segment.
+
+    def _train_slices(vs: int, ve: int, gap: int) -> tuple[np.ndarray, np.ndarray]:
+        left_end = max(0, vs - gap)
+        right_start = min(n, ve + gap)
+        if left_end <= 0 and right_start >= n:
+            return np.array([], dtype=float), np.array([], dtype=float)
+        if left_end <= 0:
+            return ret_train[right_start:], pos_train[right_start:]
+        if right_start >= n:
+            return ret_train[:left_end], pos_train[:left_end]
+        r = np.concatenate([ret_train[:left_end], ret_train[right_start:]], axis=0)
+        p = np.concatenate([pos_train[:left_end], pos_train[right_start:]], axis=0)
+        return r, p
+
+    # Multi-fold purged/embargoed inner score to reduce overfitting to one tail segment.
     folds = int(max(1, INNER_FOLDS))
+    gap = int(max(0, EMBARGO + PURGE))
     scores = []
     for k in range(folds):
         val_end = n - k * INNER_STEP
         val_start = val_end - INNER_STEP
         if val_start < 0:
             break
-        # Embargo around validation start.
+        # Embargo around validation edges.
         val_start = min(val_start + EMBARGO, val_end - 1)
-        train_end = max(0, val_start - EMBARGO)
-        if train_end < INNER_MIN:
-            continue
         if val_end - val_start < 10:
             continue
+
+        tr_r, tr_p = _train_slices(val_start, val_end, gap)
+        if len(tr_r) < INNER_MIN:
+            continue
+
         p = _transform_pos(pos_train[val_start:val_end], cfg["cap"], cfg["deadband"], cfg["span"])
         r = ret_train[val_start:val_end]
         pnl = _pnl_from_pos_ret(p, r, COST_BPS)
-        scores.append(_sharpe(pnl))
+        sh_val = _sharpe(pnl)
+
+        p_tr = _transform_pos(tr_p, cfg["cap"], cfg["deadband"], cfg["span"])
+        pnl_tr = _pnl_from_pos_ret(p_tr, tr_r, COST_BPS)
+        sh_tr = _sharpe(pnl_tr)
+
+        # Penalize unstable configs that only spike on one fold.
+        gap_pen = 0.20 * abs(sh_val - sh_tr)
+        dd_pen = 0.05 * abs(_max_dd(pnl))
+        fold_score = sh_val - gap_pen - dd_pen
+        scores.append(fold_score)
     if not scores:
         return -1e9
     # Favor high average with lower variance across folds.
@@ -252,6 +280,7 @@ if __name__ == "__main__":
             "inner_step": INNER_STEP,
             "inner_folds": INNER_FOLDS,
             "embargo": EMBARGO,
+            "purge": PURGE,
             "max_rows": MAX_ROWS,
             "cost_bps": COST_BPS,
             "winsor_pct": WINSOR_PCT,
