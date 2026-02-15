@@ -13,3 +13,11 @@ def test_dreams_compat_writes_png_and_gif(tmp_path: Path):
 
     save_dream_video(series, tmp_path, frames=24, step=3, fps=10)
     assert (tmp_path / "dream.gif").exists()
+
+
+def test_dreams_compat_handles_read_only_input(tmp_path: Path):
+    series = np.asarray(100.0 * np.exp(np.cumsum(np.random.default_rng(5).normal(0.0, 0.01, 120))))
+    series.setflags(write=False)
+    png = tmp_path / "dream_ro.png"
+    save_dream_png(series, png)
+    assert png.exists()

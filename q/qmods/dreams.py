@@ -13,7 +13,7 @@ except Exception:
     Image = None
 
 def _norm01(x):
-    x = np.asarray(x, dtype=float)
+    x = np.asarray(x, dtype=float).copy()
     # replace non-finite with nan
     x[~np.isfinite(x)] = np.nan
     # robust min/max with nan support
