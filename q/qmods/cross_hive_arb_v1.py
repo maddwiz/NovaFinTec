@@ -36,6 +36,7 @@ def arb_weights(
     alpha=2.0,
     drawdown_penalty: dict | None = None,
     disagreement_penalty: dict | None = None,
+    downside_penalty: dict | None = None,
     inertia: float = 0.80,
     max_weight: float = 0.70,
     min_weight: float = 0.00,
@@ -51,6 +52,7 @@ def arb_weights(
     hive_scores: {name: [T]} base score (higher=better)
     drawdown_penalty: {name: [T]} penalty in [0,1], where 1 is worst
     disagreement_penalty: {name: [T]} penalty in [0,1], where 1 is worst
+    downside_penalty: {name: [T]} penalty in [0,1], where 1 is worst downside profile
     Returns: (names, W) where W=[T,H] per-hive weights that sum to 1.
     """
     names = sorted(hive_scores.keys())
@@ -64,6 +66,9 @@ def arb_weights(
     if disagreement_penalty:
         G = np.stack([np.asarray(disagreement_penalty.get(n, np.zeros(S.shape[0])), float) for n in names], axis=1)
         Z = Z - 1.0 * np.clip(G, 0.0, 1.0)
+    if downside_penalty:
+        U = np.stack([np.asarray(downside_penalty.get(n, np.zeros(S.shape[0])), float) for n in names], axis=1)
+        Z = Z - 1.1 * np.clip(U, 0.0, 1.0)
 
     T = Z.shape[0]
     alpha_t = _as_time_array(alpha, T, lo=0.2, hi=10.0, default=2.0)

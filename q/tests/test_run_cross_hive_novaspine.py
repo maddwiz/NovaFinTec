@@ -80,3 +80,29 @@ def test_dynamic_quality_multipliers_reward_stronger_hive(tmp_path):
     assert float(mult["EQ"].mean()) > float(mult["FX"].mean())
     assert float(mult.min().min()) >= 0.60 - 1e-9
     assert float(mult.max().max()) <= 1.45 + 1e-9
+
+
+def test_dynamic_downside_penalties_penalize_weaker_hive(tmp_path):
+    idx = pd.date_range("2025-01-01", periods=150, freq="D")
+    rng = np.random.default_rng(17)
+    good = pd.Series(0.001 + 0.001 * np.sin(np.linspace(0, 8, len(idx))), index=idx)
+    bad = pd.Series(-0.002 + 0.002 * rng.standard_normal(len(idx)), index=idx)
+
+    rows = []
+    for d, a, b in zip(idx, good.values, bad.values):
+        rows.append({"DATE": d.strftime("%Y-%m-%d"), "HIVE": "EQ", "hive_oos_ret": float(a)})
+        rows.append({"DATE": d.strftime("%Y-%m-%d"), "HIVE": "FX", "hive_oos_ret": float(b)})
+    pd.DataFrame(rows).to_csv(tmp_path / "hive_wf_oos_returns.csv", index=False)
+
+    old_runs = rch.RUNS
+    try:
+        rch.RUNS = tmp_path
+        pen = rch.dynamic_downside_penalties(idx, ["EQ", "FX"])
+    finally:
+        rch.RUNS = old_runs
+
+    assert set(pen.columns) == {"EQ", "FX"}
+    assert len(pen) == len(idx)
+    assert float(pen["FX"].mean()) > float(pen["EQ"].mean())
+    assert float(pen.min().min()) >= 0.0 - 1e-9
+    assert float(pen.max().max()) <= 1.0 + 1e-9

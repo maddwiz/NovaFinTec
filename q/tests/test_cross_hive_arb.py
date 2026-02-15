@@ -78,3 +78,21 @@ def test_arb_weights_entropy_control_reduces_concentration():
     hhi_base = float(np.mean(np.sum(w_base * w_base, axis=1)))
     hhi_div = float(np.mean(np.sum(w_div * w_div, axis=1)))
     assert hhi_div < hhi_base
+
+
+def test_arb_weights_downside_penalty_reduces_weight():
+    T = 160
+    scores = {
+        "A": np.full(T, 0.25, dtype=float),
+        "B": np.full(T, 0.25, dtype=float),
+        "C": np.full(T, 0.25, dtype=float),
+    }
+    base_pen = {"A": np.zeros(T), "B": np.zeros(T), "C": np.zeros(T)}
+    high_dn = {"A": np.ones(T) * 0.9, "B": np.zeros(T), "C": np.zeros(T)}
+
+    _, w0 = arb_weights(scores, alpha=2.0, inertia=0.0, downside_penalty=base_pen)
+    _, w1 = arb_weights(scores, alpha=2.0, inertia=0.0, downside_penalty=high_dn)
+
+    a0 = float(np.mean(w0[:, 0]))
+    a1 = float(np.mean(w1[:, 0]))
+    assert a1 < a0

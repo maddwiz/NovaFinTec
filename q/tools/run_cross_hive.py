@@ -139,6 +139,65 @@ def _load_series(path: Path):
     return a.ravel()
 
 
+def dynamic_downside_penalties(index_dates, hives):
+    """
+    Build DATE x HIVE downside penalties from hive_wf_oos_returns.csv.
+    Output values are in [0,1], where 1 means elevated downside stress.
+    """
+    p = RUNS / "hive_wf_oos_returns.csv"
+    idx = pd.DatetimeIndex(index_dates)
+    out = pd.DataFrame(index=idx, columns=list(hives), data=0.0, dtype=float)
+    if not p.exists():
+        return out
+    try:
+        df = pd.read_csv(p)
+    except Exception:
+        return out
+    need = {"DATE", "HIVE", "hive_oos_ret"}
+    if not need.issubset(df.columns):
+        return out
+    df["DATE"] = pd.to_datetime(df["DATE"], errors="coerce")
+    df = df.dropna(subset=["DATE"]).sort_values(["DATE", "HIVE"])
+    if df.empty:
+        return out
+
+    for hive, g in df.groupby("HIVE"):
+        hname = str(hive)
+        if hname not in out.columns:
+            continue
+        rr = pd.to_numeric(g["hive_oos_ret"], errors="coerce").fillna(0.0).values.astype(float)
+        dates = pd.to_datetime(g["DATE"], errors="coerce")
+        if len(rr) < 8:
+            continue
+        s = pd.Series(rr, index=dates)
+        neg = (-s).clip(lower=0.0)
+
+        semi = np.sqrt((neg * neg).rolling(63, min_periods=15).mean()).fillna(0.0)
+        tail = neg.rolling(63, min_periods=15).quantile(0.90).fillna(0.0)
+        loss_persist = (s < 0.0).astype(float).rolling(63, min_periods=15).mean().fillna(0.0)
+
+        def _norm(x):
+            den = float(np.nanpercentile(x.values, 90)) if len(x) else 0.0
+            den = max(den, 1e-9)
+            return np.clip(x / den, 0.0, 1.0)
+
+        p_semi = _norm(semi)
+        p_tail = _norm(tail)
+        p_persist = np.clip(loss_persist, 0.0, 1.0)
+        raw = np.clip(0.45 * p_semi + 0.35 * p_tail + 0.20 * p_persist, 0.0, 1.0)
+        out[hname] = raw.reindex(idx).ffill().fillna(0.0).values
+
+    # Optional shock amplification.
+    smp = RUNS / "shock_mask.csv"
+    if smp.exists():
+        sm = _load_series(smp)
+        if sm is not None and len(sm):
+            L = min(len(out), len(sm))
+            amp = np.clip(1.0 + 0.25 * np.clip(sm[:L], 0.0, 1.0), 1.0, 1.25)
+            out.iloc[:L, :] = np.clip(out.iloc[:L, :].values * amp.reshape(-1, 1), 0.0, 1.0)
+    return out
+
+
 def _entropy_norm(w: np.ndarray) -> float:
     a = np.asarray(w, float).ravel()
     if len(a) <= 1:
@@ -244,6 +303,7 @@ if __name__ == "__main__":
     scores = {}
     dd_pen = {}
     dg_pen = {}
+    dn_pen = {}
     for hive in pivot_sig.columns:
         score = 0.55 * pivot_health[hive].values + 0.35 * pivot_sig[hive].rolling(5, min_periods=2).mean().values + 0.10 * pivot_stab[hive].values
         scores[str(hive)] = np.nan_to_num(score, nan=0.0)
@@ -291,6 +351,16 @@ if __name__ == "__main__":
         dyn_out = dyn_table.reset_index().rename(columns={"index": "DATE"})
         dyn_out.to_csv(RUNS / "hive_dynamic_quality.csv", index=False)
 
+    downside_tbl = dynamic_downside_penalties(pivot_sig.index, pivot_sig.columns.tolist())
+    downside_means = {}
+    if len(downside_tbl):
+        for hive in list(scores.keys()):
+            if hive in downside_tbl.columns:
+                pvec = np.asarray(downside_tbl[hive].values, float)
+                dn_pen[hive] = np.nan_to_num(pvec, nan=0.0, posinf=0.0, neginf=0.0)
+                downside_means[hive] = float(np.mean(pvec))
+        downside_tbl.reset_index().rename(columns={"index": "DATE"}).to_csv(RUNS / "hive_downside_penalty.csv", index=False)
+
     alpha = float(np.clip(float(os.getenv("CROSS_HIVE_ALPHA", "2.2")), 0.2, 10.0))
     inertia = float(np.clip(float(os.getenv("CROSS_HIVE_INERTIA", "0.80")), 0.0, 0.98))
     max_w = float(np.clip(float(os.getenv("CROSS_HIVE_MAX_W", "0.65")), 0.10, 1.0))
@@ -310,6 +380,7 @@ if __name__ == "__main__":
         alpha=alpha_sched,
         drawdown_penalty=dd_pen,
         disagreement_penalty=dg_pen,
+        downside_penalty=dn_pen if dn_pen else None,
         inertia=inertia_sched,
         max_weight=max_w,
         min_weight=min_w,
@@ -345,6 +416,8 @@ if __name__ == "__main__":
         "quality_priors": {k: float(v) for k, v in priors.items()},
         "dynamic_quality_multiplier_mean": dyn_means,
         "dynamic_quality_file": str(RUNS / "hive_dynamic_quality.csv") if dyn_table is not None else None,
+        "downside_penalty_mean": downside_means,
+        "downside_penalty_file": str(RUNS / "hive_downside_penalty.csv") if len(downside_tbl) else None,
         "novaspine_hive_boosts": {k: float(v) for k, v in ns_mult.items()},
         "date_min": str(out["DATE"].min().date()) if len(out) else None,
         "date_max": str(out["DATE"].max().date()) if len(out) else None,
