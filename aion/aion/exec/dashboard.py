@@ -1,6 +1,7 @@
 import csv
 import errno
 import json
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -60,6 +61,40 @@ def _doctor_check(doctor: dict, name: str):
     return None
 
 
+def _overlay_runtime_status(path: Path, max_age_hours: float) -> dict:
+    out = {
+        "exists": False,
+        "age_hours": None,
+        "max_age_hours": float(max_age_hours),
+        "stale": False,
+        "runtime_context_present": False,
+        "runtime_context": {},
+        "risk_flags": [],
+    }
+    if not isinstance(path, Path) or not path.exists():
+        return out
+    out["exists"] = True
+    try:
+        ts = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+        out["age_hours"] = float((datetime.now(timezone.utc) - ts).total_seconds() / 3600.0)
+    except Exception:
+        out["age_hours"] = None
+    if isinstance(out["age_hours"], float) and float(max_age_hours) > 0:
+        out["stale"] = bool(out["age_hours"] > float(max_age_hours))
+
+    payload = _read_json(path, {})
+    if not isinstance(payload, dict):
+        return out
+    ext_ctx = payload.get("runtime_context", {})
+    if isinstance(ext_ctx, dict):
+        out["runtime_context_present"] = len(ext_ctx) > 0
+        out["runtime_context"] = ext_ctx
+        flags = ext_ctx.get("risk_flags", [])
+        if isinstance(flags, list):
+            out["risk_flags"] = [str(x).strip().lower() for x in flags if str(x).strip()]
+    return out
+
+
 def _is_aion_dashboard_running(host: str, port: int) -> bool:
     probe_hosts = [host]
     if host in {"0.0.0.0", "::"}:
@@ -91,6 +126,7 @@ def _status_payload():
     runtime_controls = rc_info.get("payload", {})
     ops_guard = _read_json(cfg.OPS_GUARD_STATUS_FILE, {})
     watchlist = _tail_lines(cfg.STATE_DIR / "watchlist.txt", limit=200)
+    ext_runtime = _overlay_runtime_status(cfg.EXT_SIGNAL_FILE, max_age_hours=float(cfg.EXT_SIGNAL_MAX_AGE_HOURS))
 
     trade_metrics = perf.get("trade_metrics", {})
     equity_metrics = perf.get("equity_metrics", {})
@@ -128,6 +164,7 @@ def _status_payload():
         "external_overlay_ok": bool(ext.get("ok", True)),
         "external_overlay_msg": ext.get("msg"),
         "external_overlay": ext_details,
+        "external_overlay_runtime": ext_runtime,
         "external_overlay_risk_flags": risk_flags,
         "external_fracture_state": fracture_state,
         "ops_guard_ok": ops_guard_ok,
@@ -245,6 +282,7 @@ def _html_template():
         ib: s.ib,
         external_overlay_ok: s.external_overlay_ok,
         external_overlay: s.external_overlay,
+        external_overlay_runtime: s.external_overlay_runtime,
         external_overlay_risk_flags: s.external_overlay_risk_flags,
         external_fracture_state: s.external_fracture_state,
         external_overlay_msg: s.external_overlay_msg,

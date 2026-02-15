@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .. import config as cfg
@@ -28,6 +29,40 @@ def _print(payload: dict):
     print(json.dumps(payload, indent=2))
 
 
+def _overlay_runtime_status(path: Path, max_age_hours: float) -> dict:
+    out = {
+        "exists": False,
+        "age_hours": None,
+        "max_age_hours": float(max_age_hours),
+        "stale": False,
+        "runtime_context_present": False,
+        "runtime_context": {},
+        "risk_flags": [],
+    }
+    if not isinstance(path, Path) or not path.exists():
+        return out
+    out["exists"] = True
+    try:
+        ts = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+        out["age_hours"] = float((datetime.now(timezone.utc) - ts).total_seconds() / 3600.0)
+    except Exception:
+        out["age_hours"] = None
+    if isinstance(out["age_hours"], float) and float(max_age_hours) > 0:
+        out["stale"] = bool(out["age_hours"] > float(max_age_hours))
+
+    payload = _read_json(path, {})
+    if not isinstance(payload, dict):
+        return out
+    ext_ctx = payload.get("runtime_context", {})
+    if isinstance(ext_ctx, dict):
+        out["runtime_context_present"] = len(ext_ctx) > 0
+        out["runtime_context"] = ext_ctx
+        flags = ext_ctx.get("risk_flags", [])
+        if isinstance(flags, list):
+            out["risk_flags"] = [str(x).strip().lower() for x in flags if str(x).strip()]
+    return out
+
+
 def _status() -> int:
     tasks = ["trade", "dashboard", "ops-guard"]
     snap = status_snapshot(tasks)
@@ -42,8 +77,8 @@ def _status() -> int:
     runtime_controls_age_sec = rc_info.get("age_sec")
     runtime_controls_stale = bool(rc_info.get("stale", False))
     runtime_controls_stale_threshold_sec = float(rc_info.get("threshold_sec", max(60, int(cfg.LOOP_SECONDS * 6))))
-    ext_overlay = _read_json(cfg.EXT_SIGNAL_FILE, {})
-    ext_ctx = ext_overlay.get("runtime_context", {}) if isinstance(ext_overlay, dict) else {}
+    ext_rt = _overlay_runtime_status(cfg.EXT_SIGNAL_FILE, max_age_hours=float(cfg.EXT_SIGNAL_MAX_AGE_HOURS))
+    ext_ctx = ext_rt.get("runtime_context", {}) if isinstance(ext_rt, dict) else {}
     if not isinstance(ext_ctx, dict):
         ext_ctx = {}
     out = {
@@ -54,6 +89,7 @@ def _status() -> int:
         "runtime_controls_stale_threshold_sec": runtime_controls_stale_threshold_sec,
         "runtime_controls_stale": runtime_controls_stale,
         "external_runtime_context": ext_ctx,
+        "external_overlay_runtime": ext_rt,
         "doctor_ok": bool(doctor.get("ok", False)) if isinstance(doctor, dict) else False,
         "ib": doctor.get("ib", {}) if isinstance(doctor, dict) else {},
     }

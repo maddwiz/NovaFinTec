@@ -17,6 +17,9 @@ def test_status_payload_includes_external_overlay_fields(tmp_path: Path, monkeyp
     monkeypatch.setattr(dash.cfg, "STATE_DIR", state_dir)
     monkeypatch.setattr(dash.cfg, "OPS_GUARD_STATUS_FILE", ops_status)
     monkeypatch.setattr(dash.cfg, "OPS_GUARD_TARGETS", ["trade", "dashboard"])
+    overlay_file = tmp_path / "q_signal_overlay.json"
+    monkeypatch.setattr(dash.cfg, "EXT_SIGNAL_FILE", overlay_file)
+    monkeypatch.setattr(dash.cfg, "EXT_SIGNAL_MAX_AGE_HOURS", 12.0)
 
     _write(
         log_dir / "doctor_report.json",
@@ -53,12 +56,23 @@ def test_status_payload_includes_external_overlay_fields(tmp_path: Path, monkeyp
             "policy_block_new_entries": False,
         },
     )
+    _write(
+        overlay_file,
+        {
+            "runtime_context": {"runtime_multiplier": 0.91, "risk_flags": ["drift_warn"]},
+            "signals": {"AAPL": {"bias": 0.2, "confidence": 0.8}},
+        },
+    )
     (state_dir / "watchlist.txt").write_text("AAPL\nMSFT\n", encoding="utf-8")
 
     s = dash._status_payload()
     assert s["external_overlay_ok"] is False
     assert "degraded_safe_mode=true" in str(s["external_overlay_msg"])
     assert s["external_overlay"]["signals"] == 0
+    assert s["external_overlay_runtime"]["exists"] is True
+    assert s["external_overlay_runtime"]["stale"] is False
+    assert s["external_overlay_runtime"]["runtime_context_present"] is True
+    assert "drift_warn" in s["external_overlay_runtime"]["risk_flags"]
     assert "fracture_alert" in s["external_overlay_risk_flags"]
     assert s["external_fracture_state"] == "alert"
     assert s["ops_guard_ok"] is True
