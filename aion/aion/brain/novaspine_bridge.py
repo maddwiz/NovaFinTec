@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 from datetime import datetime, timezone
@@ -29,6 +30,30 @@ def _safe_float(x, default: float = 0.0) -> float:
         return v if (v == v) and (abs(v) != float("inf")) else default
     except Exception:
         return default
+
+
+def _stable_event_id(ev: dict) -> str:
+    try:
+        norm = {
+            "event_type": str(ev.get("event_type", "")),
+            "payload": ev.get("payload", {}),
+            "ts_utc": str(ev.get("ts_utc", "")),
+        }
+        raw = json.dumps(norm, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    except Exception:
+        raw = str(ev)
+    return hashlib.sha1(raw.encode("utf-8", errors="replace")).hexdigest()
+
+
+def _normalize_event(ev: dict) -> dict:
+    out = dict(ev or {})
+    out.setdefault("ts_utc", _utc_now_iso())
+    out.setdefault("event_type", "trade.event")
+    payload = out.get("payload")
+    if not isinstance(payload, dict):
+        out["payload"] = {}
+    out.setdefault("event_id", _stable_event_id(out))
+    return out
 
 
 def write_jsonl_outbox(events: list[dict], outbox_dir: Path, prefix: str = "aion_novaspine") -> Path:
@@ -77,13 +102,16 @@ def _base_url(x: str | None, default: str) -> str:
 def _event_to_novaspine_ingest(ev: dict, namespace: str, source_prefix: str = "aion") -> dict:
     event_type = str(ev.get("event_type", "trade.event"))
     payload = ev.get("payload", {})
+    event_id = str(ev.get("event_id", _stable_event_id(ev)))
     compact = json.dumps(payload, separators=(",", ":"), ensure_ascii=True)
     text = f"[{event_type}] payload={compact}"[:16000]
     return {
         "text": text,
-        "source_id": f"{source_prefix}:{event_type}",
+        "source_id": f"{source_prefix}:{event_type}:{event_id[:16]}",
+        "event_id": event_id,
         "metadata": {
             "namespace": namespace,
+            "event_id": event_id,
             "event_type": event_type,
             "ts_utc": ev.get("ts_utc", _utc_now_iso()),
             "origin": "aion",
@@ -139,9 +167,7 @@ def emit_trade_event(event: dict, cfg) -> dict:
     source_prefix = str(getattr(cfg, "MEMORY_SOURCE_PREFIX", "aion")).strip() or "aion"
     token = str(getattr(cfg, "MEMORY_TOKEN", "")).strip() or None
 
-    events = [dict(event or {})]
-    for e in events:
-        e.setdefault("ts_utc", _utc_now_iso())
+    events = [_normalize_event(event if isinstance(event, dict) else {})]
 
     if backend in {"filesystem", "file", "local"}:
         p = write_jsonl_outbox(events, outbox_dir=outbox_dir, prefix="aion_novaspine_batch")

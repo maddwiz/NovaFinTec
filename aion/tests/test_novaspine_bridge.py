@@ -76,13 +76,22 @@ def test_emit_trade_event_filesystem_outbox(tmp_path: Path):
     row = json.loads(lines[0])
     assert row["event_type"] == "trade.entry"
     assert "ts_utc" in row
+    assert isinstance(row.get("event_id"), str) and len(row["event_id"]) == 40
+
+
+def test_normalize_event_generates_stable_event_id():
+    ev = {"event_type": "trade.entry", "payload": {"symbol": "AAPL", "qty": 2}, "ts_utc": "2026-02-15T00:00:00+00:00"}
+    n1 = nsb._normalize_event(ev)
+    n2 = nsb._normalize_event(ev)
+    assert n1["event_id"] == n2["event_id"]
+    assert len(n1["event_id"]) == 40
 
 
 def test_emit_trade_event_novaspine_api_success(monkeypatch):
     calls = []
 
     def _fake_json_request(url, method="GET", payload=None, token=None, timeout_sec=6.0):
-        calls.append((str(url), str(method)))
+        calls.append((str(url), str(method), payload))
         if str(url).endswith("/api/v1/health"):
             return 200, {"ok": True}
         if str(url).endswith("/api/v1/memory/ingest"):
@@ -99,7 +108,12 @@ def test_emit_trade_event_novaspine_api_success(monkeypatch):
     assert out["backend"] == "novaspine_api"
     assert out["published"] == 1
     assert any(c[0].endswith("/api/v1/health") for c in calls)
-    assert any(c[0].endswith("/api/v1/memory/ingest") for c in calls)
+    ingest = next(c for c in calls if c[0].endswith("/api/v1/memory/ingest"))
+    assert isinstance(ingest[2], dict)
+    assert isinstance(ingest[2].get("event_id"), str) and len(ingest[2]["event_id"]) == 40
+    md = ingest[2].get("metadata", {})
+    assert md.get("event_id") == ingest[2]["event_id"]
+    assert str(ingest[2].get("source_id", "")).startswith("aion:trade.exit:")
 
 
 def test_emit_trade_event_novaspine_api_unreachable_fallback(tmp_path: Path, monkeypatch):
