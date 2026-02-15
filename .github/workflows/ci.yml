@@ -19,12 +19,19 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r q/requirements.txt pytest
+          pip install -r q/requirements.txt -r aion/requirements.txt pytest
 
       - name: Compile check
         run: |
-          python -m compileall -q q/qengine q/qmods q/tools
+          python -m compileall -q q/qengine q/qmods q/tools aion/aion
 
       - name: Run unit tests
+        env:
+          PYTHONPATH: ${{ github.workspace }}/q:${{ github.workspace }}/aion
         run: |
-          python -m pytest -q q/tests
+          python -m pytest -q \
+            q/tests \
+            aion/tests/test_external_signals_runtime.py \
+            aion/tests/test_doctor_external_overlay.py \
+            aion/tests/test_dashboard_status.py \
+            aion/tests/test_config_external_overlay_path.py
