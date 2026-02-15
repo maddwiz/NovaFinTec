@@ -66,6 +66,8 @@ def govern_hive_weights(
     split_intensity: float = 0.25,
     fusion_corr: float = 0.92,
     fusion_intensity: float = 0.12,
+    recovery_slope_trigger: float = 0.015,
+    split_cooloff_strength: float = 0.35,
 ) -> tuple[pd.DataFrame, dict]:
     """
     Apply ecosystem aging logic with actionable controls:
@@ -97,7 +99,7 @@ def govern_hive_weights(
 
     events = []
     max_events = 64
-    event_counts = {"atrophy_applied": 0, "split_applied": 0, "fusion_applied": 0}
+    event_counts = {"atrophy_applied": 0, "split_applied": 0, "fusion_applied": 0, "recovery_shielded": 0}
     vitality_latest = {}
     action_pressure = np.zeros(T, dtype=float)
 
@@ -135,22 +137,35 @@ def govern_hive_weights(
 
         # 1) Atrophy caps for weak hives with redistribution.
         for j in range(H):
+            prev_v = float(vitality[t - 1, j]) if t > 0 else float(vrow[j])
+            dv = float(vrow[j] - prev_v)
             if vrow[j] < atrophy_trigger and row[j] > atrophy_cap:
-                excess = float(row[j] - atrophy_cap)
-                row[j] = float(atrophy_cap)
+                if dv > float(recovery_slope_trigger):
+                    event_counts["recovery_shielded"] += 1
+                    if len(events) < max_events:
+                        events.append({"hive": hives[j], "event": "recovery_shielded", "score": float(dv)})
+                    continue
+
+                shortfall = float(np.clip((atrophy_trigger - vrow[j]) / max(1e-9, atrophy_trigger), 0.0, 1.0))
+                cap_dyn = float(np.clip(atrophy_cap * (1.0 - 0.45 * shortfall), 0.01, atrophy_cap))
+                excess = float(row[j] - cap_dyn)
+                row[j] = float(cap_dyn)
                 mask = np.ones(H, dtype=bool)
                 mask[j] = False
                 _redistribute_excess(row, excess, mask, vrow)
                 event_counts["atrophy_applied"] += 1
                 actions_t += 1
                 if len(events) < max_events:
-                    events.append({"hive": hives[j], "event": "atrophy_applied", "score": float(vrow[j])})
+                    events.append({"hive": hives[j], "event": "atrophy_applied", "score": float(vrow[j]), "cap": float(cap_dyn)})
 
         # 2) Split pressure for dominant volatile hive.
         dom = int(np.argmax(row))
-        if row[dom] > split_trigger and volrow[dom] > split_vol_trigger:
-            pressure = float((row[dom] - split_trigger) / max(1e-9, 1.0 - split_trigger))
-            cut = float(np.clip(split_intensity * pressure * row[dom], 0.0, 0.25))
+        prev_press = float(action_pressure[t - 1]) if t > 0 else 0.0
+        split_tr_eff = float(np.clip(split_trigger + 0.08 * prev_press, 0.10, 0.98))
+        split_int_eff = float(np.clip(split_intensity * (1.0 - split_cooloff_strength * prev_press), 0.01, 1.0))
+        if row[dom] > split_tr_eff and volrow[dom] > split_vol_trigger:
+            pressure = float((row[dom] - split_tr_eff) / max(1e-9, 1.0 - split_tr_eff))
+            cut = float(np.clip(split_int_eff * pressure * row[dom], 0.0, 0.25))
             if cut > 0:
                 row[dom] -= cut
                 mask = np.ones(H, dtype=bool)
@@ -207,6 +222,8 @@ def govern_hive_weights(
             "split_intensity": float(split_intensity),
             "fusion_corr": float(fusion_corr),
             "fusion_intensity": float(fusion_intensity),
+            "recovery_slope_trigger": float(recovery_slope_trigger),
+            "split_cooloff_strength": float(split_cooloff_strength),
         },
         "latest_raw_weights": {h: float(w[h].iloc[-1]) for h in hives},
         "latest_governed_weights": {h: float(out[h].iloc[-1]) for h in hives},

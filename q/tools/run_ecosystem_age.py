@@ -60,6 +60,8 @@ if __name__ == "__main__":
         split_intensity=float(np.clip(float(os.getenv("ECO_SPLIT_INTENSITY", "0.25")), 0.01, 1.0)),
         fusion_corr=float(np.clip(float(os.getenv("ECO_FUSION_CORR", "0.92")), 0.50, 0.999)),
         fusion_intensity=float(np.clip(float(os.getenv("ECO_FUSION_INTENSITY", "0.12")), 0.0, 1.0)),
+        recovery_slope_trigger=float(np.clip(float(os.getenv("ECO_RECOVERY_SLOPE_TRIGGER", "0.015")), 0.0, 0.50)),
+        split_cooloff_strength=float(np.clip(float(os.getenv("ECO_SPLIT_COOLOFF_STRENGTH", "0.35")), 0.0, 1.0)),
     )
     governed.to_csv(RUNS / "weights_cross_hive_governed.csv", index=False)
     (RUNS / "hive_evolution.json").write_text(json.dumps(summary, indent=2))

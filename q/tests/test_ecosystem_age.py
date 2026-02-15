@@ -44,3 +44,36 @@ def test_govern_hive_weights_actions_and_diag_passthrough_ignored():
     aps = np.asarray(summary.get("action_pressure_series", []), float)
     assert len(aps) == T
     assert float(np.min(aps)) >= 0.0 - 1e-9
+
+
+def test_govern_hive_weights_recovery_shield_blocks_over_atrophy():
+    T = 120
+    dates = pd.date_range("2025-03-01", periods=T, freq="D")
+    w = pd.DataFrame(
+        {
+            "DATE": dates,
+            "EQ": np.full(T, 0.55),
+            "FX": np.full(T, 0.35),
+            "RATES": np.full(T, 0.10),
+        }
+    )
+
+    # FX starts weak but steadily recovers.
+    fx_health = np.linspace(-0.85, 0.45, T)
+    hs_rows = []
+    for i, d in enumerate(dates):
+        hs_rows.append({"DATE": d, "HIVE": "EQ", "hive_signal": 0.20, "hive_health": 0.60})
+        hs_rows.append({"DATE": d, "HIVE": "RATES", "hive_signal": 0.08, "hive_health": 0.35})
+        hs_rows.append({"DATE": d, "HIVE": "FX", "hive_signal": 0.05, "hive_health": fx_health[i]})
+    hs = pd.DataFrame(hs_rows)
+
+    _, summary = govern_hive_weights(
+        w,
+        hs,
+        atrophy_trigger=0.40,
+        atrophy_cap=0.08,
+        recovery_slope_trigger=0.002,
+        split_trigger=0.70,
+    )
+    counts = summary.get("event_counts", {})
+    assert counts.get("recovery_shielded", 0) > 0
