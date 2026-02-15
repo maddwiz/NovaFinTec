@@ -31,6 +31,7 @@ from ..utils.logging_utils import log_alert, log_equity, log_run, log_signal, lo
 WATCHLIST_TXT = cfg.STATE_DIR / "watchlist.txt"
 PROFILE_JSON = cfg.STATE_DIR / "strategy_profile.json"
 RUNTIME_STATE_FILE = cfg.RUNTIME_STATE_FILE
+RUNTIME_CONTROLS_FILE = cfg.STATE_DIR / "runtime_controls.json"
 
 
 def now() -> str:
@@ -306,6 +307,13 @@ def save_runtime_state(today: str, cash: float, closed_pnl: float, trades_today:
     }
     try:
         RUNTIME_STATE_FILE.write_text(json.dumps(payload, indent=2, default=str))
+    except Exception:
+        pass
+
+
+def save_runtime_controls(payload: dict):
+    try:
+        RUNTIME_CONTROLS_FILE.write_text(json.dumps(payload, indent=2, default=str))
     except Exception:
         pass
 
@@ -739,6 +747,33 @@ def main() -> int:
                     f"(daily_loss_abs={policy_daily_loss_abs:.2f}, daily_loss_pct={policy_daily_loss_pct:.2%})"
                 )
             last_policy_loss_hit = bool(policy_loss_hit)
+
+            save_runtime_controls(
+                {
+                    "ts": dt.datetime.now().isoformat(),
+                    "day": day_key,
+                    "trades_today": int(trades_today),
+                    "open_positions": int(len(open_positions)),
+                    "max_trades_cap_runtime": int(max_trades_cap_runtime),
+                    "max_open_positions_runtime": int(max_open_positions_runtime),
+                    "risk_per_trade_runtime": float(risk_per_trade_runtime),
+                    "max_position_notional_pct_runtime": float(max_position_notional_pct_runtime),
+                    "max_gross_leverage_runtime": float(max_gross_leverage_runtime),
+                    "external_runtime_scale": float(ext_runtime_scale),
+                    "external_position_risk_scale": float(ext_position_risk_scale),
+                    "external_runtime_flags": list(ext_runtime_diag.get("flags", []))
+                    if isinstance(ext_runtime_diag.get("flags", []), list)
+                    else [],
+                    "external_regime": str(ext_runtime_diag.get("regime", "unknown")),
+                    "external_degraded": bool(ext_runtime_diag.get("degraded", False)),
+                    "external_quality_gate_ok": bool(ext_runtime_diag.get("quality_gate_ok", True)),
+                    "killswitch_block_new_entries": bool(killswitch_block_new_entries),
+                    "policy_block_new_entries": bool(policy_block_new_entries),
+                    "policy_loss_hit": bool(policy_loss_hit),
+                    "policy_daily_loss_abs": float(policy_daily_loss_abs),
+                    "policy_daily_loss_pct": float(policy_daily_loss_pct),
+                }
+            )
 
             for sym in wl:
                 try:

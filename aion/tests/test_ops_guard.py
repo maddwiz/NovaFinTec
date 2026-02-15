@@ -67,7 +67,31 @@ def test_start_task_returns_false_when_process_not_detected(tmp_path: Path, monk
     run_script.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
     run_script.chmod(0o755)
     monkeypatch.setattr(og, "_repo_root", lambda: tmp_path)
-    monkeypatch.setattr(og.subprocess, "Popen", lambda *args, **kwargs: object())
+    class _ProcExit:
+        returncode = 1
+
+        def poll(self):
+            return 1
+
+    monkeypatch.setattr(og.subprocess, "Popen", lambda *args, **kwargs: _ProcExit())
     monkeypatch.setattr(og, "find_task_pids", lambda _task: [])
     monkeypatch.setattr(og.time, "sleep", lambda _x: None)
     assert og.start_task("trade", root=tmp_path, log_dir=tmp_path) is False
+
+
+def test_start_task_returns_true_when_launcher_alive(tmp_path: Path, monkeypatch):
+    run_script = tmp_path / "run_aion.sh"
+    run_script.write_text("#!/usr/bin/env bash\nsleep 1\n", encoding="utf-8")
+    run_script.chmod(0o755)
+    monkeypatch.setattr(og, "_repo_root", lambda: tmp_path)
+
+    class _ProcAlive:
+        returncode = None
+
+        def poll(self):
+            return None
+
+    monkeypatch.setattr(og.subprocess, "Popen", lambda *args, **kwargs: _ProcAlive())
+    monkeypatch.setattr(og, "find_task_pids", lambda _task: [])
+    monkeypatch.setattr(og.time, "sleep", lambda _x: None)
+    assert og.start_task("trade", root=tmp_path, log_dir=tmp_path) is True

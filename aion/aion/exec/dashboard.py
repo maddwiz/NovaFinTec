@@ -82,6 +82,7 @@ def _status_payload():
     monitor = _read_json(cfg.LOG_DIR / "runtime_monitor.json", {})
     perf = _read_json(cfg.LOG_DIR / "performance_report.json", {})
     profile = _read_json(cfg.STATE_DIR / "strategy_profile.json", {})
+    runtime_controls = _read_json(cfg.STATE_DIR / "runtime_controls.json", {})
     ops_guard = _read_json(cfg.OPS_GUARD_STATUS_FILE, {})
     watchlist = _tail_lines(cfg.STATE_DIR / "watchlist.txt", limit=200)
 
@@ -122,6 +123,7 @@ def _status_payload():
         "external_fracture_state": fracture_state,
         "ops_guard_ok": ops_guard_ok,
         "ops_guard": ops_guard if isinstance(ops_guard, dict) else {},
+        "runtime_controls": runtime_controls if isinstance(runtime_controls, dict) else {},
         "monitor_ts": monitor.get("ts"),
         "alert_count": len(monitor.get("alerts", [])),
         "system_event_count": len(monitor.get("system_events", [])),
@@ -236,6 +238,7 @@ def _html_template():
         external_overlay_msg: s.external_overlay_msg,
         ops_guard_ok: s.ops_guard_ok,
         ops_guard: s.ops_guard,
+        runtime_controls: s.runtime_controls,
         monitor_ts: s.monitor_ts,
         winrate: s.trade_metrics?.winrate,
         expectancy: s.trade_metrics?.expectancy,

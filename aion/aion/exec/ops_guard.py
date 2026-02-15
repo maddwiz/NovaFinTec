@@ -89,7 +89,7 @@ def start_task(task: str, *, root: Path | None = None, log_dir: Path | None = No
         env = dict(os.environ)
         env["AION_TASK"] = t
         with out_log.open("ab") as fout:
-            subprocess.Popen(
+            proc = subprocess.Popen(
                 [str(run_script)],
                 cwd=str(root),
                 env=env,
@@ -97,11 +97,19 @@ def start_task(task: str, *, root: Path | None = None, log_dir: Path | None = No
                 stderr=subprocess.STDOUT,
                 start_new_session=True,
             )
-        for _ in range(8):
-            time.sleep(0.15)
+        for _ in range(80):
             if find_task_pids(t):
                 return True
-        _incident("error", "launch command returned but task not detected", task=t)
+            # Trade can spend significant time in preflight before paper_loop appears.
+            if proc.poll() is not None:
+                break
+            time.sleep(0.25)
+        if proc.poll() is None:
+            _incident("info", "task launcher alive; treating as booting", task=t)
+            if find_task_pids(t):
+                return True
+            return True
+        _incident("error", f"launch exited rc={proc.returncode} before task detected", task=t)
         return False
     except Exception as exc:
         _incident("error", f"failed to start task ({exc})", task=t)

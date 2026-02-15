@@ -44,6 +44,15 @@ def test_status_payload_includes_external_overlay_fields(tmp_path: Path, monkeyp
             }
         },
     )
+    _write(
+        state_dir / "runtime_controls.json",
+        {
+            "max_trades_cap_runtime": 9,
+            "max_open_positions_runtime": 3,
+            "external_position_risk_scale": 0.82,
+            "policy_block_new_entries": False,
+        },
+    )
     (state_dir / "watchlist.txt").write_text("AAPL\nMSFT\n", encoding="utf-8")
 
     s = dash._status_payload()
@@ -53,4 +62,6 @@ def test_status_payload_includes_external_overlay_fields(tmp_path: Path, monkeyp
     assert "fracture_alert" in s["external_overlay_risk_flags"]
     assert s["external_fracture_state"] == "alert"
     assert s["ops_guard_ok"] is True
+    assert s["runtime_controls"]["max_trades_cap_runtime"] == 9
+    assert s["runtime_controls"]["external_position_risk_scale"] == 0.82
     assert s["watchlist_count"] == 2
