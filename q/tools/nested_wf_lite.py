@@ -190,12 +190,15 @@ def run_asset_nested(ret: np.ndarray, pos: np.ndarray) -> tuple[dict, list[str]]
     chosen = []
     oos_chunks = []
     ret_chunks = []
+    outer_attempts = 0
+    train_ratios = []
     t = max(TRAIN_MIN, 120)
     while t < n:
         test_start = t
         test_end = min(n, t + OUTER_STEP)
         if test_end - test_start < 10:
             break
+        outer_attempts += 1
 
         train_end = max(0, test_start - EMBARGO)
         if train_end < max(INNER_MIN + INNER_STEP, 160):
@@ -223,6 +226,7 @@ def run_asset_nested(ret: np.ndarray, pos: np.ndarray) -> tuple[dict, list[str]]
         oos_chunks.append(pnl_test)
         ret_chunks.append(r_test)
         chosen.append(f"cap={best_cfg['cap']:.2f}|db={best_cfg['deadband']:.2f}|span={best_cfg['span']}")
+        train_ratios.append(float(train_end) / max(1.0, float(n)))
 
         t += OUTER_STEP
 
@@ -241,6 +245,10 @@ def run_asset_nested(ret: np.ndarray, pos: np.ndarray) -> tuple[dict, list[str]]
         "oos_mean_daily": float(np.mean(oos)) if oos.size else 0.0,
         "oos_n": int(oos.size),
         "hit": hit,
+        "outer_folds_used": int(len(chosen)),
+        "outer_folds_attempted": int(outer_attempts),
+        "outer_fold_utilization": float(len(chosen) / max(1, outer_attempts)),
+        "train_ratio_mean": float(np.mean(train_ratios)) if train_ratios else None,
     }
     return out, chosen
 
@@ -270,8 +278,13 @@ if __name__ == "__main__":
     summary = {
         "assets": int(len(df)) if not df.empty else 0,
         "avg_oos_sharpe": float(df["oos_sharpe"].mean()) if not df.empty else None,
+        "median_oos_sharpe": float(df["oos_sharpe"].median()) if not df.empty else None,
         "avg_oos_maxDD": float(df["oos_maxDD"].mean()) if not df.empty else None,
         "avg_hit": float(df["hit"].mean()) if not df.empty else None,
+        "avg_outer_fold_utilization": float(df["outer_fold_utilization"].mean()) if (not df.empty and "outer_fold_utilization" in df.columns) else None,
+        "median_outer_fold_utilization": float(df["outer_fold_utilization"].median()) if (not df.empty and "outer_fold_utilization" in df.columns) else None,
+        "low_utilization_assets": int(((df["outer_fold_utilization"] < 0.50).sum())) if (not df.empty and "outer_fold_utilization" in df.columns) else 0,
+        "avg_train_ratio_mean": float(df["train_ratio_mean"].mean()) if (not df.empty and "train_ratio_mean" in df.columns) else None,
         "top_configs": [{"config": k, "count": int(v)} for k, v in cfg_counter.most_common(8)],
         "params": {
             "train_min": TRAIN_MIN,
@@ -284,6 +297,7 @@ if __name__ == "__main__":
             "max_rows": MAX_ROWS,
             "cost_bps": COST_BPS,
             "winsor_pct": WINSOR_PCT,
+            "purge_embargo_ratio": float((PURGE + EMBARGO) / max(1, OUTER_STEP)),
         },
     }
 

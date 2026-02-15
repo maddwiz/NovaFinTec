@@ -57,3 +57,33 @@ def test_cap_step_change_limits_adjacent_moves():
     assert float(np.max(np.abs(d))) <= 0.10 + 1e-12
     assert float(np.min(y)) >= 0.55 - 1e-12
     assert float(np.max(y)) <= 1.15 + 1e-12
+
+
+def test_nested_leakage_quality_high_when_utilization_is_healthy():
+    q, detail = rqg._nested_leakage_quality(
+        {
+            "assets": 20,
+            "avg_outer_fold_utilization": 0.82,
+            "low_utilization_assets": 1,
+            "avg_train_ratio_mean": 0.88,
+            "params": {"purge_embargo_ratio": 0.22},
+        }
+    )
+    assert q is not None
+    assert float(q) > 0.75
+    assert float(detail["avg_outer_fold_utilization"]) == 0.82
+
+
+def test_nested_leakage_quality_drops_with_low_utilization_and_heavy_purge():
+    q, detail = rqg._nested_leakage_quality(
+        {
+            "assets": 16,
+            "avg_outer_fold_utilization": 0.38,
+            "low_utilization_assets": 10,
+            "avg_train_ratio_mean": 0.50,
+            "params": {"purge_embargo_ratio": 0.95},
+        }
+    )
+    assert q is not None
+    assert float(q) < 0.45
+    assert float(detail["purge_embargo_ratio"]) == 0.95

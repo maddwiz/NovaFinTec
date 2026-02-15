@@ -209,6 +209,61 @@ def _cap_step_change(series: np.ndarray, max_step: float | None, lo: float, hi: 
     return np.clip(s, lo, hi)
 
 
+def _nested_leakage_quality(nested: dict | None):
+    """
+    Score nested-WF leakage defenses from fold utilization + purge/embargo pressure.
+    Returns (score_or_none, detail_dict).
+    """
+    if not isinstance(nested, dict):
+        return None, {}
+
+    def _f(v):
+        try:
+            x = float(v)
+            return x if np.isfinite(x) else None
+        except Exception:
+            return None
+
+    assets = _f(nested.get("assets"))
+    avg_util = _f(nested.get("avg_outer_fold_utilization"))
+    low_util = _f(nested.get("low_utilization_assets"))
+    train_ratio = _f(nested.get("avg_train_ratio_mean"))
+    params = nested.get("params", {}) if isinstance(nested.get("params"), dict) else {}
+    pe_ratio = _f(params.get("purge_embargo_ratio"))
+
+    q_util = None
+    if avg_util is not None:
+        q_util = float(np.clip((avg_util - 0.35) / (0.85 - 0.35 + 1e-9), 0.0, 1.0))
+    q_low = None
+    if assets is not None and assets > 0 and low_util is not None:
+        frac = float(np.clip(low_util / max(1.0, assets), 0.0, 1.0))
+        q_low = float(np.clip(1.0 - frac, 0.0, 1.0))
+    q_train = None
+    if train_ratio is not None:
+        q_train = float(np.clip((train_ratio - 0.45) / (0.95 - 0.45 + 1e-9), 0.0, 1.0))
+    q_gap = None
+    if pe_ratio is not None:
+        q_gap = float(np.clip(1.0 - max(0.0, pe_ratio - 0.35) / (1.10 - 0.35 + 1e-9), 0.0, 1.0))
+
+    q, detail = blend_quality(
+        {
+            "fold_utilization": (q_util, 0.45),
+            "low_utilization_fraction": (q_low, 0.25),
+            "train_ratio": (q_train, 0.20),
+            "purge_embargo_pressure": (q_gap, 0.10),
+        }
+    )
+    out = {
+        "avg_outer_fold_utilization": avg_util,
+        "low_utilization_assets": low_util,
+        "assets": assets,
+        "avg_train_ratio_mean": train_ratio,
+        "purge_embargo_ratio": pe_ratio,
+        "quality_components": detail,
+    }
+    return q, out
+
+
 if __name__ == "__main__":
     nested = _load_json(RUNS / "nested_wf_summary.json") or {}
     health = _load_json(RUNS / "system_health.json") or {}
@@ -307,6 +362,13 @@ if __name__ == "__main__":
             "nested_sharpe": (sharpe_quality(nested_sh), 0.55),
             "nested_hit": (hit_quality(nested_hit), 0.20),
             "nested_dd": (drawdown_quality(nested_dd), 0.25),
+        }
+    )
+    nested_leak_q, nested_leak_detail = _nested_leakage_quality(nested)
+    nested_q, nested_detail = blend_quality(
+        {
+            "nested_performance": (nested_q, 0.82),
+            "nested_leakage": (nested_leak_q, 0.18),
         }
     )
     hive_q, hive_detail = blend_quality(
@@ -577,6 +639,7 @@ if __name__ == "__main__":
         "length": int(T),
         "components": {
             "nested_wf": {"score": float(nested_q), "detail": nested_detail},
+            "nested_leakage": {"score": float(nested_leak_q) if nested_leak_q is not None else None, "detail": nested_leak_detail},
             "hive_wf": {"score": float(hive_q), "detail": hive_detail},
             "council": {"score": float(council_q), "detail": council_detail},
             "dream_coherence": {"score": float(dream_q) if dream_q is not None else None},
