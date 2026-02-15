@@ -12,6 +12,16 @@
     "after_hours": 0.6,
     "closed": 0.0
   },
+  "session_turnover_scales": {
+    "regular": 1.0,
+    "after_hours": 0.7,
+    "closed": 0.0
+  },
+  "session_asset_step_scales": {
+    "regular": 1.0,
+    "after_hours": 0.7,
+    "closed": 0.0
+  },
   "max_asset_step_change": 0.08,
   "max_step_turnover": 0.35,
   "rolling_turnover_window": 5,

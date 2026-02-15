@@ -71,6 +71,28 @@ def _parse_opt_int(v):
     return out
 
 
+def _resolve_session_scale(session: str, scales: dict | None, default: float = 1.0) -> float:
+    if not isinstance(scales, dict):
+        return float(default)
+    try:
+        val = scales.get(session, scales.get("regular", default))
+        out = float(val)
+    except Exception:
+        return float(default)
+    if not np.isfinite(out):
+        return float(default)
+    return float(np.clip(out, 0.0, 2.0))
+
+
+def _apply_session_cap(base_cap: float | None, session: str, scales: dict | None) -> float | None:
+    b = _parse_opt_float(base_cap)
+    if b is None:
+        return None
+    s = _resolve_session_scale(session=session, scales=scales, default=1.0)
+    out = float(b) * float(s)
+    return out if np.isfinite(out) else None
+
+
 def _load_weights():
     p = RUNS / "portfolio_weights_final.csv"
     if not p.exists():
@@ -111,6 +133,8 @@ def _load_config():
         "long_blocklist": [],
         "symbol_caps": {},
         "session_scales": {"regular": 1.0, "after_hours": 0.60, "closed": 0.0},
+        "session_turnover_scales": {"regular": 1.0, "after_hours": 0.70, "closed": 0.0},
+        "session_asset_step_scales": {"regular": 1.0, "after_hours": 0.70, "closed": 0.0},
         "max_step_turnover": None,
         "max_asset_step_change": None,
         "rolling_turnover_window": None,
@@ -275,8 +299,7 @@ if __name__ == "__main__":
 
     session = str(os.getenv("Q_SESSION_MODE", "regular")).strip().lower()
     session_scales = cfg.get("session_scales", {}) or {}
-    sess_scale = float(session_scales.get(session, session_scales.get("regular", 1.0)))
-    sess_scale = float(np.clip(sess_scale, 0.0, 2.0))
+    sess_scale = _resolve_session_scale(session=session, scales=session_scales, default=1.0)
     out *= sess_scale
 
     if bool(cfg.get("renormalize_to_gross", True)):
@@ -291,6 +314,11 @@ if __name__ == "__main__":
         max_asset_step_change = float(max_asset_step_change) if max_asset_step_change is not None else None
     except Exception:
         max_asset_step_change = None
+    max_asset_step_change = _apply_session_cap(
+        max_asset_step_change,
+        session=session,
+        scales=cfg.get("session_asset_step_scales", {}),
+    )
     out = _apply_asset_delta_cap(out, max_asset_step_change)
 
     max_step_turnover = cfg.get("max_step_turnover", None)
@@ -298,6 +326,11 @@ if __name__ == "__main__":
         max_step_turnover = float(max_step_turnover) if max_step_turnover is not None else None
     except Exception:
         max_step_turnover = None
+    max_step_turnover = _apply_session_cap(
+        max_step_turnover,
+        session=session,
+        scales=cfg.get("session_turnover_scales", {}),
+    )
     rolling_window = cfg.get("rolling_turnover_window", None)
     try:
         rolling_window = int(rolling_window) if rolling_window is not None else None
@@ -308,6 +341,11 @@ if __name__ == "__main__":
         rolling_limit = float(rolling_limit) if rolling_limit is not None else None
     except Exception:
         rolling_limit = None
+    rolling_limit = _apply_session_cap(
+        rolling_limit,
+        session=session,
+        scales=cfg.get("session_turnover_scales", {}),
+    )
 
     out, turnover_before, turnover_after = _apply_turnover_caps(
         out,
@@ -332,6 +370,8 @@ if __name__ == "__main__":
         "max_abs_weight": max_abs,
         "session_mode": session,
         "session_scale": sess_scale,
+        "session_turnover_scale": _resolve_session_scale(session, cfg.get("session_turnover_scales", {}), default=1.0),
+        "session_asset_step_scale": _resolve_session_scale(session, cfg.get("session_asset_step_scales", {}), default=1.0),
         "replace_final": bool(args.replace_final),
         "gross_before_mean": float(np.mean(gross0)),
         "gross_after_mean": float(np.mean(np.sum(np.abs(out), axis=1))),

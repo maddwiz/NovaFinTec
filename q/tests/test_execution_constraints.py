@@ -98,3 +98,15 @@ def test_load_config_q_exec_env_overrides_file(monkeypatch, tmp_path):
     assert cfg["max_abs_weight"] == 0.11
     assert cfg["max_step_turnover"] == 0.25
     assert cfg["renormalize_to_gross"] is False
+
+
+def test_apply_session_cap_scales_value_by_session():
+    scales = {"regular": 1.0, "after_hours": 0.5, "closed": 0.0}
+    assert rec._apply_session_cap(0.4, "regular", scales) == 0.4
+    assert rec._apply_session_cap(0.4, "after_hours", scales) == 0.2
+    assert rec._apply_session_cap(0.4, "closed", scales) == 0.0
+
+
+def test_apply_session_cap_returns_none_for_missing_base():
+    scales = {"regular": 1.0, "after_hours": 0.6}
+    assert rec._apply_session_cap(None, "after_hours", scales) is None
