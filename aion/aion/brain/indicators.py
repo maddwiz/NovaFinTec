@@ -259,6 +259,86 @@ def double_bottom(close: pd.Series, lookback: int = 24) -> pd.Series:
     return close.rolling(lookback).apply(_double_bottom_window, raw=True).fillna(0.0) > 0.5
 
 
+def _head_and_shoulders_top_window(
+    arr: np.ndarray,
+    shoulder_tol: float = 0.025,
+    min_head_height: float = 0.012,
+    neckline_break: float = 0.004,
+) -> float:
+    if len(arr) < 18:
+        return 0.0
+    n = len(arr)
+    seg = max(5, n // 3)
+    left = arr[:seg]
+    mid = arr[seg : 2 * seg]
+    right = arr[2 * seg :]
+    if len(mid) < 4 or len(right) < 4:
+        return 0.0
+
+    lpk = float(np.max(left))
+    hpk = float(np.max(mid))
+    rpk = float(np.max(right))
+
+    shoulders_similar = abs(lpk - rpk) / (max(lpk, rpk) + 1e-9) <= shoulder_tol
+    head_dominant = (hpk > lpk * (1.0 + min_head_height)) and (hpk > rpk * (1.0 + min_head_height))
+
+    lt = float(np.min(arr[max(0, seg // 2) : min(n, seg + seg // 2)]))
+    rt = float(np.min(arr[min(n - 1, seg + seg // 2) :]))
+    neckline = 0.5 * (lt + rt)
+    confirmed = float(arr[-1]) < neckline * (1.0 - neckline_break)
+    return float(shoulders_similar and head_dominant and confirmed)
+
+
+def _inverse_head_and_shoulders_bottom_window(
+    arr: np.ndarray,
+    shoulder_tol: float = 0.025,
+    min_head_depth: float = 0.012,
+    neckline_break: float = 0.004,
+) -> float:
+    if len(arr) < 18:
+        return 0.0
+    n = len(arr)
+    seg = max(5, n // 3)
+    left = arr[:seg]
+    mid = arr[seg : 2 * seg]
+    right = arr[2 * seg :]
+    if len(mid) < 4 or len(right) < 4:
+        return 0.0
+
+    ltr = float(np.min(left))
+    htr = float(np.min(mid))
+    rtr = float(np.min(right))
+
+    shoulders_similar = abs(ltr - rtr) / (abs(min(ltr, rtr)) + 1e-9) <= shoulder_tol
+    head_dominant = (htr < ltr * (1.0 - min_head_depth)) and (htr < rtr * (1.0 - min_head_depth))
+
+    lp = float(np.max(arr[max(0, seg // 2) : min(n, seg + seg // 2)]))
+    rp = float(np.max(arr[min(n - 1, seg + seg // 2) :]))
+    neckline = 0.5 * (lp + rp)
+    confirmed = float(arr[-1]) > neckline * (1.0 + neckline_break)
+    return float(shoulders_similar and head_dominant and confirmed)
+
+
+def head_and_shoulders_top(close: pd.Series, lookback: int = 30) -> pd.Series:
+    return (
+        close.rolling(lookback)
+        .apply(_head_and_shoulders_top_window, raw=True)
+        .fillna(0.0)
+        .astype(float)
+        > 0.5
+    )
+
+
+def inverse_head_and_shoulders_bottom(close: pd.Series, lookback: int = 30) -> pd.Series:
+    return (
+        close.rolling(lookback)
+        .apply(_inverse_head_and_shoulders_bottom_window, raw=True)
+        .fillna(0.0)
+        .astype(float)
+        > 0.5
+    )
+
+
 def bull_flag_breakout(df: pd.DataFrame, pullback: int = 6, trend_span: int = 24) -> pd.Series:
     close = df["close"]
     trend_up = close > ema(close, trend_span)

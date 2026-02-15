@@ -108,3 +108,7 @@ def test_compute_features_emits_divergence_columns():
     for col in ["rsi_bull_div", "rsi_bear_div", "obv_bull_div", "obv_bear_div"]:
         assert col in out.columns
         assert str(out[col].dtype) == "bool"
+    assert "head_and_shoulders_top" in out.columns
+    assert "inverse_head_and_shoulders_bottom" in out.columns
+    assert str(out["head_and_shoulders_top"].dtype) == "bool"
+    assert str(out["inverse_head_and_shoulders_bottom"].dtype) == "bool"

@@ -18,6 +18,8 @@ from .indicators import (
     double_top,
     ema,
     fib_levels,
+    head_and_shoulders_top,
+    inverse_head_and_shoulders_bottom,
     is_bear_harami,
     is_bear_engulf,
     is_bull_harami,
@@ -77,6 +79,8 @@ def compute_features(df: pd.DataFrame, cfg) -> pd.DataFrame:
     out["breakout_down"] = breakout_down(out, lookback=20)
     out["double_top"] = double_top(out["close"], lookback=24)
     out["double_bottom"] = double_bottom(out["close"], lookback=24)
+    out["head_and_shoulders_top"] = head_and_shoulders_top(out["close"], lookback=30)
+    out["inverse_head_and_shoulders_bottom"] = inverse_head_and_shoulders_bottom(out["close"], lookback=30)
     out["bull_flag_breakout"] = bull_flag_breakout(out)
     out["bear_flag_breakdown"] = bear_flag_breakdown(out)
     out["ascending_triangle_breakout"] = ascending_triangle_breakout(out)
@@ -246,6 +250,12 @@ def _breakout_component(row: pd.Series):
     if bool(row["double_top"]):
         short += 0.45
         reasons_s.append("Double top")
+    if bool(row.get("inverse_head_and_shoulders_bottom", False)):
+        long += 0.62
+        reasons_l.append("Inverse head-and-shoulders breakout")
+    if bool(row.get("head_and_shoulders_top", False)):
+        short += 0.62
+        reasons_s.append("Head-and-shoulders breakdown")
 
     return long, short, reasons_l, reasons_s
 
@@ -412,6 +422,7 @@ def _confluence_component(row: pd.Series):
             "three_white_soldiers",
             "bull_flag_breakout",
             "ascending_triangle_breakout",
+            "inverse_head_and_shoulders_bottom",
         ]
     )
     bear_pattern = any(
@@ -424,6 +435,7 @@ def _confluence_component(row: pd.Series):
             "three_black_crows",
             "bear_flag_breakdown",
             "descending_triangle_breakdown",
+            "head_and_shoulders_top",
         ]
     )
 
