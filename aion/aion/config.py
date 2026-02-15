@@ -244,6 +244,7 @@ MEMORY_NAMESPACE = str(os.getenv("AION_MEMORY_NAMESPACE", os.getenv("C3_MEMORY_N
 MEMORY_OUTBOX_DIR = Path(os.getenv("AION_MEMORY_OUTBOX_DIR", str(LOG_DIR / "novaspine_outbox_aion")))
 MEMORY_NOVASPINE_URL = str(os.getenv("AION_MEMORY_NOVASPINE_URL", os.getenv("C3_MEMORY_NOVASPINE_URL", "http://127.0.0.1:8420"))).strip() or "http://127.0.0.1:8420"
 MEMORY_TIMEOUT_SEC = float(os.getenv("AION_MEMORY_TIMEOUT_SEC", "6.0"))
+MEMORY_FAIL_COOLDOWN_SEC = float(os.getenv("AION_MEMORY_FAIL_COOLDOWN_SEC", "120"))
 MEMORY_SOURCE_PREFIX = str(os.getenv("AION_MEMORY_SOURCE_PREFIX", "aion")).strip() or "aion"
 MEMORY_TOKEN = str(
     os.getenv(

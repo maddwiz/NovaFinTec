@@ -68,6 +68,7 @@ NovaSpine memory bridge is now wired directly from AION trade events:
 - `AION_MEMORY_NOVASPINE_URL` (default `http://127.0.0.1:8420`)
 - `AION_MEMORY_NAMESPACE` (default `private/nova/actions`)
 - `AION_MEMORY_OUTBOX_DIR` (default `logs/novaspine_outbox_aion`)
+- `AION_MEMORY_FAIL_COOLDOWN_SEC` (default `120`; circuit-breaker after API failure)
 - `AION_MEMORY_TOKEN` (optional; falls back to `C3AE_API_TOKEN` / `C3_MEMORY_TOKEN`)
 
 When backend is `filesystem`, each ENTRY/PARTIAL/EXIT is queued to local JSONL outbox.

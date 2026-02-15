@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib import parse, request
+
+_LAST_API_FAIL_TS = 0.0
 
 
 def _utc_now_iso() -> str:
@@ -119,6 +122,8 @@ def build_trade_event(
 
 
 def emit_trade_event(event: dict, cfg) -> dict:
+    global _LAST_API_FAIL_TS
+
     enabled = bool(getattr(cfg, "MEMORY_ENABLE", False))
     if not enabled:
         return {"ok": True, "backend": "disabled", "published": 0, "queued": 0, "failed": 0}
@@ -130,6 +135,7 @@ def emit_trade_event(event: dict, cfg) -> dict:
         outbox_raw = Path("logs") / "novaspine_outbox_aion"
     outbox_dir = Path(outbox_raw)
     timeout_sec = float(getattr(cfg, "MEMORY_TIMEOUT_SEC", 6.0))
+    fail_cooldown_sec = max(0.0, float(getattr(cfg, "MEMORY_FAIL_COOLDOWN_SEC", 120.0)))
     source_prefix = str(getattr(cfg, "MEMORY_SOURCE_PREFIX", "aion")).strip() or "aion"
     token = str(getattr(cfg, "MEMORY_TOKEN", "")).strip() or None
 
@@ -142,6 +148,20 @@ def emit_trade_event(event: dict, cfg) -> dict:
         return {"ok": True, "backend": "filesystem", "published": 0, "queued": len(events), "failed": 0, "outbox_file": str(p)}
 
     if backend in {"novaspine", "novaspine_api", "c3ae"}:
+        if _LAST_API_FAIL_TS > 0 and fail_cooldown_sec > 0:
+            dt_sec = time.monotonic() - float(_LAST_API_FAIL_TS)
+            if dt_sec < fail_cooldown_sec:
+                p = write_jsonl_outbox(events, outbox_dir=outbox_dir, prefix="aion_novaspine_cooldown")
+                return {
+                    "ok": False,
+                    "backend": "novaspine_api",
+                    "published": 0,
+                    "queued": len(events),
+                    "failed": 0,
+                    "outbox_file": str(p),
+                    "error": f"cooldown_active:{dt_sec:.2f}s<{fail_cooldown_sec:.2f}s",
+                }
+
         base = _base_url(getattr(cfg, "MEMORY_NOVASPINE_URL", "http://127.0.0.1:8420"), "http://127.0.0.1:8420")
         health_url = parse.urljoin(base + "/", "api/v1/health")
         ingest_url = parse.urljoin(base + "/", "api/v1/memory/ingest")
@@ -150,6 +170,7 @@ def emit_trade_event(event: dict, cfg) -> dict:
             if not (200 <= code < 300):
                 raise RuntimeError(f"health_status_{code}")
         except Exception as exc:
+            _LAST_API_FAIL_TS = time.monotonic()
             p = write_jsonl_outbox(events, outbox_dir=outbox_dir, prefix="aion_novaspine_failed")
             return {
                 "ok": False,
@@ -178,6 +199,7 @@ def emit_trade_event(event: dict, cfg) -> dict:
                 last_err = str(exc)
 
         if fail > 0:
+            _LAST_API_FAIL_TS = time.monotonic()
             p = write_jsonl_outbox(events, outbox_dir=outbox_dir, prefix="aion_novaspine_partial_failed")
             return {
                 "ok": False,
@@ -188,6 +210,7 @@ def emit_trade_event(event: dict, cfg) -> dict:
                 "outbox_file": str(p),
                 "error": last_err,
             }
+        _LAST_API_FAIL_TS = 0.0
         return {"ok": True, "backend": "novaspine_api", "published": pub, "queued": 0, "failed": 0}
 
     # Unknown backend: fail-safe queue.

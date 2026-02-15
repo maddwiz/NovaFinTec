@@ -2,7 +2,16 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from aion.brain import novaspine_bridge as nsb
+
+
+@pytest.fixture(autouse=True)
+def _reset_bridge_state():
+    nsb._LAST_API_FAIL_TS = 0.0
+    yield
+    nsb._LAST_API_FAIL_TS = 0.0
 
 
 def _cfg(**kwargs):
@@ -120,3 +129,29 @@ def test_emit_trade_event_unknown_backend_falls_back_to_queue(tmp_path: Path):
     assert out["backend"] == "not_real"
     assert out["queued"] == 1
     assert Path(out["outbox_file"]).exists()
+
+
+def test_emit_trade_event_novaspine_api_cooldown_short_circuits(tmp_path: Path, monkeypatch):
+    calls = {"n": 0}
+
+    def _fake_json_request(*_args, **_kwargs):
+        calls["n"] += 1
+        raise RuntimeError("down")
+
+    ticks = iter([100.0, 110.0])
+    monkeypatch.setattr(nsb, "_json_request", _fake_json_request)
+    monkeypatch.setattr(nsb.time, "monotonic", lambda: next(ticks))
+
+    cfg = _cfg(
+        MEMORY_BACKEND="novaspine_api",
+        MEMORY_OUTBOX_DIR=tmp_path,
+        MEMORY_FAIL_COOLDOWN_SEC=120.0,
+    )
+    out1 = nsb.emit_trade_event({"event_type": "trade.entry", "payload": {"symbol": "AAPL"}}, cfg)
+    out2 = nsb.emit_trade_event({"event_type": "trade.entry", "payload": {"symbol": "AAPL"}}, cfg)
+
+    assert out1["ok"] is False
+    assert out2["ok"] is False
+    assert "unreachable" in str(out1.get("error", ""))
+    assert str(out2.get("error", "")).startswith("cooldown_active")
+    assert calls["n"] == 1
