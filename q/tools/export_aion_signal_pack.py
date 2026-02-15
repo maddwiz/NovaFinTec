@@ -203,10 +203,24 @@ def _load_series(path: Path):
     try:
         a = np.loadtxt(path, delimiter=",")
     except Exception:
+        # Many Q artifacts are date-indexed CSVs (DATE,<value>), so fall back
+        # to a permissive parser and extract the last numeric column.
         try:
-            a = np.loadtxt(path, delimiter=",", skiprows=1)
+            raw = pd.read_csv(path, header=None)
         except Exception:
             return None
+        if raw.empty:
+            return None
+        num = raw.apply(pd.to_numeric, errors="coerce")
+        cols = [c for c in num.columns if num[c].notna().any()]
+        if not cols:
+            return None
+        for col in reversed(cols):
+            arr = num[col].to_numpy(dtype=float)
+            arr = arr[np.isfinite(arr)]
+            if len(arr):
+                return arr.ravel()
+        return None
     a = np.asarray(a, float)
     if a.ndim == 2 and a.shape[1] >= 1:
         a = a[:, -1]

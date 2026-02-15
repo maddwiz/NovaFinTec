@@ -91,3 +91,38 @@ def test_runtime_context_flags_nested_leakage_alert(tmp_path: Path):
     ctx = ex._runtime_context(tmp_path)
     assert ctx["components"]["nested_wf_leakage_modifier"]["found"] is True
     assert "nested_leakage_alert" in ctx["risk_flags"]
+
+
+def test_runtime_context_parses_dated_governor_csvs(tmp_path: Path):
+    (tmp_path / "hive_diversification_governor.csv").write_text(
+        "DATE,hive_diversification_governor\n2026-01-01,1.01\n2026-01-02,0.99\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "hive_persistence_governor.csv").write_text(
+        "DATE,hive_persistence_governor\n2026-01-01,1.02\n2026-01-02,1.00\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "dream_coherence_governor.csv").write_text(
+        "DATE,dream_coherence_governor\n2026-01-01,1.04\n2026-01-02,0.97\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "heartbeat_exposure_scaler.csv").write_text(
+        "DATE,heartbeat_exposure_scaler\n2026-01-01,0.92\n2026-01-02,0.88\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "dna_stress_governor.csv").write_text(
+        "DATE,dna_stress,dna_stress_governor\n2026-01-01,0.1,1.03\n2026-01-02,0.3,0.95\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "symbolic_governor.csv").write_text(
+        "DATE,symbolic_stress,symbolic_governor\n2026-01-01,0.2,1.01\n2026-01-02,0.4,0.93\n",
+        encoding="utf-8",
+    )
+
+    ctx = ex._runtime_context(tmp_path)
+    assert ctx["components"]["hive_diversification_governor"]["found"] is True
+    assert ctx["components"]["hive_persistence_governor"]["found"] is True
+    assert ctx["components"]["dream_coherence_governor"]["found"] is True
+    assert ctx["components"]["heartbeat_exposure_scaler"]["found"] is True
+    assert ctx["components"]["dna_stress_governor"]["found"] is True
+    assert ctx["components"]["symbolic_governor"]["found"] is True
