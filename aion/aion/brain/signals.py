@@ -17,6 +17,7 @@ from .indicators import (
     double_bottom,
     double_top,
     ema,
+    falling_wedge_breakout,
     fib_levels,
     head_and_shoulders_top,
     inverse_head_and_shoulders_bottom,
@@ -36,6 +37,7 @@ from .indicators import (
     obv,
     roc,
     rolling_vwap,
+    rising_wedge_breakdown,
     rsi,
     stochastic,
 )
@@ -89,6 +91,8 @@ def compute_features(df: pd.DataFrame, cfg) -> pd.DataFrame:
     out["bear_flag_breakdown"] = bear_flag_breakdown(out)
     out["ascending_triangle_breakout"] = ascending_triangle_breakout(out)
     out["descending_triangle_breakdown"] = descending_triangle_breakdown(out)
+    out["falling_wedge_breakout"] = falling_wedge_breakout(out)
+    out["rising_wedge_breakdown"] = rising_wedge_breakdown(out)
 
     out["macd_cross_up"] = (out["macd"] > out["macd_signal"]) & (out["macd"].shift(1) <= out["macd_signal"].shift(1))
     out["macd_cross_down"] = (out["macd"] < out["macd_signal"]) & (out["macd"].shift(1) >= out["macd_signal"].shift(1))
@@ -417,6 +421,12 @@ def _pattern_component(row: pd.Series, price: float, high: float, low: float, cf
     if bool(row.get("descending_triangle_breakdown", False)):
         short += 0.62
         reasons_s.append("Descending triangle breakdown")
+    if bool(row.get("falling_wedge_breakout", False)):
+        long += 0.56
+        reasons_l.append("Falling wedge breakout")
+    if bool(row.get("rising_wedge_breakdown", False)):
+        short += 0.56
+        reasons_s.append("Rising wedge breakdown")
 
     if bool(row["doji"]):
         long += 0.12
@@ -461,6 +471,7 @@ def _confluence_component(row: pd.Series):
             "three_white_soldiers",
             "bull_flag_breakout",
             "ascending_triangle_breakout",
+            "falling_wedge_breakout",
             "inverse_head_and_shoulders_bottom",
         ]
     )
@@ -474,6 +485,7 @@ def _confluence_component(row: pd.Series):
             "three_black_crows",
             "bear_flag_breakdown",
             "descending_triangle_breakdown",
+            "rising_wedge_breakdown",
             "head_and_shoulders_top",
         ]
     )

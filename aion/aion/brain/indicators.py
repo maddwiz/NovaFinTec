@@ -406,6 +406,50 @@ def descending_triangle_breakdown(df: pd.DataFrame, tol: float = 0.004) -> pd.Se
     return flat_bottom & falling_highs & breakdown
 
 
+def rising_wedge_breakdown(df: pd.DataFrame, tol: float = 0.004) -> pd.Series:
+    def _slope(arr: np.ndarray) -> float:
+        if len(arr) < 4:
+            return 0.0
+        x = np.arange(len(arr), dtype=float)
+        return float(np.polyfit(x, arr, 1)[0])
+
+    slope_h = df["high"].rolling(12).apply(_slope, raw=True)
+    slope_l = df["low"].rolling(12).apply(_slope, raw=True)
+    width = (df["high"] - df["low"]) / (df["close"].abs() + 1e-9)
+    width_ma_fast = width.rolling(4).mean()
+    width_ma_slow = width.rolling(10).mean()
+    narrowing = width_ma_fast < (width_ma_slow * (1.0 - tol * 0.45))
+
+    rising_highs = slope_h.shift(1) > 0
+    rising_lows = slope_l.shift(1) > 0
+    converging = slope_l.shift(1) > (slope_h.shift(1) * 1.05)
+    breakdown = df["close"] < df["low"].shift(1).rolling(12).min()
+    structure = rising_highs & rising_lows & converging & narrowing.shift(1)
+    return structure & breakdown
+
+
+def falling_wedge_breakout(df: pd.DataFrame, tol: float = 0.004) -> pd.Series:
+    def _slope(arr: np.ndarray) -> float:
+        if len(arr) < 4:
+            return 0.0
+        x = np.arange(len(arr), dtype=float)
+        return float(np.polyfit(x, arr, 1)[0])
+
+    slope_h = df["high"].rolling(12).apply(_slope, raw=True)
+    slope_l = df["low"].rolling(12).apply(_slope, raw=True)
+    width = (df["high"] - df["low"]) / (df["close"].abs() + 1e-9)
+    width_ma_fast = width.rolling(4).mean()
+    width_ma_slow = width.rolling(10).mean()
+    narrowing = width_ma_fast < (width_ma_slow * (1.0 - tol * 0.45))
+
+    falling_highs = slope_h.shift(1) < 0
+    falling_lows = slope_l.shift(1) < 0
+    converging = np.abs(slope_h.shift(1)) > (np.abs(slope_l.shift(1)) * 1.05)
+    breakout = df["close"] > df["high"].shift(1).rolling(12).max()
+    structure = falling_highs & falling_lows & converging & narrowing.shift(1)
+    return structure & breakout
+
+
 def swing_high_low(close: pd.Series, lookback: int = 60):
     recent = close.iloc[-lookback:]
     return recent.max(), recent.min()

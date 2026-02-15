@@ -110,5 +110,9 @@ def test_compute_features_emits_divergence_columns():
         assert str(out[col].dtype) == "bool"
     assert "head_and_shoulders_top" in out.columns
     assert "inverse_head_and_shoulders_bottom" in out.columns
+    assert "falling_wedge_breakout" in out.columns
+    assert "rising_wedge_breakdown" in out.columns
     assert str(out["head_and_shoulders_top"].dtype) == "bool"
     assert str(out["inverse_head_and_shoulders_bottom"].dtype) == "bool"
+    assert str(out["falling_wedge_breakout"].dtype) == "bool"
+    assert str(out["rising_wedge_breakdown"].dtype) == "bool"
