@@ -2,7 +2,13 @@ from pathlib import Path
 
 import pandas as pd
 
-from qmods.heartbeat import HBConfig, bpm_to_exposure_scaler, compute_heartbeat_from_returns, map_vol_to_bpm
+from qmods.heartbeat import (
+    HBConfig,
+    bpm_to_exposure_scaler,
+    compute_heartbeat_from_returns,
+    heartbeat_stress_from_bpm,
+    map_vol_to_bpm,
+)
 
 
 def test_compute_heartbeat_from_returns_writes_outputs(tmp_path: Path):
@@ -46,3 +52,17 @@ def test_map_vol_to_bpm_adaptive_tracks_regime_shift():
     assert slo > smid
     assert slo > shi
     assert min(smid, shi) <= (slo - 0.05)
+
+
+def test_heartbeat_stress_penalizes_rising_bpm_more_than_falling():
+    cfg = HBConfig()
+    up = pd.Series([70.0 + 0.7 * i for i in range(260)])
+    dn = pd.Series([70.0 + 0.7 * (259 - i) for i in range(260)])
+
+    su = heartbeat_stress_from_bpm(up, cfg)
+    sd = heartbeat_stress_from_bpm(dn, cfg)
+    eu = bpm_to_exposure_scaler(up, cfg)
+    ed = bpm_to_exposure_scaler(dn, cfg)
+
+    assert float(su.tail(80).mean()) > float(sd.tail(80).mean())
+    assert float(eu.tail(80).mean()) < float(ed.tail(80).mean())

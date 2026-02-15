@@ -70,7 +70,15 @@ def heartbeat_stress_from_bpm(bpm: pd.Series, cfg: HBConfig) -> pd.Series:
     jerk = b.diff().abs().fillna(0.0)
     jerk = jerk.rolling(21, min_periods=5).mean().fillna(0.0)
     jrk = _robust_percentile_rank(jerk, win=cfg.percentile_win).fillna(0.5).clip(0.0, 1.0)
-    stress = np.clip(0.65 * lvl + 0.35 * jrk, 0.0, 1.0)
+
+    # Directional asymmetry: rising BPM is riskier than falling BPM.
+    slope = b.diff().fillna(0.0)
+    rise = slope.clip(lower=0.0).rolling(21, min_periods=5).mean().fillna(0.0)
+    fall = (-slope).clip(lower=0.0).rolling(21, min_periods=5).mean().fillna(0.0)
+    rise_rank = _robust_percentile_rank(rise, win=cfg.percentile_win).fillna(0.5).clip(0.0, 1.0)
+    fall_rank = _robust_percentile_rank(fall, win=cfg.percentile_win).fillna(0.5).clip(0.0, 1.0)
+
+    stress = np.clip(0.58 * lvl + 0.24 * jrk + 0.26 * rise_rank - 0.08 * fall_rank, 0.0, 1.0)
     return pd.Series(stress, index=b.index, name="heartbeat_stress")
 
 
