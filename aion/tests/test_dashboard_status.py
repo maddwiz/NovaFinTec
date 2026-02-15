@@ -55,6 +55,8 @@ def test_status_payload_includes_external_overlay_fields(tmp_path: Path, monkeyp
             "max_trades_cap_runtime": 9,
             "max_open_positions_runtime": 3,
             "external_position_risk_scale": 0.82,
+            "overlay_block_new_entries": True,
+            "overlay_block_reasons": ["critical_flag:fracture_alert"],
             "policy_block_new_entries": False,
         },
     )
@@ -85,6 +87,8 @@ def test_status_payload_includes_external_overlay_fields(tmp_path: Path, monkeyp
     assert s["ops_guard_ok"] is True
     assert s["runtime_controls"]["max_trades_cap_runtime"] == 9
     assert s["runtime_controls"]["external_position_risk_scale"] == 0.82
+    assert s["runtime_controls"]["overlay_block_new_entries"] is True
+    assert "critical_flag:fracture_alert" in s["runtime_controls"]["overlay_block_reasons"]
     assert s["runtime_controls_age_sec"] is not None
     assert s["runtime_controls_stale_threshold_sec"] >= 60
     assert s["runtime_controls_stale"] is False

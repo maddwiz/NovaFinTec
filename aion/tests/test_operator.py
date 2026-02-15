@@ -36,7 +36,10 @@ def test_operator_status_includes_runtime_controls_and_overlay(tmp_path, monkeyp
     log_dir.mkdir(parents=True, exist_ok=True)
     state_dir.mkdir(parents=True, exist_ok=True)
     (log_dir / "doctor_report.json").write_text('{"ok": true, "ib": {"configured_port": 4002}}', encoding="utf-8")
-    (state_dir / "runtime_controls.json").write_text('{"max_trades_cap_runtime": 9}', encoding="utf-8")
+    (state_dir / "runtime_controls.json").write_text(
+        '{"max_trades_cap_runtime": 9, "overlay_block_new_entries": true, "overlay_block_reasons": ["critical_flag:fracture_alert"]}',
+        encoding="utf-8",
+    )
     ext = tmp_path / "overlay.json"
     ext.write_text(
         json.dumps(
@@ -60,6 +63,8 @@ def test_operator_status_includes_runtime_controls_and_overlay(tmp_path, monkeyp
     out = capsys.readouterr().out
     payload = json.loads(out)
     assert payload["runtime_controls"]["max_trades_cap_runtime"] == 9
+    assert payload["runtime_controls"]["overlay_block_new_entries"] is True
+    assert "critical_flag:fracture_alert" in payload["runtime_controls"]["overlay_block_reasons"]
     assert payload["external_runtime_context"]["runtime_multiplier"] == 0.82
     assert payload["external_overlay_runtime"]["exists"] is True
     assert payload["external_overlay_runtime"]["stale"] is False
