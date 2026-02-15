@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -116,6 +117,40 @@ def _analyze_execution_constraints(info: dict | None):
             issues.append("execution constraints collapsed gross exposure")
 
     return metrics, issues
+
+
+def _staleness_issues(
+    checks: list[dict],
+    max_required_hours: float = 24.0,
+    max_optional_hours: float | None = None,
+):
+    issues = []
+    stale_required = 0
+    stale_optional = 0
+    req_h = float(max(0.0, max_required_hours))
+    opt_h = None if max_optional_hours is None else float(max(0.0, max_optional_hours))
+    for c in checks:
+        if not isinstance(c, dict):
+            continue
+        exists = bool(c.get("exists", False))
+        if not exists:
+            continue
+        h = c.get("hours_since_update", None)
+        try:
+            h = float(h) if h is not None else None
+        except Exception:
+            h = None
+        if h is None or (not np.isfinite(h)):
+            continue
+        name = str(c.get("file", "unknown"))
+        is_required = bool(c.get("required", False))
+        if is_required and h > req_h:
+            stale_required += 1
+            issues.append(f"stale_required_file>{req_h:.1f}h ({name}:{h:.2f}h)")
+        if (not is_required) and opt_h is not None and h > opt_h:
+            stale_optional += 1
+            issues.append(f"stale_optional_file>{opt_h:.1f}h ({name}:{h:.2f}h)")
+    return {"stale_required_count": stale_required, "stale_optional_count": stale_optional}, issues
 
 
 def _append_card(title, html):
@@ -315,6 +350,13 @@ if __name__ == "__main__":
     exec_shape, exec_issues = _analyze_execution_constraints(exec_info)
     if exec_shape:
         shape.update(exec_shape)
+    stale_stats, stale_issues = _staleness_issues(
+        checks,
+        max_required_hours=float(np.clip(float(os.getenv("Q_SYSTEM_HEALTH_MAX_REQUIRED_HOURS", "24")), 1.0, 240.0)),
+        max_optional_hours=float(np.clip(float(os.getenv("Q_SYSTEM_HEALTH_MAX_OPTIONAL_HOURS", "72")), 1.0, 720.0)),
+    )
+    if stale_stats:
+        shape.update(stale_stats)
 
     # Alignment diagnostics
     issues = []
@@ -329,6 +371,7 @@ if __name__ == "__main__":
         if bad:
             issues.append("portfolio_weights_final contains NaN/Inf")
     issues.extend(exec_issues)
+    issues.extend(stale_issues)
 
     required_ok = sum(1 for c in checks if c["required"] and c["exists"])
     required_total = sum(1 for c in checks if c["required"])
