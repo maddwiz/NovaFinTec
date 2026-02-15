@@ -174,6 +174,41 @@ def _runtime_risk_caps(
     return int(max_trades_cap_runtime), int(max_open_positions_runtime)
 
 
+def _runtime_position_risk_scale(
+    ext_runtime_scale: float,
+    ext_runtime_diag: dict | None,
+):
+    """
+    Convert runtime overlay diagnostics into a per-position risk scalar.
+    Used to throttle sizing (risk_per_trade / max_notional / gross leverage)
+    in addition to concurrency caps.
+    """
+    scale = max(0.35, min(1.00, _safe_float(ext_runtime_scale, 1.0)))
+    diag = ext_runtime_diag if isinstance(ext_runtime_diag, dict) else {}
+    flags = [str(x).strip().lower() for x in diag.get("flags", [])] if isinstance(diag.get("flags", []), list) else []
+    regime = str(diag.get("regime", "")).strip().lower()
+    degraded = bool(diag.get("degraded", False))
+    quality_ok = bool(diag.get("quality_gate_ok", True))
+
+    if degraded:
+        scale *= float(max(0.20, min(1.20, cfg.EXT_SIGNAL_RUNTIME_RISK_DEGRADED_SCALE)))
+    if not quality_ok:
+        scale *= float(max(0.20, min(1.20, cfg.EXT_SIGNAL_RUNTIME_RISK_QFAIL_SCALE)))
+    if flags:
+        scale *= float(max(0.20, min(1.20, cfg.EXT_SIGNAL_RUNTIME_RISK_FLAG_SCALE))) ** len(flags)
+        if "fracture_alert" in flags:
+            scale *= float(max(0.20, min(1.20, cfg.EXT_SIGNAL_RUNTIME_RISK_FRACTURE_ALERT_SCALE)))
+        elif "fracture_warn" in flags:
+            scale *= float(max(0.20, min(1.20, cfg.EXT_SIGNAL_RUNTIME_RISK_FRACTURE_WARN_SCALE)))
+        if "exec_risk_hard" in flags:
+            scale *= float(max(0.20, min(1.20, cfg.EXT_SIGNAL_RUNTIME_RISK_EXEC_HARD_SCALE)))
+        elif "exec_risk_tight" in flags:
+            scale *= float(max(0.20, min(1.20, cfg.EXT_SIGNAL_RUNTIME_RISK_EXEC_TIGHT_SCALE)))
+    if regime == "defensive":
+        scale *= 0.90
+    return float(max(0.20, min(1.00, scale)))
+
+
 def _daily_loss_limits_hit(caps: dict, day_start_equity: float, equity: float):
     start = max(1.0, _safe_float(day_start_equity, 0.0))
     eq = _safe_float(equity, start)
@@ -584,6 +619,7 @@ def main() -> int:
             external_signals = {}
             global_external = None
             ext_runtime_scale = 1.0
+            ext_position_risk_scale = 1.0
             ext_runtime_diag = {"active": False, "flags": [], "degraded": False, "quality_gate_ok": True}
             if cfg.EXT_SIGNAL_ENABLED:
                 ext_bundle = load_external_signal_bundle(
@@ -611,8 +647,21 @@ def main() -> int:
                     ext_runtime_scale=ext_runtime_scale,
                     ext_runtime_diag=ext_runtime_diag,
                 )
+                ext_position_risk_scale = _runtime_position_risk_scale(
+                    ext_runtime_scale=ext_runtime_scale,
+                    ext_runtime_diag=ext_runtime_diag,
+                )
+                risk_per_trade_runtime = max(1e-4, float(risk_per_trade_runtime) * ext_position_risk_scale)
+                max_position_notional_pct_runtime = max(
+                    0.01, float(max_position_notional_pct_runtime) * ext_position_risk_scale
+                )
+                max_gross_leverage_runtime = max(
+                    0.30,
+                    float(max_gross_leverage_runtime) * max(0.55, ext_position_risk_scale),
+                )
                 sig = (
                     round(float(ext_runtime_scale), 4),
+                    round(float(ext_position_risk_scale), 4),
                     tuple(sorted(str(x) for x in ext_runtime_diag.get("flags", []) if str(x))),
                     bool(ext_runtime_diag.get("degraded", False)),
                     bool(ext_runtime_diag.get("quality_gate_ok", True)),
@@ -620,21 +669,25 @@ def main() -> int:
                     str(ext_runtime_diag.get("source_mode", "unknown")),
                     int(max_trades_cap_runtime),
                     int(max_open_positions_runtime),
+                    round(float(risk_per_trade_runtime), 6),
+                    round(float(max_position_notional_pct_runtime), 6),
+                    round(float(max_gross_leverage_runtime), 6),
                 )
                 if sig != last_ext_runtime_sig:
-                    flag_txt = ",".join(sig[1]) if sig[1] else "none"
+                    flag_txt = ",".join(sig[2]) if sig[2] else "none"
                     log_run(
                         "External runtime overlay "
-                        f"scale={sig[0]:.3f} flags={flag_txt} "
-                        f"degraded={sig[2]} quality_ok={sig[3]} regime={sig[4]} source={sig[5]} "
-                        f"max_trades={sig[6]}/{max_trades_cap} "
-                        f"max_open={sig[7]}/{max_open_positions_cap}"
+                        f"scale={sig[0]:.3f} pos_risk_scale={sig[1]:.3f} flags={flag_txt} "
+                        f"degraded={sig[3]} quality_ok={sig[4]} regime={sig[5]} source={sig[6]} "
+                        f"max_trades={sig[7]}/{max_trades_cap} max_open={sig[8]}/{max_open_positions_cap} "
+                        f"risk_per_trade={sig[9]:.4f} max_notional_pct={sig[10]:.4f} max_gross_lev={sig[11]:.3f}"
                     )
-                    if cfg.MONITORING_ENABLED and (sig[2] or (not sig[3]) or bool(sig[1])):
+                    if cfg.MONITORING_ENABLED and (sig[3] or (not sig[4]) or bool(sig[2])):
                         monitor.record_system_event(
                             "external_overlay_runtime",
-                            f"scale={sig[0]:.3f} flags={flag_txt} source={sig[5]} "
-                            f"max_trades={sig[6]}/{max_trades_cap} max_open={sig[7]}/{max_open_positions_cap}",
+                            f"scale={sig[0]:.3f} pos_risk_scale={sig[1]:.3f} flags={flag_txt} source={sig[6]} "
+                            f"max_trades={sig[7]}/{max_trades_cap} max_open={sig[8]}/{max_open_positions_cap} "
+                            f"risk_per_trade={sig[9]:.4f}",
                         )
                     last_ext_runtime_sig = sig
 
