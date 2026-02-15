@@ -60,6 +60,64 @@ def _load_matrix(path: Path):
     return a
 
 
+def _load_json(path: Path):
+    if not path.exists():
+        return None
+    try:
+        raw = json.loads(path.read_text())
+    except Exception:
+        return None
+    return raw if isinstance(raw, dict) else None
+
+
+def _to_float(x):
+    try:
+        v = float(x)
+    except Exception:
+        return None
+    return v if np.isfinite(v) else None
+
+
+def _analyze_execution_constraints(info: dict | None):
+    metrics = {}
+    issues = []
+    if not isinstance(info, dict):
+        return metrics, issues
+
+    gross_before = _to_float(info.get("gross_before_mean"))
+    gross_after = _to_float(info.get("gross_after_mean"))
+    turn_before = _to_float(info.get("turnover_before_mean"))
+    turn_after = _to_float(info.get("turnover_after_mean"))
+    turn_after_max = _to_float(info.get("turnover_after_max"))
+    step_cap = _to_float(info.get("max_step_turnover"))
+
+    if gross_before is not None:
+        metrics["exec_gross_before_mean"] = gross_before
+    if gross_after is not None:
+        metrics["exec_gross_after_mean"] = gross_after
+    if turn_before is not None:
+        metrics["exec_turnover_before_mean"] = turn_before
+    if turn_after is not None:
+        metrics["exec_turnover_after_mean"] = turn_after
+    if turn_after_max is not None:
+        metrics["exec_turnover_after_max"] = turn_after_max
+    if step_cap is not None:
+        metrics["exec_max_step_turnover"] = step_cap
+
+    if turn_before is not None and turn_after is not None and turn_after > turn_before + 1e-9:
+        issues.append("execution constraints increased mean turnover")
+    if turn_before is not None and turn_after is not None:
+        if turn_before >= 0.20 and turn_after <= 0.01:
+            issues.append("execution constraints may be over-throttling turnover")
+    if step_cap is not None and turn_after_max is not None and turn_after_max > step_cap + 1e-6:
+        issues.append("execution turnover exceeds configured max_step_turnover")
+    if gross_before is not None and gross_after is not None:
+        if gross_before >= 0.25 and gross_after <= 0.02:
+            issues.append("execution constraints collapsed gross exposure")
+
+    return metrics, issues
+
+
 def _append_card(title, html):
     for name in ["report_all.html", "report_best_plus.html", "report_plus.html", "report.html"]:
         p = ROOT / name
@@ -171,6 +229,7 @@ if __name__ == "__main__":
     nsp_hive_boost = _load_series(RUNS / "novaspine_hive_boost.csv")
     gov_trace_total = _load_series(RUNS / "final_governor_trace.csv")
     hb_stress = _load_series(RUNS / "heartbeat_stress.csv")
+    exec_info = _load_json(RUNS / "execution_constraints_info.json")
 
     shape = {}
     if w is not None:
@@ -253,6 +312,9 @@ if __name__ == "__main__":
         shape["runtime_total_scalar_mean"] = float(np.mean(gov_trace_total))
         shape["runtime_total_scalar_min"] = float(np.min(gov_trace_total))
         shape["runtime_total_scalar_max"] = float(np.max(gov_trace_total))
+    exec_shape, exec_issues = _analyze_execution_constraints(exec_info)
+    if exec_shape:
+        shape.update(exec_shape)
 
     # Alignment diagnostics
     issues = []
@@ -266,6 +328,7 @@ if __name__ == "__main__":
         bad = np.isnan(w).any() or np.isinf(w).any()
         if bad:
             issues.append("portfolio_weights_final contains NaN/Inf")
+    issues.extend(exec_issues)
 
     required_ok = sum(1 for c in checks if c["required"] and c["exists"])
     required_total = sum(1 for c in checks if c["required"])
