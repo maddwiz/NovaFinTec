@@ -55,6 +55,11 @@ def compute_features(df: pd.DataFrame, cfg) -> pd.DataFrame:
     out["stoch_k"], out["stoch_d"] = stochastic(out, cfg.STOCH_LEN, cfg.STOCH_SMOOTH)
     out["obv"] = obv(out)
     out["obv_prev"] = out["obv"].shift(1)
+    div = _divergence_features(out, cfg)
+    out["rsi_bull_div"] = div["rsi_bull_div"]
+    out["rsi_bear_div"] = div["rsi_bear_div"]
+    out["obv_bull_div"] = div["obv_bull_div"]
+    out["obv_bear_div"] = div["obv_bear_div"]
 
     out["bull_engulf"] = is_bull_engulf(out)
     out["bear_engulf"] = is_bear_engulf(out)
@@ -123,6 +128,45 @@ def fib_confluence_signal(row_price: float, high: float, low: float, tol: float)
 
 def _clamp01(x: float) -> float:
     return max(0.0, min(1.0, float(x)))
+
+
+def _divergence_features(df: pd.DataFrame, cfg) -> dict[str, pd.Series]:
+    empty = pd.Series(False, index=df.index)
+    if df.empty or "close" not in df.columns:
+        return {
+            "rsi_bull_div": empty,
+            "rsi_bear_div": empty,
+            "obv_bull_div": empty,
+            "obv_bear_div": empty,
+        }
+
+    lb = max(3, int(getattr(cfg, "DIVERGENCE_LOOKBACK", 8)))
+    price_move_min = max(0.0, float(getattr(cfg, "DIVERGENCE_PRICE_MOVE_MIN", 0.006)))
+    rsi_delta_min = max(0.0, float(getattr(cfg, "DIVERGENCE_RSI_DELTA_MIN", 4.0)))
+    obv_delta_min = max(0.0, float(getattr(cfg, "DIVERGENCE_OBV_DELTA_MIN", 0.0)))
+
+    close = pd.to_numeric(df.get("close"), errors="coerce")
+    prev_close = close.shift(lb)
+    price_chg = (close - prev_close) / (prev_close.abs() + 1e-9)
+    bull_price = price_chg <= -price_move_min
+    bear_price = price_chg >= price_move_min
+
+    rsi_s = pd.to_numeric(df.get("rsi"), errors="coerce")
+    rsi_chg = rsi_s - rsi_s.shift(lb)
+    rsi_bull = (bull_price & (rsi_chg >= rsi_delta_min)).fillna(False)
+    rsi_bear = (bear_price & (rsi_chg <= -rsi_delta_min)).fillna(False)
+
+    obv_s = pd.to_numeric(df.get("obv"), errors="coerce")
+    obv_chg = obv_s - obv_s.shift(lb)
+    obv_bull = (bull_price & (obv_chg >= obv_delta_min)).fillna(False)
+    obv_bear = (bear_price & (obv_chg <= -obv_delta_min)).fillna(False)
+
+    return {
+        "rsi_bull_div": rsi_bull.astype(bool),
+        "rsi_bear_div": rsi_bear.astype(bool),
+        "obv_bull_div": obv_bull.astype(bool),
+        "obv_bear_div": obv_bear.astype(bool),
+    }
 
 
 def _trend_component(row: pd.Series, price: float):
@@ -257,6 +301,19 @@ def _confirmation_component(row: pd.Series):
         short += 0.14
         reasons_s.append("Negative rate-of-change")
 
+    if bool(row.get("rsi_bull_div", False)):
+        long += 0.28
+        reasons_l.append("Bullish RSI divergence")
+    if bool(row.get("rsi_bear_div", False)):
+        short += 0.28
+        reasons_s.append("Bearish RSI divergence")
+    if bool(row.get("obv_bull_div", False)):
+        long += 0.24
+        reasons_l.append("Bullish OBV divergence")
+    if bool(row.get("obv_bear_div", False)):
+        short += 0.24
+        reasons_s.append("Bearish OBV divergence")
+
     vol_rel = float(row.get("volume_rel", 1.0))
     if vol_rel >= 1.6:
         if float(row.get("close", 0.0)) >= float(row.get("open", 0.0)):
@@ -383,6 +440,7 @@ def _confluence_component(row: pd.Series):
         (float(row.get("volume_rel", 1.0)) >= 1.0 and close_v >= open_v),
         bool(row.get("breakout_up", False) or row.get("double_bottom", False)),
         bull_pattern,
+        bool(row.get("rsi_bull_div", False) or row.get("obv_bull_div", False)),
     ]
 
     votes_s = [
@@ -398,6 +456,7 @@ def _confluence_component(row: pd.Series):
         (float(row.get("volume_rel", 1.0)) >= 1.0 and close_v <= open_v),
         bool(row.get("breakout_down", False) or row.get("double_top", False)),
         bear_pattern,
+        bool(row.get("rsi_bear_div", False) or row.get("obv_bear_div", False)),
     ]
 
     long_votes = sum(1 for v in votes_l if v)
