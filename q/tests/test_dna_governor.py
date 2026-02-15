@@ -84,3 +84,32 @@ def test_dna_stress_governor_penalizes_acceleration_and_transitions():
 
     assert float(np.mean(s2)) > float(np.mean(s1))
     assert float(np.mean(g2)) < float(np.mean(g1))
+
+
+def test_dna_stress_governor_penalizes_negative_return_pressure():
+    T = 260
+    drift = np.full(T, 0.22, dtype=float)
+    vel = np.full(T, 0.05, dtype=float)
+    z = np.full(T, 0.8, dtype=float)
+    st = np.full(T, 1.0, dtype=float)
+
+    r_up = np.full(T, 0.004, dtype=float)
+    r_dn = np.full(T, -0.004, dtype=float)
+
+    s_up, g_up, _ = build_dna_stress_governor(
+        drift=drift,
+        velocity=vel,
+        drift_z=z,
+        regime_state=st,
+        returns=r_up,
+    )
+    s_dn, g_dn, _ = build_dna_stress_governor(
+        drift=drift,
+        velocity=vel,
+        drift_z=z,
+        regime_state=st,
+        returns=r_dn,
+    )
+
+    assert float(np.mean(s_dn)) > float(np.mean(s_up))
+    assert float(np.mean(g_dn)) < float(np.mean(g_up))

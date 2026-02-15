@@ -27,6 +27,7 @@ def build_dna_stress_governor(
     acceleration: np.ndarray | None = None,
     drift_z: np.ndarray | None = None,
     regime_state: np.ndarray | None = None,
+    returns: np.ndarray | None = None,
     persistence_win: int = 10,
     lo: float = 0.72,
     hi: float = 1.12,
@@ -70,6 +71,13 @@ def build_dna_stress_governor(
         s = ss
     else:
         s = s[:T]
+    rr = _safe_1d(returns) if returns is not None else np.zeros(T, float)
+    if len(rr) < T:
+        rr2 = np.zeros(T, float)
+        rr2[: len(rr)] = rr
+        rr = rr2
+    else:
+        rr = rr[:T]
 
     # Drift level percentile.
     den_d = float(np.percentile(np.abs(d), 90)) + 1e-9
@@ -107,14 +115,21 @@ def build_dna_stress_governor(
     flips = np.clip(flips, 0.0, 1.0)
     transition = np.clip(flips * (0.40 + 0.60 * vel), 0.0, 1.0)
 
+    # Downside coupling: negative returns under high drift/velocity add stress.
+    den_r = float(np.percentile(np.abs(rr), 90)) + 1e-9
+    neg_r = np.clip((-rr) / den_r, 0.0, 2.0)
+    neg_r = np.clip(neg_r / 1.25, 0.0, 1.0)
+    downside = np.clip(neg_r * (0.35 + 0.40 * lvl + 0.25 * vel), 0.0, 1.0)
+
     stress = np.clip(
-        0.25 * lvl
-        + 0.17 * vel
-        + 0.12 * acc
-        + 0.15 * zz
-        + 0.10 * rs
-        + 0.11 * persist
-        + 0.10 * transition,
+        0.23 * lvl
+        + 0.16 * vel
+        + 0.11 * acc
+        + 0.14 * zz
+        + 0.09 * rs
+        + 0.10 * persist
+        + 0.09 * transition
+        + 0.08 * downside,
         0.0,
         1.0,
     )
@@ -136,5 +151,6 @@ def build_dna_stress_governor(
         "mean_acceleration_stress": float(np.mean(acc)),
         "mean_persistence_stress": float(np.mean(persist)),
         "mean_transition_stress": float(np.mean(transition)),
+        "mean_downside_stress": float(np.mean(downside)),
     }
     return stress, gov, info

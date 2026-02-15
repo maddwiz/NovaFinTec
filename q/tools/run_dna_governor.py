@@ -111,7 +111,18 @@ if __name__ == "__main__":
     z = pd.to_numeric(df.get("dna_drift_z", 0.0), errors="coerce").fillna(0.0).values
     st = pd.to_numeric(df.get("dna_regime_state", 0.0), errors="coerce").fillna(0.0).values
 
-    stress, gov, info = build_dna_stress_governor(drift, vel, acc, z, st, lo=0.72, hi=1.12, smooth=0.88)
+    ret = _load_returns()
+    stress, gov, info = build_dna_stress_governor(
+        drift,
+        vel,
+        acc,
+        z,
+        st,
+        returns=ret,
+        lo=0.72,
+        hi=1.12,
+        smooth=0.88,
+    )
     if len(gov) == 0:
         print("(!) DNA governor empty; skipping.")
         raise SystemExit(0)
