@@ -109,6 +109,20 @@ def compute_features(df: pd.DataFrame, cfg) -> pd.DataFrame:
     out["pivot_low_20"] = out["low"].shift(1).rolling(20).min()
     out["dist_high_20"] = (out["pivot_high_20"] - out["close"]) / (out["close"].abs() + 1e-9)
     out["dist_low_20"] = (out["close"] - out["pivot_low_20"]) / (out["close"].abs() + 1e-9)
+    retest_lb = int(max(2, getattr(cfg, "BREAKOUT_RETEST_LOOKBACK", 4)))
+    retest_tol = float(max(1e-4, getattr(cfg, "BREAKOUT_RETEST_TOL", 0.0025)))
+    recent_up = out["breakout_up"].rolling(retest_lb).max().shift(1).fillna(0.0) > 0.5
+    recent_dn = out["breakout_down"].rolling(retest_lb).max().shift(1).fillna(0.0) > 0.5
+    out["breakout_retest_up"] = (
+        recent_up
+        & (out["low"] <= out["pivot_high_20"] * (1.0 + retest_tol))
+        & (out["close"] >= out["pivot_high_20"] * (1.0 - retest_tol * 0.25))
+    ).fillna(False)
+    out["breakout_retest_down"] = (
+        recent_dn
+        & (out["high"] >= out["pivot_low_20"] * (1.0 - retest_tol))
+        & (out["close"] <= out["pivot_low_20"] * (1.0 + retest_tol * 0.25))
+    ).fillna(False)
 
     out["atr_pct"] = out["atr"] / (out["close"].abs() + 1e-9)
     out["ema_gap_pct"] = (out["ema_fast"] - out["ema_slow"]) / (out["close"].abs() + 1e-9)
@@ -249,6 +263,12 @@ def _breakout_component(row: pd.Series):
     if bool(row["breakout_down"]):
         short += 0.75
         reasons_s.append("Price breakout down")
+    if bool(row.get("breakout_retest_up", False)):
+        long += 0.48
+        reasons_l.append("Breakout retest held")
+    if bool(row.get("breakout_retest_down", False)):
+        short += 0.48
+        reasons_s.append("Breakdown retest held")
 
     if bool(row["double_bottom"]):
         long += 0.45
@@ -471,6 +491,7 @@ def _confluence_component(row: pd.Series):
         close_v >= float(row.get("bb_mid", close_v)),
         (float(row.get("volume_rel", 1.0)) >= 1.0 and close_v >= open_v),
         bool(row.get("breakout_up", False) or row.get("double_bottom", False)),
+        bool(row.get("breakout_retest_up", False)),
         bull_pattern,
         bool(row.get("rsi_bull_div", False) or row.get("obv_bull_div", False)),
     ]
@@ -488,6 +509,7 @@ def _confluence_component(row: pd.Series):
         close_v <= float(row.get("bb_mid", close_v)),
         (float(row.get("volume_rel", 1.0)) >= 1.0 and close_v <= open_v),
         bool(row.get("breakout_down", False) or row.get("double_top", False)),
+        bool(row.get("breakout_retest_down", False)),
         bear_pattern,
         bool(row.get("rsi_bear_div", False) or row.get("obv_bear_div", False)),
     ]
