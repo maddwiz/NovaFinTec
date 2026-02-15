@@ -271,6 +271,31 @@ def _runtime_context(runs_dir: Path):
         comps["meta_mix_gross_modifier"] = {"value": float(g_mod), "found": True}
         active_vals.append(float(g_mod))
 
+    # Quality governor stability modifier from per-step jump diagnostics.
+    qsnap = _load_json(runs_dir / "quality_snapshot.json") or {}
+    q_step = _safe_float(qsnap.get("quality_governor_max_abs_step", np.nan), default=np.nan)
+    if math.isfinite(q_step):
+        q_step_mod = _clamp(1.04 - 1.50 * max(0.0, q_step - 0.01), 0.80, 1.05)
+        comps["quality_governor_step_modifier"] = {"value": float(q_step_mod), "found": True}
+        active_vals.append(float(q_step_mod))
+
+    # Portfolio drift watch modifier.
+    drift_watch = _load_json(runs_dir / "portfolio_drift_watch.json") or {}
+    drift = drift_watch.get("drift", {}) if isinstance(drift_watch, dict) else {}
+    drift_status = str((drift or {}).get("status", "")).lower()
+    latest_over_p95 = _safe_float((drift or {}).get("latest_over_p95", np.nan), default=np.nan)
+    if drift_status in {"ok", "warn", "alert"}:
+        if drift_status == "alert":
+            d_mod = 0.75
+        elif drift_status == "warn":
+            d_mod = 0.90
+        else:
+            d_mod = 1.00
+        if math.isfinite(latest_over_p95):
+            d_mod = float(np.clip(d_mod * _clamp(1.02 - 0.10 * max(0.0, latest_over_p95 - 1.0), 0.80, 1.02), 0.70, 1.02))
+        comps["portfolio_drift_modifier"] = {"value": float(d_mod), "found": True}
+        active_vals.append(float(d_mod))
+
     if active_vals:
         arr = np.clip(np.asarray(active_vals, float), 0.20, 2.00)
         mult = float(np.exp(np.mean(np.log(arr + 1e-12))))
@@ -285,11 +310,20 @@ def _runtime_context(runs_dir: Path):
     else:
         regime = "balanced"
 
+    risk_flags = []
+    if drift_status == "warn":
+        risk_flags.append("drift_warn")
+    elif drift_status == "alert":
+        risk_flags.append("drift_alert")
+    if math.isfinite(q_step) and q_step > 0.10:
+        risk_flags.append("quality_governor_step_spike")
+
     return {
         "runtime_multiplier": mult,
         "regime": regime,
         "components": comps,
         "active_component_count": int(len(active_vals)),
+        "risk_flags": risk_flags,
     }
 
 

@@ -42,3 +42,21 @@ def test_runtime_context_defaults_to_neutral_when_missing(tmp_path: Path):
     assert ctx["runtime_multiplier"] == 1.0
     assert ctx["active_component_count"] == 0
     assert ctx["regime"] == "risk_on"
+
+
+def test_runtime_context_includes_drift_and_quality_step_modifiers(tmp_path: Path):
+    (tmp_path / "quality_snapshot.json").write_text(
+        '{"quality_governor_max_abs_step": 0.16}',
+        encoding="utf-8",
+    )
+    (tmp_path / "portfolio_drift_watch.json").write_text(
+        '{"drift":{"status":"alert","latest_over_p95":3.5}}',
+        encoding="utf-8",
+    )
+
+    ctx = ex._runtime_context(tmp_path)
+    assert ctx["components"]["quality_governor_step_modifier"]["found"] is True
+    assert ctx["components"]["portfolio_drift_modifier"]["found"] is True
+    assert "drift_alert" in ctx["risk_flags"]
+    assert "quality_governor_step_spike" in ctx["risk_flags"]
+    assert 0.50 <= ctx["runtime_multiplier"] <= 1.0

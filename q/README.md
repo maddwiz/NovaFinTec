@@ -206,6 +206,8 @@ python tools/run_novaspine_hive_feedback.py
 `sync_novaspine_memory.py` now emits governance audit events too
 (`governance.risk_controls`, `decision.runtime_context`, `memory.feedback_state`).
 Risk-controls payload also includes portfolio drift watchdog metrics.
+`q_signal_overlay.json` runtime context now also carries drift/step stability
+modifiers and `risk_flags` for AION-side risk scaling.
 
 ### Advanced hive controls (optional env)
 Cross-hive adaptive arbitration:
