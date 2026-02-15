@@ -18,6 +18,7 @@ export AION_AUTO_CLEAN_STALE_WORKERS="${AION_AUTO_CLEAN_STALE_WORKERS:-1}"
 export AION_AUTO_RESOLVE_IB_CONFLICT="${AION_AUTO_RESOLVE_IB_CONFLICT:-1}"
 export AION_AUTO_RESTART_IB_ON_TIMEOUT="${AION_AUTO_RESTART_IB_ON_TIMEOUT:-1}"
 export AION_AUTO_IB_WARMUP="${AION_AUTO_IB_WARMUP:-1}"
+export AION_AUTO_REFRESH_Q_OVERLAY="${AION_AUTO_REFRESH_Q_OVERLAY:-1}"
 
 DEFAULT_IB_APP_PREFERRED="$HOME/Applications/IB Gateway 10.43/IB Gateway 10.43.app"
 if [[ ! -d "$DEFAULT_IB_APP_PREFERRED" ]]; then
@@ -80,6 +81,22 @@ if [[ "$AION_MODE" == "brain" ]]; then
         fi
       fi
       WATCHLIST_FILE="$AION_STATE_DIR/watchlist.txt"
+      if [[ "$AION_AUTO_REFRESH_Q_OVERLAY" == "1" ]]; then
+        if [[ -d "$AION_Q_HOME" && -f "$AION_Q_HOME/tools/export_aion_signal_pack.py" ]]; then
+          echo "[AION] Refreshing Q overlay pack..."
+          if ! (
+            cd "$AION_Q_HOME" &&
+            PYTHONPATH="$AION_Q_HOME" "$PYTHON_BIN" tools/export_aion_signal_pack.py \
+              --out-json "$AION_EXT_SIGNAL_FILE" \
+              --out-csv "$AION_Q_HOME/runs_plus/q_signal_overlay.csv" \
+              --allow-degraded
+          ); then
+            echo "[AION] WARN: Q overlay refresh failed; continuing with existing overlay file."
+          fi
+        else
+          echo "[AION] WARN: Q project not found at $AION_Q_HOME; skipping overlay refresh."
+        fi
+      fi
       if [[ "$AION_AUTO_IB_WARMUP" == "1" ]]; then
         echo "[AION] Waiting for IB API warmup..."
         if ! "$PYTHON_BIN" -m aion.exec.ib_wait_ready; then
