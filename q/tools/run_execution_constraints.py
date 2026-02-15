@@ -110,6 +110,15 @@ def _load_weights():
     return a
 
 
+def _load_json(path: Path):
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text())
+    except Exception:
+        return None
+
+
 def _load_assets(n_cols: int):
     p = RUNS / "asset_names.csv"
     if p.exists():
@@ -142,6 +151,15 @@ def _load_config():
         "rolling_turnover_window": None,
         "rolling_turnover_limit": None,
         "renormalize_to_gross": True,
+        "adaptive_risk_enabled": True,
+        "fracture_state_scales": {
+            "calm": 1.00,
+            "watch": 0.88,
+            "fracture_warn": 0.74,
+            "fracture_alert": 0.56,
+        },
+        "quality_scale_floor": 0.60,
+        "quality_scale_ceiling": 1.00,
     }
     if CFG.exists():
         try:
@@ -179,7 +197,66 @@ def _load_config():
     v = _parse_opt_float(_env_first("Q_EXEC_ROLLING_TURNOVER_LIMIT", "TURNOVER_BUDGET_LIMIT"))
     if v is not None:
         cfg["rolling_turnover_limit"] = v
+    v = _parse_bool(_env_first("Q_EXEC_ADAPTIVE_RISK"))
+    if v is not None:
+        cfg["adaptive_risk_enabled"] = v
     return cfg
+
+
+def _adaptive_risk_scale(cfg: dict, fracture_info: dict | None, quality_snapshot: dict | None):
+    """
+    Build a tightening scalar in [0.25, 1.0] from regime fracture + quality.
+    Scale < 1 reduces gross and turnover budgets for safer live behavior.
+    """
+    enabled = bool(cfg.get("adaptive_risk_enabled", True))
+    if not enabled:
+        return 1.0, {"enabled": False, "reason": "disabled"}
+
+    state_scales = cfg.get("fracture_state_scales", {})
+    if not isinstance(state_scales, dict):
+        state_scales = {}
+    state = str((fracture_info or {}).get("state", "calm")).strip().lower() or "calm"
+    base_state_scale = _parse_opt_float(state_scales.get(state))
+    if base_state_scale is None:
+        base_state_scale = _parse_opt_float(state_scales.get("calm"))
+    if base_state_scale is None:
+        base_state_scale = 1.0
+    base_state_scale = float(np.clip(base_state_scale, 0.25, 1.20))
+
+    frac_score = _parse_opt_float((fracture_info or {}).get("latest_score"))
+    if frac_score is None:
+        frac_score = 0.0
+    frac_score = float(np.clip(frac_score, 0.0, 1.0))
+    score_scale = float(np.clip(1.0 - 0.35 * frac_score, 0.55, 1.0))
+    fracture_scale = float(np.clip(min(base_state_scale, score_scale), 0.25, 1.0))
+
+    quality = _parse_opt_float((quality_snapshot or {}).get("quality_score"))
+    if quality is None:
+        quality = 0.75
+    quality = float(np.clip(quality, 0.0, 1.0))
+    q_floor = _parse_opt_float(cfg.get("quality_scale_floor"))
+    q_ceil = _parse_opt_float(cfg.get("quality_scale_ceiling"))
+    if q_floor is None:
+        q_floor = 0.60
+    if q_ceil is None:
+        q_ceil = 1.00
+    q_floor = float(np.clip(q_floor, 0.20, 1.0))
+    q_ceil = float(np.clip(max(q_floor, q_ceil), q_floor, 1.20))
+    quality_scale = float(np.clip(q_floor + (q_ceil - q_floor) * quality, q_floor, q_ceil))
+
+    total = float(np.clip(fracture_scale * quality_scale, 0.25, 1.0))
+    detail = {
+        "enabled": True,
+        "fracture_state": state,
+        "fracture_score": frac_score,
+        "fracture_state_scale": base_state_scale,
+        "fracture_score_scale": score_scale,
+        "fracture_scale": fracture_scale,
+        "quality_score": quality,
+        "quality_scale": quality_scale,
+        "total_scale": total,
+    }
+    return total, detail
 
 
 def parse_args():
@@ -307,11 +384,15 @@ if __name__ == "__main__":
     cfg = _load_config()
     assets = _load_assets(W.shape[1])
     idx = {a: i for i, a in enumerate(assets)}
+    fracture_info = _load_json(RUNS / "regime_fracture_info.json") or {}
+    quality_snapshot = _load_json(RUNS / "quality_snapshot.json") or {}
+    adaptive_scale, adaptive_detail = _adaptive_risk_scale(cfg, fracture_info, quality_snapshot)
 
     out = np.asarray(W, float).copy()
     gross0 = np.sum(np.abs(out), axis=1)
 
     max_abs = float(np.clip(float(cfg.get("max_abs_weight", 0.25)), 0.01, 2.0))
+    max_abs = float(np.clip(max_abs * adaptive_scale, 0.01, 2.0))
     out = np.clip(out, -max_abs, max_abs)
 
     allow_shorts = bool(cfg.get("allow_shorts", True))
@@ -336,6 +417,7 @@ if __name__ == "__main__":
     session = str(os.getenv("Q_SESSION_MODE", "regular")).strip().lower()
     session_scales = cfg.get("session_scales", {}) or {}
     sess_scale = _resolve_session_scale(session=session, scales=session_scales, default=1.0)
+    sess_scale = float(np.clip(sess_scale * adaptive_scale, 0.0, 2.0))
     out *= sess_scale
 
     if bool(cfg.get("renormalize_to_gross", True)):
@@ -355,6 +437,8 @@ if __name__ == "__main__":
         session=session,
         scales=cfg.get("session_asset_step_scales", {}),
     )
+    if max_asset_step_change is not None:
+        max_asset_step_change = float(max_asset_step_change) * float(adaptive_scale)
     out = _apply_asset_delta_cap(out, max_asset_step_change)
 
     max_step_turnover = cfg.get("max_step_turnover", None)
@@ -367,6 +451,8 @@ if __name__ == "__main__":
         session=session,
         scales=cfg.get("session_turnover_scales", {}),
     )
+    if max_step_turnover is not None:
+        max_step_turnover = float(max_step_turnover) * float(adaptive_scale)
     rolling_window = cfg.get("rolling_turnover_window", None)
     try:
         rolling_window = int(rolling_window) if rolling_window is not None else None
@@ -382,6 +468,8 @@ if __name__ == "__main__":
         session=session,
         scales=cfg.get("session_turnover_scales", {}),
     )
+    if rolling_limit is not None:
+        rolling_limit = float(rolling_limit) * float(adaptive_scale)
 
     out, turnover_before, turnover_after = _apply_turnover_caps(
         out,
@@ -406,6 +494,8 @@ if __name__ == "__main__":
         "max_abs_weight": max_abs,
         "session_mode": session,
         "session_scale": sess_scale,
+        "adaptive_risk_scale": float(adaptive_scale),
+        "adaptive_risk": adaptive_detail,
         "session_turnover_scale": _resolve_session_scale(session, cfg.get("session_turnover_scales", {}), default=1.0),
         "session_asset_step_scale": _resolve_session_scale(session, cfg.get("session_asset_step_scales", {}), default=1.0),
         "replace_final": bool(args.replace_final),

@@ -132,3 +132,24 @@ def test_apply_symbol_caps_supports_side_specific_limits():
     assert np.allclose(out[:, 0], np.array([0.12, 0.10], dtype=float))
     # TSLA short cap prevents values below -0.08
     assert np.allclose(out[:, 1], np.array([-0.08, -0.08], dtype=float))
+
+
+def test_adaptive_risk_scale_tightens_on_fracture_alert_and_low_quality():
+    cfg = {
+        "adaptive_risk_enabled": True,
+        "fracture_state_scales": {"calm": 1.0, "fracture_warn": 0.74, "fracture_alert": 0.56},
+        "quality_scale_floor": 0.60,
+        "quality_scale_ceiling": 1.00,
+    }
+    fracture = {"state": "fracture_alert", "latest_score": 0.90}
+    quality = {"quality_score": 0.25}
+    scale, detail = rec._adaptive_risk_scale(cfg, fracture, quality)
+    assert scale < 0.50
+    assert detail["fracture_state"] == "fracture_alert"
+    assert detail["quality_score"] == 0.25
+
+
+def test_adaptive_risk_scale_disabled_returns_one():
+    scale, detail = rec._adaptive_risk_scale({"adaptive_risk_enabled": False}, {}, {})
+    assert scale == 1.0
+    assert detail["enabled"] is False
