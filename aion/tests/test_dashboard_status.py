@@ -1,4 +1,6 @@
 import json
+import os
+from datetime import datetime, timezone
 from pathlib import Path
 
 import aion.exec.dashboard as dash
@@ -59,10 +61,13 @@ def test_status_payload_includes_external_overlay_fields(tmp_path: Path, monkeyp
     _write(
         overlay_file,
         {
+            "generated_at_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "runtime_context": {"runtime_multiplier": 0.91, "risk_flags": ["drift_warn"]},
             "signals": {"AAPL": {"bias": 0.2, "confidence": 0.8}},
         },
     )
+    old_ts = 946684800
+    os.utime(overlay_file, (old_ts, old_ts))
     (state_dir / "watchlist.txt").write_text("AAPL\nMSFT\n", encoding="utf-8")
 
     s = dash._status_payload()
@@ -71,6 +76,8 @@ def test_status_payload_includes_external_overlay_fields(tmp_path: Path, monkeyp
     assert s["external_overlay"]["signals"] == 0
     assert s["external_overlay_runtime"]["exists"] is True
     assert s["external_overlay_runtime"]["stale"] is False
+    assert s["external_overlay_runtime"]["age_source"] == "payload"
+    assert s["external_overlay_runtime"]["generated_at_utc"] is not None
     assert s["external_overlay_runtime"]["runtime_context_present"] is True
     assert "drift_warn" in s["external_overlay_runtime"]["risk_flags"]
     assert "fracture_alert" in s["external_overlay_risk_flags"]

@@ -1,5 +1,7 @@
 import aion.exec.operator as op
 import json
+import os
+from datetime import datetime, timezone
 
 
 def test_operator_defaults_to_status(monkeypatch):
@@ -36,7 +38,17 @@ def test_operator_status_includes_runtime_controls_and_overlay(tmp_path, monkeyp
     (log_dir / "doctor_report.json").write_text('{"ok": true, "ib": {"configured_port": 4002}}', encoding="utf-8")
     (state_dir / "runtime_controls.json").write_text('{"max_trades_cap_runtime": 9}', encoding="utf-8")
     ext = tmp_path / "overlay.json"
-    ext.write_text('{"runtime_context": {"runtime_multiplier": 0.82, "risk_flags": ["exec_risk_tight"]}}', encoding="utf-8")
+    ext.write_text(
+        json.dumps(
+            {
+                "generated_at_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "runtime_context": {"runtime_multiplier": 0.82, "risk_flags": ["exec_risk_tight"]},
+            }
+        ),
+        encoding="utf-8",
+    )
+    old_ts = 946684800
+    os.utime(ext, (old_ts, old_ts))
     monkeypatch.setattr(op.cfg, "LOG_DIR", log_dir)
     monkeypatch.setattr(op.cfg, "STATE_DIR", state_dir)
     monkeypatch.setattr(op.cfg, "EXT_SIGNAL_FILE", ext)
@@ -51,6 +63,8 @@ def test_operator_status_includes_runtime_controls_and_overlay(tmp_path, monkeyp
     assert payload["external_runtime_context"]["runtime_multiplier"] == 0.82
     assert payload["external_overlay_runtime"]["exists"] is True
     assert payload["external_overlay_runtime"]["stale"] is False
+    assert payload["external_overlay_runtime"]["age_source"] == "payload"
+    assert payload["external_overlay_runtime"]["generated_at_utc"] is not None
     assert payload["external_overlay_runtime"]["runtime_context_present"] is True
     assert "exec_risk_tight" in payload["external_overlay_runtime"]["risk_flags"]
     assert payload["runtime_controls_age_sec"] is not None
