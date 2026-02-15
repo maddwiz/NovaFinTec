@@ -28,3 +28,11 @@ def test_config_falls_back_to_state_overlay_path_when_q_missing(tmp_path, monkey
 
     cfg = importlib.reload(cfg_mod)
     assert Path(cfg.EXT_SIGNAL_FILE) == (aion_home / "state" / "q_signal_overlay.json")
+
+
+def test_config_reads_external_overlay_critical_flag(tmp_path, monkeypatch):
+    aion_home = tmp_path / "aion_home"
+    monkeypatch.setenv("AION_HOME", str(aion_home))
+    monkeypatch.setenv("AION_EXT_SIGNAL_CRITICAL", "1")
+    cfg = importlib.reload(cfg_mod)
+    assert cfg.EXT_SIGNAL_CRITICAL is True

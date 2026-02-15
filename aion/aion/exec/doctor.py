@@ -382,7 +382,7 @@ def main() -> int:
                 "name": "external_overlay",
                 "ok": ok_ext,
                 "msg": msg_ext,
-                "critical": False,
+                "critical": bool(cfg.EXT_SIGNAL_CRITICAL),
                 "details": ext_details,
             }
         )
@@ -412,6 +412,7 @@ def main() -> int:
             "path": str(cfg.EXT_SIGNAL_FILE),
             "max_age_hours": float(cfg.EXT_SIGNAL_MAX_AGE_HOURS),
             "require_runtime_context": bool(cfg.EXT_SIGNAL_REQUIRE_RUNTIME_CONTEXT),
+            "critical": bool(cfg.EXT_SIGNAL_CRITICAL),
         },
         "paths": {
             "state": str(cfg.STATE_DIR),
