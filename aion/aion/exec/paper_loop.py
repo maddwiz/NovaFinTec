@@ -253,6 +253,36 @@ def _runtime_position_risk_scale(
     return float(max(0.20, min(1.00, scale)))
 
 
+def _overlay_entry_gate(ext_runtime_diag: dict | None, overlay_age_hours: float | None):
+    """
+    Decide whether external overlay conditions should hard-block new entries.
+    """
+    if not bool(getattr(cfg, "EXT_SIGNAL_ENABLED", True)):
+        return False, []
+    diag = ext_runtime_diag if isinstance(ext_runtime_diag, dict) else {}
+    flags = [str(x).strip().lower() for x in diag.get("flags", [])] if isinstance(diag.get("flags", []), list) else []
+    quality_ok = bool(diag.get("quality_gate_ok", True))
+    overlay_stale = bool(diag.get("overlay_stale", False) or ("overlay_stale" in flags))
+
+    reasons: list[str] = []
+    if bool(getattr(cfg, "EXT_SIGNAL_BLOCK_CRITICAL", True)):
+        crit = {str(x).strip().lower() for x in getattr(cfg, "EXT_SIGNAL_BLOCK_CRITICAL_FLAGS", []) if str(x).strip()}
+        hits = sorted(x for x in flags if x in crit)
+        for hit in hits:
+            reasons.append(f"critical_flag:{hit}")
+
+    if bool(getattr(cfg, "EXT_SIGNAL_BLOCK_ON_QUALITY_FAIL", False)) and (not quality_ok):
+        reasons.append("quality_gate_fail")
+
+    stale_h = _safe_float(getattr(cfg, "EXT_SIGNAL_BLOCK_STALE_HOURS", 0.0), 0.0)
+    if stale_h > 0.0 and overlay_stale:
+        age = _safe_float(overlay_age_hours, None)
+        if age is None or age >= stale_h:
+            reasons.append("overlay_stale")
+
+    return bool(reasons), reasons
+
+
 def _daily_loss_limits_hit(caps: dict, day_start_equity: float, equity: float):
     start = max(1.0, _safe_float(day_start_equity, 0.0))
     eq = _safe_float(equity, start)
@@ -584,6 +614,7 @@ def main() -> int:
     last_ext_runtime_sig = None
     last_policy_sig = None
     last_policy_loss_hit = False
+    last_overlay_gate_sig = None
 
     if cfg.META_LABEL_ENABLED:
         samples = meta_model.fit_from_trades(cfg.LOG_DIR / "shadow_trades.csv")
@@ -675,6 +706,8 @@ def main() -> int:
             ext_overlay_age_source = "unknown"
             ext_overlay_generated_at_utc = None
             ext_runtime_diag = {"active": False, "flags": [], "degraded": False, "quality_gate_ok": True}
+            overlay_block_new_entries = False
+            overlay_block_reasons = []
             if cfg.EXT_SIGNAL_ENABLED:
                 ext_bundle = load_external_signal_bundle(
                     path=cfg.EXT_SIGNAL_FILE,
@@ -729,6 +762,10 @@ def main() -> int:
                     ext_runtime_scale=ext_runtime_scale,
                     ext_runtime_diag=ext_runtime_diag,
                 )
+                overlay_block_new_entries, overlay_block_reasons = _overlay_entry_gate(
+                    ext_runtime_diag=ext_runtime_diag,
+                    overlay_age_hours=ext_overlay_age_hours,
+                )
                 risk_per_trade_runtime = max(1e-4, float(risk_per_trade_runtime) * ext_position_risk_scale)
                 max_position_notional_pct_runtime = max(
                     0.01, float(max_position_notional_pct_runtime) * ext_position_risk_scale
@@ -776,6 +813,21 @@ def main() -> int:
                             f"max_open={sig[12]}/{max_open_positions_cap} risk_per_trade={sig[13]:.4f}",
                         )
                     last_ext_runtime_sig = sig
+                gate_sig = (bool(overlay_block_new_entries), tuple(sorted(str(x) for x in overlay_block_reasons)))
+                if gate_sig != last_overlay_gate_sig:
+                    reason_txt = ",".join(gate_sig[1]) if gate_sig[1] else "none"
+                    log_run(
+                        "External overlay entry gate "
+                        f"blocked={gate_sig[0]} reasons={reason_txt} "
+                        f"age_h={(f'{ext_overlay_age_hours:.2f}' if isinstance(ext_overlay_age_hours, float) else 'na')} "
+                        f"age_src={ext_overlay_age_source}"
+                    )
+                    if cfg.MONITORING_ENABLED and gate_sig[0]:
+                        monitor.record_system_event(
+                            "external_overlay_entry_block",
+                            f"reasons={reason_txt} age_h={(f'{ext_overlay_age_hours:.2f}' if isinstance(ext_overlay_age_hours, float) else 'na')}",
+                        )
+                    last_overlay_gate_sig = gate_sig
 
             if cfg.RISK_POLICY_ENFORCE:
                 loaded_policy = load_policy(cfg.RISK_POLICY_FILE)
@@ -804,21 +856,27 @@ def main() -> int:
                     len(policy_caps.get("allowed_symbols", set()) or set()),
                     policy_caps.get("daily_loss_limit_abs"),
                     policy_caps.get("daily_loss_limit_pct"),
+                    bool(overlay_block_new_entries),
+                    tuple(sorted(str(x) for x in overlay_block_reasons if str(x))),
                 )
                 if policy_sig != last_policy_sig:
+                    reason_txt = ",".join(policy_sig[11]) if policy_sig[11] else "none"
                     log_run(
                         "Risk policy active "
                         f"block_new={policy_sig[0]} max_trades={policy_sig[1]} max_open={policy_sig[2]} "
                         f"risk_per_trade={policy_sig[3]:.4f} max_notional_pct={policy_sig[4]:.4f} "
                         f"max_gross_lev={policy_sig[5]:.3f} blocked={policy_sig[6]} allowed={policy_sig[7]} "
-                        f"daily_loss_abs={policy_sig[8]} daily_loss_pct={policy_sig[9]}"
+                        f"daily_loss_abs={policy_sig[8]} daily_loss_pct={policy_sig[9]} "
+                        f"overlay_block={policy_sig[10]} overlay_reasons={reason_txt}"
                     )
                     last_policy_sig = policy_sig
 
             policy_loss_hit, policy_daily_loss_abs, policy_daily_loss_pct = _daily_loss_limits_hit(
                 policy_caps, day_start_equity, equity
             )
-            policy_block_new_entries = bool(policy_caps.get("block_new_entries", False) or policy_loss_hit)
+            policy_block_new_entries = bool(
+                policy_caps.get("block_new_entries", False) or policy_loss_hit or overlay_block_new_entries
+            )
             if policy_loss_hit and (not last_policy_loss_hit):
                 log_run(
                     "Risk policy halted new entries "
@@ -853,6 +911,8 @@ def main() -> int:
                         None if ext_overlay_age_hours is None else float(ext_overlay_age_hours)
                     ),
                     "external_overlay_generated_at_utc": ext_overlay_generated_at_utc,
+                    "overlay_block_new_entries": bool(overlay_block_new_entries),
+                    "overlay_block_reasons": list(overlay_block_reasons),
                     "killswitch_block_new_entries": bool(killswitch_block_new_entries),
                     "policy_block_new_entries": bool(policy_block_new_entries),
                     "policy_loss_hit": bool(policy_loss_hit),

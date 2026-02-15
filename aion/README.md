@@ -65,6 +65,10 @@ Useful tuning env vars:
 - External overlay doctor checks:
 - `AION_EXT_SIGNAL_MAX_AGE_HOURS`, `AION_EXT_SIGNAL_REQUIRE_RUNTIME_CONTEXT`
 - `AION_EXT_SIGNAL_CRITICAL` (fail Doctor if overlay check fails)
+- External overlay entry safety gate:
+- `AION_EXT_SIGNAL_BLOCK_CRITICAL`, `AION_EXT_SIGNAL_BLOCK_CRITICAL_FLAGS`
+- `AION_EXT_SIGNAL_BLOCK_ON_QUALITY_FAIL`
+- `AION_EXT_SIGNAL_BLOCK_STALE_HOURS` (hard-block new entries only when stale age breaches this threshold)
 By default AION now reads Q overlay from `../q/runs_plus/q_signal_overlay.json`
 (`AION_Q_HOME` / `AION_EXT_SIGNAL_FILE` can override this).
 When Q runtime risk degrades, AION now automatically scales overlay impact and

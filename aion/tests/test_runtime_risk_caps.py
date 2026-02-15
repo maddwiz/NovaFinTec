@@ -1,3 +1,4 @@
+import aion.exec.paper_loop as pl
 from aion.exec.paper_loop import _runtime_position_risk_scale, _runtime_risk_caps
 
 
@@ -179,3 +180,60 @@ def test_runtime_position_risk_scale_hive_alert_tighter_than_hive_warn():
         ext_runtime_diag={"flags": ["hive_stress_alert"], "degraded": False, "quality_gate_ok": True, "regime": "balanced"},
     )
     assert 0.2 <= s_alert < s_warn < 1.0
+
+
+def test_overlay_entry_gate_blocks_critical_flags(monkeypatch):
+    monkeypatch.setattr(pl.cfg, "EXT_SIGNAL_ENABLED", True)
+    monkeypatch.setattr(pl.cfg, "EXT_SIGNAL_BLOCK_CRITICAL", True)
+    monkeypatch.setattr(pl.cfg, "EXT_SIGNAL_BLOCK_CRITICAL_FLAGS", ["fracture_alert", "exec_risk_hard"])
+    monkeypatch.setattr(pl.cfg, "EXT_SIGNAL_BLOCK_ON_QUALITY_FAIL", False)
+    monkeypatch.setattr(pl.cfg, "EXT_SIGNAL_BLOCK_STALE_HOURS", 24.0)
+
+    blocked, reasons = pl._overlay_entry_gate(
+        ext_runtime_diag={"flags": ["fracture_alert"], "quality_gate_ok": True, "overlay_stale": False},
+        overlay_age_hours=2.0,
+    )
+    assert blocked is True
+    assert "critical_flag:fracture_alert" in reasons
+
+
+def test_overlay_entry_gate_blocks_stale_when_age_over_threshold(monkeypatch):
+    monkeypatch.setattr(pl.cfg, "EXT_SIGNAL_ENABLED", True)
+    monkeypatch.setattr(pl.cfg, "EXT_SIGNAL_BLOCK_CRITICAL", False)
+    monkeypatch.setattr(pl.cfg, "EXT_SIGNAL_BLOCK_ON_QUALITY_FAIL", False)
+    monkeypatch.setattr(pl.cfg, "EXT_SIGNAL_BLOCK_STALE_HOURS", 24.0)
+
+    blocked, reasons = pl._overlay_entry_gate(
+        ext_runtime_diag={"flags": ["overlay_stale"], "quality_gate_ok": True, "overlay_stale": True},
+        overlay_age_hours=30.0,
+    )
+    assert blocked is True
+    assert "overlay_stale" in reasons
+
+
+def test_overlay_entry_gate_does_not_block_stale_under_threshold(monkeypatch):
+    monkeypatch.setattr(pl.cfg, "EXT_SIGNAL_ENABLED", True)
+    monkeypatch.setattr(pl.cfg, "EXT_SIGNAL_BLOCK_CRITICAL", False)
+    monkeypatch.setattr(pl.cfg, "EXT_SIGNAL_BLOCK_ON_QUALITY_FAIL", False)
+    monkeypatch.setattr(pl.cfg, "EXT_SIGNAL_BLOCK_STALE_HOURS", 24.0)
+
+    blocked, reasons = pl._overlay_entry_gate(
+        ext_runtime_diag={"flags": ["overlay_stale"], "quality_gate_ok": True, "overlay_stale": True},
+        overlay_age_hours=8.0,
+    )
+    assert blocked is False
+    assert reasons == []
+
+
+def test_overlay_entry_gate_blocks_quality_fail_when_enabled(monkeypatch):
+    monkeypatch.setattr(pl.cfg, "EXT_SIGNAL_ENABLED", True)
+    monkeypatch.setattr(pl.cfg, "EXT_SIGNAL_BLOCK_CRITICAL", False)
+    monkeypatch.setattr(pl.cfg, "EXT_SIGNAL_BLOCK_ON_QUALITY_FAIL", True)
+    monkeypatch.setattr(pl.cfg, "EXT_SIGNAL_BLOCK_STALE_HOURS", 0.0)
+
+    blocked, reasons = pl._overlay_entry_gate(
+        ext_runtime_diag={"flags": [], "quality_gate_ok": False, "overlay_stale": False},
+        overlay_age_hours=1.0,
+    )
+    assert blocked is True
+    assert "quality_gate_fail" in reasons

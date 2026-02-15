@@ -267,6 +267,21 @@ EXT_SIGNAL_RUNTIME_RISK_EXEC_HARD_SCALE = float(os.getenv("AION_EXT_RUNTIME_RISK
 EXT_SIGNAL_RUNTIME_RISK_HIVE_WARN_SCALE = float(os.getenv("AION_EXT_RUNTIME_RISK_HIVE_WARN_SCALE", "0.88"))
 EXT_SIGNAL_RUNTIME_RISK_HIVE_ALERT_SCALE = float(os.getenv("AION_EXT_RUNTIME_RISK_HIVE_ALERT_SCALE", "0.70"))
 EXT_SIGNAL_MAX_AGE_HOURS = float(os.getenv("AION_EXT_SIGNAL_MAX_AGE_HOURS", "12"))
+EXT_SIGNAL_BLOCK_CRITICAL = _bool_env("AION_EXT_SIGNAL_BLOCK_CRITICAL", True)
+EXT_SIGNAL_BLOCK_CRITICAL_FLAGS = _dedupe_strs(
+    _str_list_env(
+        "AION_EXT_SIGNAL_BLOCK_CRITICAL_FLAGS",
+        [
+            "fracture_alert",
+            "drift_alert",
+            "exec_risk_hard",
+            "hive_stress_alert",
+            "nested_leakage_alert",
+        ],
+    )
+)
+EXT_SIGNAL_BLOCK_ON_QUALITY_FAIL = _bool_env("AION_EXT_SIGNAL_BLOCK_ON_QUALITY_FAIL", False)
+EXT_SIGNAL_BLOCK_STALE_HOURS = float(os.getenv("AION_EXT_SIGNAL_BLOCK_STALE_HOURS", "24"))
 EXT_SIGNAL_REQUIRE_RUNTIME_CONTEXT = _bool_env("AION_EXT_SIGNAL_REQUIRE_RUNTIME_CONTEXT", False)
 EXT_SIGNAL_CRITICAL = _bool_env("AION_EXT_SIGNAL_CRITICAL", False)
 
