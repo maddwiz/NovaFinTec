@@ -23,6 +23,33 @@ def test_runtime_risk_caps_fracture_warn_tightens_open_positions():
     assert opens <= 3
 
 
+def test_runtime_risk_caps_drift_alert_tightens_both_caps():
+    trades, opens = _runtime_risk_caps(
+        max_trades_cap=20,
+        max_open_positions_cap=8,
+        ext_runtime_scale=1.00,
+        ext_runtime_diag={"flags": ["drift_alert"], "degraded": False, "quality_gate_ok": True, "regime": "balanced"},
+    )
+    assert trades <= 12
+    assert opens <= 2
+
+
+def test_runtime_risk_caps_quality_step_spike_tightens_caps():
+    trades, opens = _runtime_risk_caps(
+        max_trades_cap=16,
+        max_open_positions_cap=7,
+        ext_runtime_scale=1.00,
+        ext_runtime_diag={
+            "flags": ["quality_governor_step_spike"],
+            "degraded": False,
+            "quality_gate_ok": True,
+            "regime": "risk_on",
+        },
+    )
+    assert trades <= 12
+    assert opens <= 3
+
+
 def test_runtime_risk_caps_fracture_alert_tightens_both_caps():
     trades, opens = _runtime_risk_caps(
         max_trades_cap=20,
@@ -66,6 +93,31 @@ def test_runtime_position_risk_scale_tightens_for_exec_hard_flag():
         ext_runtime_diag={"flags": ["exec_risk_hard"], "degraded": False, "quality_gate_ok": True, "regime": "risk_on"},
     )
     assert 0.2 <= s_hard < s_tight < 1.0
+
+
+def test_runtime_position_risk_scale_drift_alert_tighter_than_warn():
+    s_warn = _runtime_position_risk_scale(
+        ext_runtime_scale=1.0,
+        ext_runtime_diag={"flags": ["drift_warn"], "degraded": False, "quality_gate_ok": True, "regime": "risk_on"},
+    )
+    s_alert = _runtime_position_risk_scale(
+        ext_runtime_scale=1.0,
+        ext_runtime_diag={"flags": ["drift_alert"], "degraded": False, "quality_gate_ok": True, "regime": "risk_on"},
+    )
+    assert 0.2 <= s_alert < s_warn < 1.0
+
+
+def test_runtime_position_risk_scale_quality_step_spike_tightens():
+    s = _runtime_position_risk_scale(
+        ext_runtime_scale=1.0,
+        ext_runtime_diag={
+            "flags": ["quality_governor_step_spike"],
+            "degraded": False,
+            "quality_gate_ok": True,
+            "regime": "risk_on",
+        },
+    )
+    assert 0.2 <= s < 1.0
 
 
 def test_runtime_position_risk_scale_compounds_degraded_and_fracture():

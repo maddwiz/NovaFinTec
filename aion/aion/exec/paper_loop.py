@@ -153,6 +153,17 @@ def _runtime_risk_caps(
     quality_ok = bool(diag.get("quality_gate_ok", True))
 
     # Fracture and degraded states should tighten concurrency beyond pure scalar.
+    if "drift_alert" in flags:
+        max_open_positions_runtime = min(max_open_positions_runtime, max(1, min(2, int(max_open_positions_cap))))
+        max_trades_cap_runtime = min(max_trades_cap_runtime, max(1, int(round(int(max_trades_cap) * 0.60))))
+    elif "drift_warn" in flags:
+        max_open_positions_runtime = min(max_open_positions_runtime, max(1, min(3, int(max_open_positions_cap))))
+        max_trades_cap_runtime = min(max_trades_cap_runtime, max(1, int(round(int(max_trades_cap) * 0.82))))
+    if "quality_governor_step_spike" in flags:
+        max_open_positions_runtime = min(max_open_positions_runtime, max(1, min(3, int(max_open_positions_cap))))
+        max_trades_cap_runtime = min(max_trades_cap_runtime, max(1, int(round(int(max_trades_cap) * 0.75))))
+
+    # Fracture and degraded states should tighten concurrency beyond pure scalar.
     if "fracture_alert" in flags:
         max_open_positions_runtime = min(max_open_positions_runtime, max(1, min(2, int(max_open_positions_cap))))
         max_trades_cap_runtime = min(max_trades_cap_runtime, max(1, int(round(int(max_trades_cap) * 0.60))))
@@ -213,6 +224,12 @@ def _runtime_position_risk_scale(
         scale *= float(max(0.20, min(1.20, cfg.EXT_SIGNAL_RUNTIME_RISK_QFAIL_SCALE)))
     if flags:
         scale *= float(max(0.20, min(1.20, cfg.EXT_SIGNAL_RUNTIME_RISK_FLAG_SCALE))) ** len(flags)
+        if "drift_alert" in flags:
+            scale *= float(max(0.20, min(1.20, cfg.EXT_SIGNAL_RUNTIME_RISK_DRIFT_ALERT_SCALE)))
+        elif "drift_warn" in flags:
+            scale *= float(max(0.20, min(1.20, cfg.EXT_SIGNAL_RUNTIME_RISK_DRIFT_WARN_SCALE)))
+        if "quality_governor_step_spike" in flags:
+            scale *= float(max(0.20, min(1.20, cfg.EXT_SIGNAL_RUNTIME_RISK_QUALITY_STEP_SCALE)))
         if "fracture_alert" in flags:
             scale *= float(max(0.20, min(1.20, cfg.EXT_SIGNAL_RUNTIME_RISK_FRACTURE_ALERT_SCALE)))
         elif "fracture_warn" in flags:
