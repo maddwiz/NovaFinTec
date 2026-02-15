@@ -32,9 +32,16 @@ def _status() -> int:
     snap = status_snapshot(tasks)
     ops_status = _read_json(cfg.OPS_GUARD_STATUS_FILE, {})
     doctor = _read_json(cfg.LOG_DIR / "doctor_report.json", {})
+    runtime_controls = _read_json(cfg.STATE_DIR / "runtime_controls.json", {})
+    ext_overlay = _read_json(cfg.EXT_SIGNAL_FILE, {})
+    ext_ctx = ext_overlay.get("runtime_context", {}) if isinstance(ext_overlay, dict) else {}
+    if not isinstance(ext_ctx, dict):
+        ext_ctx = {}
     out = {
         "tasks": snap,
         "ops_guard_status": ops_status,
+        "runtime_controls": runtime_controls if isinstance(runtime_controls, dict) else {},
+        "external_runtime_context": ext_ctx,
         "doctor_ok": bool(doctor.get("ok", False)) if isinstance(doctor, dict) else False,
         "ib": doctor.get("ib", {}) if isinstance(doctor, dict) else {},
     }
