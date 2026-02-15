@@ -218,6 +218,7 @@ if __name__ == "__main__":
     nctx = _load_json(RUNS / "novaspine_context.json") or {}
     eco = _load_json(RUNS / "hive_evolution.json") or {}
     shock_info = _load_json(RUNS / "shock_mask_info.json") or {}
+    fracture_info = _load_json(RUNS / "regime_fracture_info.json") or {}
     dream_info = _load_json(RUNS / "dream_coherence_info.json") or {}
     dna_info = _load_json(RUNS / "dna_stress_info.json") or {}
     reflex_info = _load_json(RUNS / "reflex_health_info.json") or {}
@@ -402,6 +403,13 @@ if __name__ == "__main__":
             dna_downside_q = float(np.clip(1.0 - d, 0.0, 1.0))
     except Exception:
         dna_downside_q = None
+    fracture_q = None
+    try:
+        fs = float(fracture_info.get("latest_score", np.nan))
+        if np.isfinite(fs):
+            fracture_q = float(np.clip(1.0 - fs, 0.0, 1.0))
+    except Exception:
+        fracture_q = None
 
     # Blend across subsystems, using whatever is available.
     quality, quality_detail = blend_quality(
@@ -421,6 +429,7 @@ if __name__ == "__main__":
             "ecosystem": (eco_q, 0.07),
             "ecosystem_persistence": (persistence_q, 0.06),
             "shock_env": (shock_q, 0.05),
+            "regime_fracture": (fracture_q, 0.09),
             "novaspine_context": (nctx_q, 0.12),
         }
     )
@@ -580,6 +589,7 @@ if __name__ == "__main__":
             "ecosystem": {"score": float(eco_q) if eco_q is not None else None},
             "ecosystem_persistence": {"score": float(persistence_q) if persistence_q is not None else None},
             "shock_env": {"score": float(shock_q) if shock_q is not None else None},
+            "regime_fracture": {"score": float(fracture_q) if fracture_q is not None else None},
             "system_health": {"score": float(health_q)},
             "execution_constraints": {"score": float(exec_q) if exec_q is not None else None, "detail": exec_detail},
             "novaspine_context": {"score": float(nctx_q) if nctx_q is not None else None},
@@ -597,6 +607,7 @@ if __name__ == "__main__":
             "meta_mix_reliability_governor": (RUNS / "meta_mix_reliability_governor.csv").exists(),
             "shock_mask_info": (RUNS / "shock_mask_info.json").exists(),
             "shock_mask": (RUNS / "shock_mask.csv").exists(),
+            "regime_fracture_info": (RUNS / "regime_fracture_info.json").exists(),
             "dream_coherence_info": (RUNS / "dream_coherence_info.json").exists(),
             "dream_coherence_governor": (RUNS / "dream_coherence_governor.csv").exists(),
             "dna_stress_info": (RUNS / "dna_stress_info.json").exists(),

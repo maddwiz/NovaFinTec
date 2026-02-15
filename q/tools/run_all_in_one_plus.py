@@ -245,12 +245,12 @@ if __name__ == "__main__":
     # Pull recall context from NovaSpine and convert to a safe scalar boost.
     ok, rc = run_script("tools/run_novaspine_context.py")
     if not ok and rc is not None: failures.append({"step": "tools/run_novaspine_context.py", "code": rc})
-    # Quality governor from nested/hive/council/system diagnostics
-    ok, rc = run_script("tools/run_quality_governor.py")
-    if not ok and rc is not None: failures.append({"step": "tools/run_quality_governor.py", "code": rc})
     # Regime fracture engine: early instability detector from disagreement/volatility/breadth stress.
     ok, rc = run_script("tools/run_regime_fracture.py")
     if not ok and rc is not None: failures.append({"step": "tools/run_regime_fracture.py", "code": rc})
+    # Quality governor from nested/hive/council/system diagnostics
+    ok, rc = run_script("tools/run_quality_governor.py")
+    if not ok and rc is not None: failures.append({"step": "tools/run_quality_governor.py", "code": rc})
     # Assemble final portfolio weights from available layers
     ok, rc = run_script("tools/build_final_portfolio.py")
     if not ok and rc is not None: failures.append({"step": "tools/build_final_portfolio.py", "code": rc})
