@@ -62,6 +62,17 @@ reduces effective trades-per-day cap for safer operation.
 `AION_AUTO_REFRESH_Q_OVERLAY=1` (default) refreshes the Q overlay pack before trade-loop start.
 Runtime log lines for external overlay now include Q `source_mode` for traceability.
 
+NovaSpine memory bridge is now wired directly from AION trade events:
+- `AION_MEMORY_ENABLE=1` (default via `run_aion.sh`)
+- `AION_MEMORY_BACKEND=filesystem|novaspine_api`
+- `AION_MEMORY_NOVASPINE_URL` (default `http://127.0.0.1:8420`)
+- `AION_MEMORY_NAMESPACE` (default `private/nova/actions`)
+- `AION_MEMORY_OUTBOX_DIR` (default `logs/novaspine_outbox_aion`)
+- `AION_MEMORY_TOKEN` (optional; falls back to `C3AE_API_TOKEN` / `C3_MEMORY_TOKEN`)
+
+When backend is `filesystem`, each ENTRY/PARTIAL/EXIT is queued to local JSONL outbox.
+When backend is `novaspine_api`, AION posts events to NovaSpine and safely falls back to outbox on API failure.
+
 ## Tasks
 
 - Live paper loop:

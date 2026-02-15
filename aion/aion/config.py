@@ -237,6 +237,21 @@ EXT_SIGNAL_MAX_AGE_HOURS = float(os.getenv("AION_EXT_SIGNAL_MAX_AGE_HOURS", "12"
 EXT_SIGNAL_REQUIRE_RUNTIME_CONTEXT = _bool_env("AION_EXT_SIGNAL_REQUIRE_RUNTIME_CONTEXT", False)
 EXT_SIGNAL_CRITICAL = _bool_env("AION_EXT_SIGNAL_CRITICAL", False)
 
+# Optional NovaSpine/C3 memory writeback from AION execution events.
+MEMORY_ENABLE = _bool_env("AION_MEMORY_ENABLE", _bool_env("C3_MEMORY_ENABLE", False))
+MEMORY_BACKEND = str(os.getenv("AION_MEMORY_BACKEND", os.getenv("C3_MEMORY_BACKEND", "filesystem"))).strip().lower()
+MEMORY_NAMESPACE = str(os.getenv("AION_MEMORY_NAMESPACE", os.getenv("C3_MEMORY_NAMESPACE", "private/nova/actions"))).strip() or "private/nova/actions"
+MEMORY_OUTBOX_DIR = Path(os.getenv("AION_MEMORY_OUTBOX_DIR", str(LOG_DIR / "novaspine_outbox_aion")))
+MEMORY_NOVASPINE_URL = str(os.getenv("AION_MEMORY_NOVASPINE_URL", os.getenv("C3_MEMORY_NOVASPINE_URL", "http://127.0.0.1:8420"))).strip() or "http://127.0.0.1:8420"
+MEMORY_TIMEOUT_SEC = float(os.getenv("AION_MEMORY_TIMEOUT_SEC", "6.0"))
+MEMORY_SOURCE_PREFIX = str(os.getenv("AION_MEMORY_SOURCE_PREFIX", "aion")).strip() or "aion"
+MEMORY_TOKEN = str(
+    os.getenv(
+        "AION_MEMORY_TOKEN",
+        os.getenv("C3AE_API_TOKEN", os.getenv("C3_MEMORY_TOKEN", "")),
+    )
+).strip()
+
 WALKFORWARD_DURATION = os.getenv("AION_WF_DURATION", "30 D")
 WALKFORWARD_BAR_SIZE = os.getenv("AION_WF_BAR_SIZE", "15 mins")
 WALKFORWARD_TRAIN_BARS = int(os.getenv("AION_WF_TRAIN_BARS", "240"))

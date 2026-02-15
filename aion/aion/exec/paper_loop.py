@@ -16,6 +16,7 @@ from ..brain.external_signals import (
     load_external_signal_bundle,
     runtime_overlay_scale,
 )
+from ..brain.novaspine_bridge import build_trade_event, emit_trade_event
 from ..data.ib_client import disconnect, hist_bars_cached, ib
 from ..execution.simulator import ExecutionSimulator
 from ..ml.meta_label import MetaLabelModel
@@ -73,6 +74,53 @@ def _safe_float(x, default=0.0):
         return v if math.isfinite(v) else default
     except Exception:
         return default
+
+
+def _emit_trade_memory_event(
+    event_type: str,
+    symbol: str,
+    side: str,
+    qty: int,
+    entry: float,
+    exit_: float,
+    pnl: float,
+    reason: str,
+    confidence: float,
+    regime: str,
+    monitor: RuntimeMonitor | None = None,
+    extra: dict | None = None,
+):
+    if not bool(getattr(cfg, "MEMORY_ENABLE", False)):
+        return
+
+    try:
+        ev = build_trade_event(
+            event_type=str(event_type),
+            symbol=str(symbol).upper(),
+            side=str(side).upper(),
+            qty=max(0, int(qty)),
+            entry=float(entry),
+            exit=float(exit_),
+            pnl=float(pnl),
+            reason=str(reason),
+            confidence=float(confidence),
+            regime=str(regime),
+            extra=(extra if isinstance(extra, dict) else None),
+        )
+        res = emit_trade_event(ev, cfg)
+        if not bool(res.get("ok", True)):
+            msg = (
+                f"NovaSpine emit issue event={event_type} symbol={symbol} "
+                f"backend={res.get('backend')} error={res.get('error', 'unknown')}"
+            )
+            log_run(msg)
+            if monitor is not None and cfg.MONITORING_ENABLED:
+                monitor.record_system_event("novaspine_emit_fail", msg)
+    except Exception as exc:
+        msg = f"NovaSpine emit exception event={event_type} symbol={symbol}: {exc}"
+        log_run(msg)
+        if monitor is not None and cfg.MONITORING_ENABLED:
+            monitor.record_system_event("novaspine_emit_exception", str(exc))
 
 
 def _scale_external_signal(sig: dict | None, scale: float, max_bias: float):
@@ -205,7 +253,19 @@ def _equity_from_cash_and_positions(cash: float, open_positions: dict, last_pric
     return equity
 
 
-def _close_position(open_positions: dict, symbol: str, fill_price: float, reason: str, cash: float, closed_pnl: float, ks: KillSwitch, today: str, fill_ratio: float = 1.0, slippage_bps: float = 0.0):
+def _close_position(
+    open_positions: dict,
+    symbol: str,
+    fill_price: float,
+    reason: str,
+    cash: float,
+    closed_pnl: float,
+    ks: KillSwitch,
+    today: str,
+    fill_ratio: float = 1.0,
+    slippage_bps: float = 0.0,
+    monitor: RuntimeMonitor | None = None,
+):
     pos = open_positions[symbol]
     qty = int(pos["qty"])
 
@@ -238,11 +298,42 @@ def _close_position(open_positions: dict, symbol: str, fill_price: float, reason
         fill_ratio=fill_ratio,
         slippage_bps=slippage_bps,
     )
+    _emit_trade_memory_event(
+        event_type="trade.exit",
+        symbol=symbol,
+        side=str(pos["side"]),
+        qty=qty,
+        entry=float(pos["entry"]),
+        exit_=float(fill_price),
+        pnl=float(pnl),
+        reason=str(reason),
+        confidence=float(pos.get("confidence", 0.0)),
+        regime=str(pos.get("regime", "")),
+        monitor=monitor,
+        extra={
+            "fill_ratio": float(fill_ratio),
+            "slippage_bps": float(slippage_bps),
+            "stop": float(pos.get("stop", 0.0)),
+            "target": float(pos.get("target", 0.0)),
+            "trail": float(pos.get("trail_stop", 0.0)),
+            "bars_held": int(pos.get("bars_held", 0)),
+        },
+    )
     del open_positions[symbol]
     return cash, closed_pnl
 
 
-def _partial_close(pos: dict, symbol: str, price: float, exe: ExecutionSimulator, cash: float, closed_pnl: float, ks: KillSwitch, today: str):
+def _partial_close(
+    pos: dict,
+    symbol: str,
+    price: float,
+    exe: ExecutionSimulator,
+    cash: float,
+    closed_pnl: float,
+    ks: KillSwitch,
+    today: str,
+    monitor: RuntimeMonitor | None = None,
+):
     qty = int(pos["qty"])
     close_qty = max(1, int(math.floor(qty * cfg.PARTIAL_CLOSE_FRACTION)))
     close_qty = min(close_qty, qty - 1) if qty > 1 else qty
@@ -283,6 +374,28 @@ def _partial_close(pos: dict, symbol: str, price: float, exe: ExecutionSimulator
         trail=float(pos.get("trail_stop", 0.0)),
         fill_ratio=fill.fill_ratio,
         slippage_bps=fill.est_slippage_bps,
+    )
+    _emit_trade_memory_event(
+        event_type="trade.partial_exit",
+        symbol=symbol,
+        side=str(pos["side"]),
+        qty=int(close_qty),
+        entry=float(pos["entry"]),
+        exit_=float(fill.avg_fill),
+        pnl=float(pnl),
+        reason="Partial take-profit",
+        confidence=float(pos.get("confidence", 0.0)),
+        regime=str(pos.get("regime", "")),
+        monitor=monitor,
+        extra={
+            "fill_ratio": float(fill.fill_ratio),
+            "slippage_bps": float(fill.est_slippage_bps),
+            "stop": float(pos.get("stop", 0.0)),
+            "target": float(pos.get("target", 0.0)),
+            "trail": float(pos.get("trail_stop", 0.0)),
+            "bars_held": int(pos.get("bars_held", 0)),
+            "remaining_qty": int(pos.get("qty", 0)),
+        },
     )
 
     fully_closed = pos["qty"] <= 0
@@ -556,7 +669,9 @@ def main() -> int:
                             pos["trail_stop"] = max(pos["trail_stop"], trail_candidate)
 
                             if (not pos["partial_taken"]) and price >= (pos["entry"] + pos["init_risk"] * cfg.PARTIAL_TAKE_R):
-                                cash, closed_pnl, fully_closed = _partial_close(pos, sym, price, exe, cash, closed_pnl, ks, today)
+                                cash, closed_pnl, fully_closed = _partial_close(
+                                    pos, sym, price, exe, cash, closed_pnl, ks, today, monitor=monitor
+                                )
                                 monitor.record_execution(cfg.SLIPPAGE_BPS)
                                 if fully_closed:
                                     del open_positions[sym]
@@ -572,7 +687,9 @@ def main() -> int:
                             pos["trail_stop"] = min(pos["trail_stop"], trail_candidate)
 
                             if (not pos["partial_taken"]) and price <= (pos["entry"] - pos["init_risk"] * cfg.PARTIAL_TAKE_R):
-                                cash, closed_pnl, fully_closed = _partial_close(pos, sym, price, exe, cash, closed_pnl, ks, today)
+                                cash, closed_pnl, fully_closed = _partial_close(
+                                    pos, sym, price, exe, cash, closed_pnl, ks, today, monitor=monitor
+                                )
                                 monitor.record_execution(cfg.SLIPPAGE_BPS)
                                 if fully_closed:
                                     del open_positions[sym]
@@ -610,6 +727,7 @@ def main() -> int:
                                 today,
                                 fill_ratio=fill.fill_ratio,
                                 slippage_bps=fill.est_slippage_bps,
+                                monitor=monitor,
                             )
                             cooldown[sym] = cfg.REENTRY_COOLDOWN_CYCLES
                             continue
@@ -777,6 +895,27 @@ def main() -> int:
                     trail=float(trail_stop),
                     fill_ratio=float(fill.fill_ratio),
                     slippage_bps=float(fill.est_slippage_bps),
+                )
+                _emit_trade_memory_event(
+                    event_type="trade.entry",
+                    symbol=sym,
+                    side=str(c["side"]),
+                    qty=int(fill.filled_qty),
+                    entry=float(fill.avg_fill),
+                    exit_=0.0,
+                    pnl=0.0,
+                    reason=f"{confidence_tag(float(c['confidence']))} conf entry",
+                    confidence=float(c["confidence"]),
+                    regime=str(c["signal"]["regime"]),
+                    monitor=monitor,
+                    extra={
+                        "stop": float(stop),
+                        "target": float(target),
+                        "trail": float(trail_stop),
+                        "fill_ratio": float(fill.fill_ratio),
+                        "slippage_bps": float(fill.est_slippage_bps),
+                        "atr_pct": float(c["atr_pct"]),
+                    },
                 )
 
             open_pnl = _mark_open_pnl(open_positions, last_prices)
