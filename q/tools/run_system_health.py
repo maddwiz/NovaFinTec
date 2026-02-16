@@ -203,6 +203,57 @@ def _analyze_cross_hive_turnover(
     return metrics, issues
 
 
+def _analyze_novaspine_turnover(
+    nctx: dict | None,
+    nhive: dict | None,
+    *,
+    max_turnover_pressure: float = 0.72,
+    max_turnover_dampener: float = 0.10,
+):
+    metrics = {}
+    issues = []
+    ctx = nctx if isinstance(nctx, dict) else {}
+    hive = nhive if isinstance(nhive, dict) else {}
+
+    status_ctx = str(ctx.get("status", "na")).strip().lower()
+    status_hive = str(hive.get("status", "na")).strip().lower()
+    p_ctx = _to_float(ctx.get("turnover_pressure"))
+    p_hive = _to_float(hive.get("turnover_pressure"))
+    d_ctx = _to_float(ctx.get("turnover_dampener"))
+    d_hive = _to_float(hive.get("turnover_dampener"))
+
+    if status_ctx:
+        metrics["novaspine_context_status"] = status_ctx
+    if status_hive:
+        metrics["novaspine_hive_status"] = status_hive
+    if p_ctx is not None:
+        metrics["novaspine_context_turnover_pressure"] = p_ctx
+    if p_hive is not None:
+        metrics["novaspine_hive_turnover_pressure"] = p_hive
+    if d_ctx is not None:
+        metrics["novaspine_context_turnover_dampener"] = d_ctx
+    if d_hive is not None:
+        metrics["novaspine_hive_turnover_dampener"] = d_hive
+
+    pressure_vals = [x for x in [p_ctx, p_hive] if x is not None]
+    damp_vals = [x for x in [d_ctx, d_hive] if x is not None]
+    if pressure_vals:
+        metrics["novaspine_turnover_pressure_max"] = float(np.max(pressure_vals))
+        metrics["novaspine_turnover_pressure_mean"] = float(np.mean(pressure_vals))
+    if damp_vals:
+        metrics["novaspine_turnover_dampener_max"] = float(np.max(damp_vals))
+        metrics["novaspine_turnover_dampener_mean"] = float(np.mean(damp_vals))
+
+    if pressure_vals and float(np.max(pressure_vals)) > float(max_turnover_pressure):
+        issues.append("novaspine turnover pressure exceeds threshold")
+    if damp_vals and float(np.max(damp_vals)) > float(max_turnover_dampener):
+        issues.append("novaspine turnover dampener exceeds threshold")
+    if any(s in {"unreachable", "error"} or str(s).startswith("http_") for s in [status_ctx, status_hive]):
+        issues.append("novaspine recall endpoint unhealthy")
+
+    return metrics, issues
+
+
 def _overlay_aion_feedback_metrics(overlay: dict | None):
     return _overlay_aion_feedback_metrics_with_fallback(overlay, fallback_feedback=None)
 
@@ -439,6 +490,8 @@ if __name__ == "__main__":
     hb_stress = _load_series(RUNS / "heartbeat_stress.csv")
     exec_info = _load_json(RUNS / "execution_constraints_info.json")
     cross_info = _load_json(RUNS / "cross_hive_summary.json")
+    nsp_ctx = _load_json(RUNS / "novaspine_context.json")
+    nsp_hive = _load_json(RUNS / "novaspine_hive_feedback.json")
     overlay = _load_json(RUNS / "q_signal_overlay.json")
     aion_source_pref = normalize_source_preference(os.getenv("Q_AION_FEEDBACK_SOURCE", "auto"))
 
@@ -550,6 +603,14 @@ if __name__ == "__main__":
     )
     if cross_shape:
         shape.update(cross_shape)
+    nsp_shape, nsp_issues = _analyze_novaspine_turnover(
+        nsp_ctx,
+        nsp_hive,
+        max_turnover_pressure=float(np.clip(float(os.getenv("Q_SYSTEM_HEALTH_MAX_NOVASPINE_TURNOVER_PRESSURE", "0.72")), 0.05, 1.0)),
+        max_turnover_dampener=float(np.clip(float(os.getenv("Q_SYSTEM_HEALTH_MAX_NOVASPINE_TURNOVER_DAMPENER", "0.10")), 0.005, 0.50)),
+    )
+    if nsp_shape:
+        shape.update(nsp_shape)
     fallback_aion_feedback = load_outcome_feedback(root=ROOT, mark_stale_reason=False)
     aion_shape, aion_issues = _overlay_aion_feedback_metrics_with_fallback(
         overlay,
@@ -580,6 +641,7 @@ if __name__ == "__main__":
             issues.append("portfolio_weights_final contains NaN/Inf")
     issues.extend(exec_issues)
     issues.extend(cross_issues)
+    issues.extend(nsp_issues)
     issues.extend(aion_issues)
     issues.extend(stale_issues)
 

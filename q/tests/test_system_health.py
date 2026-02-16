@@ -82,6 +82,30 @@ def test_analyze_cross_hive_turnover_flags_threshold_breaches():
     assert any("rolling turnover exceeds threshold" in x for x in issues)
 
 
+def test_analyze_novaspine_turnover_no_issues_when_stable():
+    metrics, issues = rsh._analyze_novaspine_turnover(
+        {"status": "ok", "turnover_pressure": 0.34, "turnover_dampener": 0.04},
+        {"status": "ok", "turnover_pressure": 0.38, "turnover_dampener": 0.05},
+        max_turnover_pressure=0.72,
+        max_turnover_dampener=0.10,
+    )
+    assert float(metrics["novaspine_turnover_pressure_max"]) == 0.38
+    assert float(metrics["novaspine_turnover_dampener_max"]) == 0.05
+    assert issues == []
+
+
+def test_analyze_novaspine_turnover_flags_breaches_and_unhealthy_status():
+    _metrics, issues = rsh._analyze_novaspine_turnover(
+        {"status": "http_503", "turnover_pressure": 0.88, "turnover_dampener": 0.15},
+        {"status": "ok", "turnover_pressure": 0.80, "turnover_dampener": 0.11},
+        max_turnover_pressure=0.72,
+        max_turnover_dampener=0.10,
+    )
+    assert any("turnover pressure exceeds threshold" in x for x in issues)
+    assert any("turnover dampener exceeds threshold" in x for x in issues)
+    assert any("endpoint unhealthy" in x for x in issues)
+
+
 def test_staleness_issues_flags_old_required_and_optional():
     stats, issues = rsh._staleness_issues(
         [

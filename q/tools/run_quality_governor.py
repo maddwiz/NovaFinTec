@@ -457,6 +457,71 @@ def _cross_hive_turnover_quality(cross_info: dict | None):
     }
 
 
+def _novaspine_turnover_quality(nctx: dict | None, nhive: dict | None):
+    def _f(x):
+        try:
+            v = float(x)
+            return v if np.isfinite(v) else None
+        except Exception:
+            return None
+
+    ctx = nctx if isinstance(nctx, dict) else {}
+    hive = nhive if isinstance(nhive, dict) else {}
+    status_ctx = str(ctx.get("status", "na")).strip().lower()
+    status_hive = str(hive.get("status", "na")).strip().lower()
+    p_ctx = _f(ctx.get("turnover_pressure"))
+    p_hive = _f(hive.get("turnover_pressure"))
+    d_ctx = _f(ctx.get("turnover_dampener"))
+    d_hive = _f(hive.get("turnover_dampener"))
+
+    parts = []
+    q_p_ctx = None
+    q_p_hive = None
+    q_d_ctx = None
+    q_d_hive = None
+
+    if p_ctx is not None:
+        q_p_ctx = float(np.clip(1.0 - max(0.0, p_ctx - 0.20) / (0.95 - 0.20 + 1e-9), 0.0, 1.0))
+        parts.append(q_p_ctx)
+    if p_hive is not None:
+        q_p_hive = float(np.clip(1.0 - max(0.0, p_hive - 0.20) / (0.95 - 0.20 + 1e-9), 0.0, 1.0))
+        parts.append(q_p_hive)
+    if d_ctx is not None:
+        q_d_ctx = float(np.clip(1.0 - max(0.0, d_ctx - 0.02) / (0.20 - 0.02 + 1e-9), 0.0, 1.0))
+        parts.append(q_d_ctx)
+    if d_hive is not None:
+        q_d_hive = float(np.clip(1.0 - max(0.0, d_hive - 0.02) / (0.20 - 0.02 + 1e-9), 0.0, 1.0))
+        parts.append(q_d_hive)
+
+    if not parts:
+        return None, {
+            "available": False,
+            "status_context": status_ctx,
+            "status_hive": status_hive,
+            "turnover_pressure_context": p_ctx,
+            "turnover_pressure_hive": p_hive,
+            "turnover_dampener_context": d_ctx,
+            "turnover_dampener_hive": d_hive,
+        }
+
+    q = float(np.clip(float(np.mean(parts)), 0.0, 1.0))
+    if any(s in {"unreachable", "error"} or str(s).startswith("http_") for s in [status_ctx, status_hive]):
+        q *= 0.85
+    return q, {
+        "available": True,
+        "status_context": status_ctx,
+        "status_hive": status_hive,
+        "turnover_pressure_context": p_ctx,
+        "turnover_pressure_hive": p_hive,
+        "turnover_dampener_context": d_ctx,
+        "turnover_dampener_hive": d_hive,
+        "q_turnover_pressure_context": q_p_ctx,
+        "q_turnover_pressure_hive": q_p_hive,
+        "q_turnover_dampener_context": q_d_ctx,
+        "q_turnover_dampener_hive": q_d_hive,
+    }
+
+
 if __name__ == "__main__":
     nested = _load_json(RUNS / "nested_wf_summary.json") or {}
     health = _load_json(RUNS / "system_health.json") or {}
@@ -464,6 +529,7 @@ if __name__ == "__main__":
     syn = _load_json(RUNS / "synapses_summary.json") or {}
     mix = _load_json(RUNS / "meta_mix_info.json") or {}
     nctx = _load_json(RUNS / "novaspine_context.json") or {}
+    nhive = _load_json(RUNS / "novaspine_hive_feedback.json") or {}
     eco = _load_json(RUNS / "hive_evolution.json") or {}
     shock_info = _load_json(RUNS / "shock_mask_info.json") or {}
     fracture_info = _load_json(RUNS / "regime_fracture_info.json") or {}
@@ -478,6 +544,7 @@ if __name__ == "__main__":
     aion_q, aion_q_detail = _aion_outcome_quality(aion_feedback, min_closed_trades=aion_min_closed)
     aion_lineage_q, aion_lineage_detail = lineage_quality(aion_feedback_source)
     hive_turnover_q, hive_turnover_detail = _cross_hive_turnover_quality(cross_info)
+    nsp_turn_q, nsp_turn_detail = _novaspine_turnover_quality(nctx, nhive)
 
     hive_sh = None
     hive_hit = None
@@ -713,6 +780,7 @@ if __name__ == "__main__":
             "hive_crowding": (hive_crowding_q, 0.08),
             "hive_entropy": (hive_entropy_q, 0.08),
             "hive_turnover": (hive_turnover_q, 0.07),
+            "novaspine_turnover": (nsp_turn_q, 0.08),
             "reflex_downside": (reflex_downside_q, 0.08),
             "dna_downside": (dna_downside_q, 0.06),
             "system_health": (health_q, 0.13),
@@ -871,6 +939,8 @@ if __name__ == "__main__":
         runtime_mod *= float(np.clip(0.88 + 0.22 * aion_lineage_q, 0.75, 1.08))
     if hive_turnover_q is not None:
         runtime_mod *= float(np.clip(0.86 + 0.24 * hive_turnover_q, 0.72, 1.08))
+    if nsp_turn_q is not None:
+        runtime_mod *= float(np.clip(0.84 + 0.30 * nsp_turn_q, 0.70, 1.08))
 
     q_lo = float(np.clip(float(os.getenv("Q_QUALITY_GOV_LO", "0.58")), 0.30, 1.20))
     q_hi = float(np.clip(float(os.getenv("Q_QUALITY_GOV_HI", "1.15")), 0.50, 1.30))
@@ -914,6 +984,7 @@ if __name__ == "__main__":
             "hive_crowding": {"score": float(hive_crowding_q) if hive_crowding_q is not None else None},
             "hive_entropy": {"score": float(hive_entropy_q) if hive_entropy_q is not None else None},
             "hive_turnover": {"score": float(hive_turnover_q) if hive_turnover_q is not None else None, "detail": hive_turnover_detail},
+            "novaspine_turnover": {"score": float(nsp_turn_q) if nsp_turn_q is not None else None, "detail": nsp_turn_detail},
             "reflex_downside": {"score": float(reflex_downside_q) if reflex_downside_q is not None else None},
             "dna_downside": {"score": float(dna_downside_q) if dna_downside_q is not None else None},
             "ecosystem": {"score": float(eco_q) if eco_q is not None else None},
@@ -960,6 +1031,7 @@ if __name__ == "__main__":
             "q_signal_overlay": (RUNS / "q_signal_overlay.json").exists(),
             "system_health": (RUNS / "system_health.json").exists(),
             "novaspine_context": (RUNS / "novaspine_context.json").exists(),
+            "novaspine_hive_feedback": (RUNS / "novaspine_hive_feedback.json").exists(),
         },
     }
     (RUNS / "quality_snapshot.json").write_text(json.dumps(snapshot, indent=2))

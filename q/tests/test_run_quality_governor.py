@@ -116,6 +116,26 @@ def test_cross_hive_turnover_quality_is_high_when_stable():
     assert detail["available"] is True
 
 
+def test_novaspine_turnover_quality_penalizes_pressure_and_dampener():
+    q, detail = rqg._novaspine_turnover_quality(
+        {"status": "ok", "turnover_pressure": 0.86, "turnover_dampener": 0.14},
+        {"status": "ok", "turnover_pressure": 0.79, "turnover_dampener": 0.12},
+    )
+    assert q is not None
+    assert float(q) < 0.55
+    assert detail["available"] is True
+
+
+def test_novaspine_turnover_quality_is_high_when_stable():
+    q, detail = rqg._novaspine_turnover_quality(
+        {"status": "ok", "turnover_pressure": 0.22, "turnover_dampener": 0.02},
+        {"status": "ok", "turnover_pressure": 0.24, "turnover_dampener": 0.03},
+    )
+    assert q is not None
+    assert float(q) > 0.85
+    assert detail["available"] is True
+
+
 def test_aion_outcome_quality_high_on_strong_feedback():
     q, detail = rqg._aion_outcome_quality(
         {
