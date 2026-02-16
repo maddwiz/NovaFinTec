@@ -129,3 +129,21 @@ def test_runtime_decision_summary_aion_feedback_block_reason_present():
     assert any(x == "aion_feedback" for x in out["entry_block_reasons"])
     assert any("aion_feedback:negative_expectancy_alert" == x for x in out["entry_block_reasons"])
     assert any(a.get("id") == "aion_outcome_recalibration" for a in out["recommended_actions"])
+
+
+def test_runtime_decision_summary_aion_feedback_stale_triggers_recalibration():
+    out = runtime_decision_summary(
+        runtime_controls={
+            "overlay_block_new_entries": False,
+            "policy_block_new_entries": False,
+            "aion_feedback_stale": True,
+            "external_position_risk_scale": 1.0,
+            "external_runtime_scale": 1.0,
+            "exec_governor_state": "ok",
+            "memory_feedback_status": "ok",
+        },
+        external_overlay_runtime={"stale": False},
+        external_overlay_risk_flags=[],
+    )
+    assert "aion_outcome_stale" in out["throttle_reasons"]
+    assert any(a.get("id") == "aion_outcome_recalibration" for a in out["recommended_actions"])

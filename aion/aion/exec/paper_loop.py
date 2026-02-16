@@ -428,6 +428,9 @@ def _aion_feedback_controls(aion_feedback: dict | None):
         "profit_factor": None,
         "expectancy": None,
         "drawdown_norm": None,
+        "age_hours": None,
+        "max_age_hours": None,
+        "stale": False,
         "path": "",
         "block_new_entries": False,
     }
@@ -449,18 +452,34 @@ def _aion_feedback_controls(aion_feedback: dict | None):
     profit_factor = _safe_float(aion_feedback.get("profit_factor"), None)
     expectancy = _safe_float(aion_feedback.get("expectancy"), None)
     drawdown_norm = _safe_float(aion_feedback.get("drawdown_norm"), None)
+    age_hours = _safe_float(aion_feedback.get("age_hours"), None)
+    max_age_hours = max(0.0, _safe_float(aion_feedback.get("max_age_hours"), _safe_float(getattr(cfg, "EXT_SIGNAL_AION_FEEDBACK_MAX_AGE_HOURS", 72.0), 72.0)))
+    stale = bool(aion_feedback.get("stale", False))
+    if (not stale) and age_hours is not None and max_age_hours > 0.0:
+        stale = bool(age_hours > max_age_hours)
     path = str(aion_feedback.get("path", "")).strip()
 
     out["active"] = True
     out["status"] = status
-    out["reasons"] = reasons
+    out["reasons"] = list(reasons)
     out["risk_scale"] = float(risk_scale)
     out["closed_trades"] = int(closed_trades)
     out["hit_rate"] = hit_rate
     out["profit_factor"] = profit_factor
     out["expectancy"] = expectancy
     out["drawdown_norm"] = drawdown_norm
+    out["age_hours"] = age_hours
+    out["max_age_hours"] = max_age_hours if max_age_hours > 0.0 else None
+    out["stale"] = bool(stale)
     out["path"] = path
+
+    if stale and "stale_feedback" not in out["reasons"]:
+        out["reasons"].append("stale_feedback")
+    if stale and bool(getattr(cfg, "EXT_SIGNAL_AION_FEEDBACK_IGNORE_STALE", True)):
+        out["status"] = "stale"
+        out["risk_scale"] = 1.0
+        out["block_new_entries"] = False
+        return out
 
     explicit_block = bool(aion_feedback.get("block_new_entries", False))
     alert_th = _safe_float(getattr(cfg, "EXT_SIGNAL_AION_FEEDBACK_ALERT_THRESHOLD", 0.82), 0.82)
@@ -1051,6 +1070,9 @@ def main() -> int:
             aion_feedback_profit_factor = None
             aion_feedback_expectancy = None
             aion_feedback_drawdown_norm = None
+            aion_feedback_age_hours = None
+            aion_feedback_max_age_hours = None
+            aion_feedback_stale = False
             aion_feedback_path = ""
             aion_feedback_block_new_entries = False
             if cfg.EXT_SIGNAL_ENABLED:
@@ -1157,6 +1179,9 @@ def main() -> int:
                 aion_feedback_profit_factor = _safe_float(aion_ctl.get("profit_factor"), None)
                 aion_feedback_expectancy = _safe_float(aion_ctl.get("expectancy"), None)
                 aion_feedback_drawdown_norm = _safe_float(aion_ctl.get("drawdown_norm"), None)
+                aion_feedback_age_hours = _safe_float(aion_ctl.get("age_hours"), None)
+                aion_feedback_max_age_hours = _safe_float(aion_ctl.get("max_age_hours"), None)
+                aion_feedback_stale = bool(aion_ctl.get("stale", False))
                 aion_feedback_path = str(aion_ctl.get("path", "")).strip()
                 aion_feedback_block_new_entries = bool(aion_ctl.get("block_new_entries", False))
                 sig = (
@@ -1230,6 +1255,9 @@ def main() -> int:
                     None if aion_feedback_profit_factor is None else round(float(aion_feedback_profit_factor), 4),
                     None if aion_feedback_expectancy is None else round(float(aion_feedback_expectancy), 4),
                     None if aion_feedback_drawdown_norm is None else round(float(aion_feedback_drawdown_norm), 4),
+                    None if aion_feedback_age_hours is None else round(float(aion_feedback_age_hours), 3),
+                    None if aion_feedback_max_age_hours is None else round(float(aion_feedback_max_age_hours), 3),
+                    bool(aion_feedback_stale),
                     bool(aion_feedback_block_new_entries),
                     str(aion_feedback_path),
                 )
@@ -1237,15 +1265,17 @@ def main() -> int:
                     reason_txt = ",".join(aion_sig[2]) if aion_sig[2] else "none"
                     log_run(
                         "AION outcome feedback "
-                        f"status={aion_sig[1]} reasons={reason_txt} block_new={aion_sig[9]} risk_scale={aion_sig[3]:.3f} "
+                        f"status={aion_sig[1]} reasons={reason_txt} block_new={aion_sig[12]} risk_scale={aion_sig[3]:.3f} "
                         f"closed_trades={aion_sig[4]} hit_rate={(f'{aion_sig[5]:.3f}' if isinstance(aion_sig[5], float) else 'na')} "
                         f"profit_factor={(f'{aion_sig[6]:.3f}' if isinstance(aion_sig[6], float) else 'na')} "
-                        f"drawdown_norm={(f'{aion_sig[8]:.3f}' if isinstance(aion_sig[8], float) else 'na')}"
+                        f"drawdown_norm={(f'{aion_sig[8]:.3f}' if isinstance(aion_sig[8], float) else 'na')} "
+                        f"age_h={(f'{aion_sig[9]:.2f}' if isinstance(aion_sig[9], float) else 'na')} "
+                        f"stale={aion_sig[11]}"
                     )
-                    if cfg.MONITORING_ENABLED and aion_sig[1] in {"warn", "alert"}:
+                    if cfg.MONITORING_ENABLED and (aion_sig[1] in {"warn", "alert"} or aion_sig[11]):
                         monitor.record_system_event(
                             "aion_outcome_feedback",
-                            f"status={aion_sig[1]} reasons={reason_txt} block_new={aion_sig[9]} risk_scale={aion_sig[3]:.3f} closed_trades={aion_sig[4]}",
+                            f"status={aion_sig[1]} reasons={reason_txt} block_new={aion_sig[12]} risk_scale={aion_sig[3]:.3f} closed_trades={aion_sig[4]} stale={aion_sig[11]}",
                         )
                 last_aion_feedback_sig = aion_sig
                 gate_sig = (bool(overlay_block_new_entries), tuple(sorted(str(x) for x in overlay_block_reasons)))
@@ -1435,6 +1465,13 @@ def main() -> int:
                     "aion_feedback_drawdown_norm": (
                         None if aion_feedback_drawdown_norm is None else float(aion_feedback_drawdown_norm)
                     ),
+                    "aion_feedback_age_hours": (
+                        None if aion_feedback_age_hours is None else float(aion_feedback_age_hours)
+                    ),
+                    "aion_feedback_max_age_hours": (
+                        None if aion_feedback_max_age_hours is None else float(aion_feedback_max_age_hours)
+                    ),
+                    "aion_feedback_stale": bool(aion_feedback_stale),
                     "aion_feedback_path": str(aion_feedback_path),
                     "aion_feedback_block_new_entries": bool(aion_feedback_block_new_entries),
                     "exec_governor_state": str(exec_governor_state),

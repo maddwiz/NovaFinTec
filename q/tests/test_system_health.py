@@ -136,3 +136,22 @@ def test_overlay_aion_feedback_metrics_extracts_and_flags_alert():
     assert int(metrics.get("aion_feedback_closed_trades")) == 12
     assert any("aion_feedback_status=alert" in x for x in issues)
     assert any("aion_feedback_risk_scale_low" in x for x in issues)
+
+
+def test_overlay_aion_feedback_metrics_flags_stale_feedback(monkeypatch):
+    monkeypatch.setenv("Q_MAX_AION_FEEDBACK_AGE_HOURS", "24")
+    metrics, issues = rsh._overlay_aion_feedback_metrics(
+        {
+            "runtime_context": {
+                "aion_feedback": {
+                    "active": True,
+                    "status": "ok",
+                    "risk_scale": 0.98,
+                    "closed_trades": 20,
+                    "age_hours": 72.0,
+                }
+            }
+        }
+    )
+    assert metrics.get("aion_feedback_stale") is True
+    assert any("aion_feedback_stale" in x for x in issues)

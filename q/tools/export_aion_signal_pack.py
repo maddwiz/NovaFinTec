@@ -407,6 +407,23 @@ def _aion_outcome_feedback():
     peak = np.maximum.accumulate(eq)
     max_dd = float(np.max(peak - eq)) if len(eq) else 0.0
     dd_norm = float(max_dd / max(1e-9, abs_mean * max(1.0, float(np.sqrt(n))))) if abs_mean > 0 else 0.0
+    last_closed_ts = None
+    age_hours = None
+    if "_ts" in closed.columns:
+        try:
+            ts = pd.to_datetime(closed["_ts"], errors="coerce").dropna()
+            if len(ts):
+                last_dt = pd.Timestamp(ts.iloc[-1])
+                if last_dt.tzinfo is None:
+                    last_dt = last_dt.tz_localize("UTC")
+                else:
+                    last_dt = last_dt.tz_convert("UTC")
+                now_dt = pd.Timestamp.now(tz="UTC")
+                last_closed_ts = last_dt.isoformat()
+                age_hours = float(max(0.0, (now_dt - last_dt).total_seconds() / 3600.0))
+        except Exception:
+            last_closed_ts = None
+            age_hours = None
 
     risk_scale = 1.0
     reasons = []
@@ -445,6 +462,11 @@ def _aion_outcome_feedback():
     elif n >= min_trades and risk_scale <= 0.94:
         status = "warn"
 
+    max_age_hours = float(np.clip(_safe_float(os.getenv("Q_AION_FEEDBACK_MAX_AGE_HOURS", 72.0), 72.0), 1.0, 24.0 * 90.0))
+    stale = bool(age_hours is not None and age_hours > max_age_hours)
+    if stale:
+        reasons.append("stale_feedback")
+
     return {
         "active": True,
         "status": status,
@@ -457,6 +479,10 @@ def _aion_outcome_feedback():
         "max_drawdown": float(max_dd),
         "drawdown_norm": float(dd_norm),
         "risk_scale": float(risk_scale),
+        "last_closed_ts": last_closed_ts,
+        "age_hours": age_hours,
+        "max_age_hours": float(max_age_hours),
+        "stale": stale,
         "reasons": _uniq_str_flags(reasons),
     }
 
@@ -744,14 +770,22 @@ def _runtime_context(runs_dir: Path):
     if bool(aion_fb.get("active", False)):
         asc = _safe_float(aion_fb.get("risk_scale", np.nan), default=np.nan)
         if math.isfinite(asc):
-            amod = _clamp(asc, 0.65, 1.08)
+            stale = bool(aion_fb.get("stale", False))
+            if stale:
+                # Stale outcome feedback should not strongly perturb live runtime scaling.
+                amod = _clamp(0.985 + 0.03 * (asc - 1.0), 0.95, 1.02)
+            else:
+                amod = _clamp(asc, 0.65, 1.08)
             comps["aion_outcome_modifier"] = {"value": float(amod), "found": True}
             active_vals.append(float(amod))
             st = str(aion_fb.get("status", "unknown")).strip().lower()
-            if st == "alert":
-                risk_flags.append("aion_outcome_alert")
-            elif st == "warn":
-                risk_flags.append("aion_outcome_warn")
+            if stale:
+                risk_flags.append("aion_outcome_stale")
+            else:
+                if st == "alert":
+                    risk_flags.append("aion_outcome_alert")
+                elif st == "warn":
+                    risk_flags.append("aion_outcome_warn")
 
     # Recompute final multiplier after late-stage feedback modifiers.
     if active_vals:

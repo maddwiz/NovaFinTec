@@ -29,6 +29,9 @@ def test_build_events_includes_governance_audit_events(tmp_path, monkeypatch):
                     "profit_factor": 0.91,
                     "expectancy": -0.8,
                     "drawdown_norm": 1.9,
+                    "age_hours": 18.0,
+                    "max_age_hours": 72.0,
+                    "stale": False,
                     "reasons": ["low_profit_factor_warn"],
                     "path": "/tmp/shadow_trades.csv",
                 },
@@ -117,6 +120,8 @@ def test_build_events_includes_governance_audit_events(tmp_path, monkeypatch):
     assert af.get("status") == "warn"
     assert int(af.get("closed_trades")) == 16
     assert float(af.get("risk_scale")) > 0.0
+    assert float(af.get("age_hours")) >= 0.0
+    assert af.get("stale") is False
     dream = rc.get("payload", {}).get("dream_coherence", {})
     assert dream.get("status") == "ok"
     assert float(dream.get("mean_coherence")) > 0.0
@@ -162,6 +167,7 @@ def test_build_events_includes_governance_audit_events(tmp_path, monkeypatch):
     af2 = mfb.get("payload", {}).get("aion_feedback", {})
     assert af2.get("status") == "warn"
     assert int(af2.get("closed_trades")) == 16
+    assert float(af2.get("age_hours")) >= 0.0
     trusts = [float(e.get("trust", 0.0)) for e in events]
     assert all(0.0 <= t <= 1.0 for t in trusts)
 

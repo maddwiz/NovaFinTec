@@ -172,6 +172,16 @@ def _overlay_aion_feedback_metrics(overlay: dict | None):
     profit_factor = _to_float(af.get("profit_factor"))
     expectancy = _to_float(af.get("expectancy"))
     dd_norm = _to_float(af.get("drawdown_norm"))
+    age_hours = _to_float(af.get("age_hours"))
+    stale = bool(af.get("stale", False))
+    max_age_hours = _to_float(af.get("max_age_hours"))
+    if max_age_hours is None:
+        try:
+            max_age_hours = float(os.getenv("Q_MAX_AION_FEEDBACK_AGE_HOURS", "72"))
+        except Exception:
+            max_age_hours = 72.0
+    if (not stale) and age_hours is not None and np.isfinite(age_hours) and max_age_hours is not None:
+        stale = bool(age_hours > max_age_hours)
 
     metrics["aion_feedback_active"] = active
     metrics["aion_feedback_status"] = status
@@ -181,10 +191,15 @@ def _overlay_aion_feedback_metrics(overlay: dict | None):
     metrics["aion_feedback_profit_factor"] = profit_factor
     metrics["aion_feedback_expectancy"] = expectancy
     metrics["aion_feedback_drawdown_norm"] = dd_norm
+    metrics["aion_feedback_age_hours"] = age_hours
+    metrics["aion_feedback_stale"] = stale
+    metrics["aion_feedback_max_age_hours"] = max_age_hours
 
     enough_closed = closed >= 8
     if active and status in {"alert", "hard"}:
         issues.append("aion_feedback_status=alert")
+    if active and stale:
+        issues.append("aion_feedback_stale")
     if active and enough_closed and risk_scale is not None and risk_scale < 0.75:
         issues.append("aion_feedback_risk_scale_low")
     return metrics, issues

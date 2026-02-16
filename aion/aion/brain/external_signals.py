@@ -173,6 +173,9 @@ def load_external_signal_bundle(
             "profit_factor": None,
             "expectancy": None,
             "drawdown_norm": None,
+            "age_hours": None,
+            "max_age_hours": None,
+            "stale": False,
             "reasons": [],
             "path": "",
         },
@@ -233,6 +236,11 @@ def load_external_signal_bundle(
                 }
             af = ctx.get("aion_feedback", {})
             if isinstance(af, dict):
+                af_age = _safe_float(af.get("age_hours", None), None)
+                af_max_age = _safe_float(af.get("max_age_hours", None), None)
+                af_stale = bool(af.get("stale", False))
+                if (not af_stale) and af_age is not None and af_max_age is not None and af_max_age > 0:
+                    af_stale = bool(af_age > af_max_age)
                 out["aion_feedback"] = {
                     "active": bool(af.get("active", False)),
                     "status": str(af.get("status", "unknown")).strip().lower() or "unknown",
@@ -242,6 +250,9 @@ def load_external_signal_bundle(
                     "profit_factor": _safe_float(af.get("profit_factor", None), None),
                     "expectancy": _safe_float(af.get("expectancy", None), None),
                     "drawdown_norm": _safe_float(af.get("drawdown_norm", None), None),
+                    "age_hours": af_age,
+                    "max_age_hours": af_max_age,
+                    "stale": af_stale,
                     "reasons": _uniq_flags(af.get("reasons", [])),
                     "path": str(af.get("path", "")).strip(),
                 }

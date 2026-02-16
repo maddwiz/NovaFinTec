@@ -162,7 +162,9 @@ def _remediation_actions(blocked_reasons: list[str], throttle_reasons: list[str]
                 ],
             )
         )
-    if any(x.startswith("aion_feedback") for x in br) or any(x in {"aion_outcome_alert", "aion_outcome_warn"} for x in tr):
+    if any(x.startswith("aion_feedback") for x in br) or any(
+        x in {"aion_outcome_alert", "aion_outcome_warn", "aion_outcome_stale"} for x in tr
+    ):
         acts.append(
             _action(
                 "aion_outcome_recalibration",
@@ -265,6 +267,9 @@ def runtime_decision_summary(
     elif aion_state == "warn":
         score += 1
         throttle_reasons.append("aion_outcome_warn")
+    if _to_bool(rc.get("aion_feedback_stale", False)):
+        score += 1
+        throttle_reasons.append("aion_outcome_stale")
 
     if "hive_crowding_alert" in ext_flags:
         score += 2
@@ -284,6 +289,9 @@ def runtime_decision_summary(
     elif "aion_outcome_warn" in ext_flags:
         score += 1
         throttle_reasons.append("aion_outcome_warn")
+    if "aion_outcome_stale" in ext_flags:
+        score += 1
+        throttle_reasons.append("aion_outcome_stale")
 
     if (
         "fracture_alert" in ext_flags

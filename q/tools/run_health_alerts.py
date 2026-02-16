@@ -72,6 +72,7 @@ def build_alert_payload(
     min_aion_feedback_closed_trades = int(thresholds.get("min_aion_feedback_closed_trades", 8))
     min_aion_feedback_hit_rate = float(thresholds.get("min_aion_feedback_hit_rate", 0.38))
     min_aion_feedback_profit_factor = float(thresholds.get("min_aion_feedback_profit_factor", 0.78))
+    max_aion_feedback_age_hours = float(thresholds.get("max_aion_feedback_age_hours", 72.0))
 
     issues = []
     score = float(health.get("health_score", 0.0))
@@ -103,6 +104,9 @@ def build_alert_payload(
     aion_feedback_closed_trades = None
     aion_feedback_hit_rate = None
     aion_feedback_profit_factor = None
+    aion_feedback_age_hours = None
+    aion_feedback_stale = False
+    aion_feedback_max_age_hours = max_aion_feedback_age_hours
     shape = {}
     if isinstance(health, dict):
         shape = health.get("shape", {})
@@ -209,6 +213,18 @@ def build_alert_payload(
                     aion_feedback_profit_factor = float(af.get("profit_factor", np.nan))
                 except Exception:
                     aion_feedback_profit_factor = None
+                try:
+                    aion_feedback_age_hours = float(af.get("age_hours", np.nan))
+                except Exception:
+                    aion_feedback_age_hours = None
+                try:
+                    aion_feedback_stale = bool(af.get("stale", False))
+                except Exception:
+                    aion_feedback_stale = False
+                try:
+                    aion_feedback_max_age_hours = float(af.get("max_age_hours", max_aion_feedback_age_hours))
+                except Exception:
+                    aion_feedback_max_age_hours = max_aion_feedback_age_hours
 
     if (not aion_feedback_active) and isinstance(shape, dict):
         try:
@@ -233,14 +249,41 @@ def build_alert_payload(
                 aion_feedback_profit_factor = float(shape.get("aion_feedback_profit_factor", np.nan))
             except Exception:
                 aion_feedback_profit_factor = None
+            try:
+                aion_feedback_age_hours = float(shape.get("aion_feedback_age_hours", np.nan))
+            except Exception:
+                aion_feedback_age_hours = None
+            try:
+                aion_feedback_stale = bool(shape.get("aion_feedback_stale", False))
+            except Exception:
+                aion_feedback_stale = False
+            try:
+                aion_feedback_max_age_hours = float(shape.get("aion_feedback_max_age_hours", max_aion_feedback_age_hours))
+            except Exception:
+                aion_feedback_max_age_hours = max_aion_feedback_age_hours
 
     if aion_feedback_active:
+        if (
+            aion_feedback_age_hours is not None
+            and np.isfinite(aion_feedback_age_hours)
+            and aion_feedback_age_hours > max_aion_feedback_age_hours
+        ):
+            aion_feedback_stale = True
         if aion_feedback_status in {"alert", "hard"}:
             issues.append("aion_feedback_status=alert")
+        if aion_feedback_stale:
+            age_txt = (
+                f"{float(aion_feedback_age_hours):.2f}h"
+                if (aion_feedback_age_hours is not None and np.isfinite(aion_feedback_age_hours))
+                else "na"
+            )
+            issues.append(
+                f"aion_feedback_stale>{max_aion_feedback_age_hours}h ({age_txt})"
+            )
         enough_closed = (
             aion_feedback_closed_trades is not None and aion_feedback_closed_trades >= min_aion_feedback_closed_trades
         )
-        if enough_closed:
+        if enough_closed and (not aion_feedback_stale):
             if (
                 aion_feedback_risk_scale is not None
                 and np.isfinite(aion_feedback_risk_scale)
@@ -420,6 +463,7 @@ def build_alert_payload(
             "min_aion_feedback_closed_trades": min_aion_feedback_closed_trades,
             "min_aion_feedback_hit_rate": min_aion_feedback_hit_rate,
             "min_aion_feedback_profit_factor": min_aion_feedback_profit_factor,
+            "max_aion_feedback_age_hours": max_aion_feedback_age_hours,
         },
         "observed": {
             "health_score": score,
@@ -441,6 +485,9 @@ def build_alert_payload(
             "aion_feedback_closed_trades": aion_feedback_closed_trades,
             "aion_feedback_hit_rate": aion_feedback_hit_rate,
             "aion_feedback_profit_factor": aion_feedback_profit_factor,
+            "aion_feedback_age_hours": aion_feedback_age_hours,
+            "aion_feedback_stale": aion_feedback_stale,
+            "aion_feedback_max_age_hours": aion_feedback_max_age_hours,
             "global_governor_mean": gmean,
             "quality_governor_mean": q_mean,
             "quality_score": q_score,
@@ -538,6 +585,7 @@ if __name__ == "__main__":
             "min_aion_feedback_closed_trades": int(os.getenv("Q_MIN_AION_FEEDBACK_CLOSED_TRADES", "8")),
             "min_aion_feedback_hit_rate": float(os.getenv("Q_MIN_AION_FEEDBACK_HIT_RATE", "0.38")),
             "min_aion_feedback_profit_factor": float(os.getenv("Q_MIN_AION_FEEDBACK_PROFIT_FACTOR", "0.78")),
+            "max_aion_feedback_age_hours": float(os.getenv("Q_MAX_AION_FEEDBACK_AGE_HOURS", "72")),
         },
     )
     (RUNS / "health_alerts.json").write_text(json.dumps(payload, indent=2))

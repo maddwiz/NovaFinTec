@@ -320,8 +320,14 @@ def _aion_feedback_from_shadow_trades():
         try:
             ts = pd.to_datetime(closed["_ts"], errors="coerce").dropna()
             if len(ts):
-                last_closed_ts = pd.Timestamp(ts.iloc[-1]).isoformat()
-                age_hours = float(max(0.0, (pd.Timestamp.utcnow() - pd.Timestamp(ts.iloc[-1])).total_seconds() / 3600.0))
+                last_dt = pd.Timestamp(ts.iloc[-1])
+                if last_dt.tzinfo is None:
+                    last_dt = last_dt.tz_localize("UTC")
+                else:
+                    last_dt = last_dt.tz_convert("UTC")
+                now_dt = pd.Timestamp.now(tz="UTC")
+                last_closed_ts = last_dt.isoformat()
+                age_hours = float(max(0.0, (now_dt - last_dt).total_seconds() / 3600.0))
         except Exception:
             last_closed_ts = None
             age_hours = None
@@ -443,6 +449,7 @@ def _aion_outcome_quality(aion_feedback: dict | None, min_closed_trades: int = 8
         expectancy_norm = _f(aion_feedback.get("expectancy"))
     drawdown_norm = _f(aion_feedback.get("drawdown_norm"))
     age_hours = _f(aion_feedback.get("age_hours"))
+    stale_flag = bool(aion_feedback.get("stale", False))
 
     status_q = {
         "ok": 1.00,
@@ -474,10 +481,15 @@ def _aion_outcome_quality(aion_feedback: dict | None, min_closed_trades: int = 8
     max_age_hours = float(np.clip(float(os.getenv("Q_AION_QUALITY_MAX_AGE_HOURS", "72")), 1.0, 24.0 * 90.0))
     stale_rolloff_hours = float(np.clip(float(os.getenv("Q_AION_QUALITY_STALE_ROLLOFF_HOURS", "72")), 1.0, 24.0 * 120.0))
     freshness_weight = 1.0
-    if age_hours is not None and np.isfinite(age_hours) and age_hours > max_age_hours:
-        freshness_weight = float(
-            np.clip(1.0 - (float(age_hours) - max_age_hours) / (stale_rolloff_hours + 1e-9), 0.0, 1.0)
-        )
+    is_stale = bool(stale_flag or (age_hours is not None and np.isfinite(age_hours) and age_hours > max_age_hours))
+    if is_stale:
+        if age_hours is None or (not np.isfinite(age_hours)):
+            # Explicit stale flag without precise age: apply moderate decay toward neutral.
+            freshness_weight = 0.35
+        else:
+            freshness_weight = float(
+                np.clip(1.0 - (float(age_hours) - max_age_hours) / (stale_rolloff_hours + 1e-9), 0.0, 1.0)
+            )
         aion_q = float(np.clip(freshness_weight * aion_q + (1.0 - freshness_weight) * 0.60, 0.0, 1.0))
 
     detail = {
@@ -492,6 +504,7 @@ def _aion_outcome_quality(aion_feedback: dict | None, min_closed_trades: int = 8
         "expectancy_norm": expectancy_norm,
         "drawdown_norm": drawdown_norm,
         "age_hours": age_hours,
+        "stale": is_stale,
         "max_age_hours": max_age_hours,
         "freshness_weight": freshness_weight,
         "quality_components": q_detail,

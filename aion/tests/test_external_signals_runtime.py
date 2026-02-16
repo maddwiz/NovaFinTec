@@ -85,6 +85,9 @@ def test_load_external_signal_bundle_parses_aion_feedback(tmp_path: Path):
                         "profit_factor": 0.81,
                         "expectancy": -2.4,
                         "drawdown_norm": 2.8,
+                        "age_hours": 40.0,
+                        "max_age_hours": 24.0,
+                        "stale": True,
                         "reasons": ["negative_expectancy_alert"],
                         "path": "/tmp/shadow_trades.csv",
                     },
@@ -101,6 +104,8 @@ def test_load_external_signal_bundle_parses_aion_feedback(tmp_path: Path):
     assert af.get("status") == "alert"
     assert float(af.get("risk_scale")) < 1.0
     assert int(af.get("closed_trades")) == 22
+    assert af.get("stale") is True
+    assert float(af.get("age_hours")) == 40.0
     assert "aion_outcome_alert" in b.get("risk_flags", [])
 
 

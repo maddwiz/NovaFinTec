@@ -526,3 +526,28 @@ def test_aion_feedback_controls_no_block_when_disabled(monkeypatch):
     )
     assert out["active"] is False
     assert out["block_new_entries"] is False
+
+
+def test_aion_feedback_controls_stale_feedback_neutralizes_when_ignore_enabled(monkeypatch):
+    monkeypatch.setattr(pl.cfg, "EXT_SIGNAL_AION_FEEDBACK_ENABLED", True)
+    monkeypatch.setattr(pl.cfg, "EXT_SIGNAL_AION_FEEDBACK_ALERT_THRESHOLD", 0.82)
+    monkeypatch.setattr(pl.cfg, "EXT_SIGNAL_AION_FEEDBACK_BLOCK_ON_ALERT", True)
+    monkeypatch.setattr(pl.cfg, "EXT_SIGNAL_AION_FEEDBACK_MIN_CLOSED_TRADES", 8)
+    monkeypatch.setattr(pl.cfg, "EXT_SIGNAL_AION_FEEDBACK_MAX_AGE_HOURS", 24.0)
+    monkeypatch.setattr(pl.cfg, "EXT_SIGNAL_AION_FEEDBACK_IGNORE_STALE", True)
+
+    out = pl._aion_feedback_controls(
+        {
+            "active": True,
+            "status": "alert",
+            "risk_scale": 0.70,
+            "closed_trades": 20,
+            "age_hours": 72.0,
+            "reasons": ["low_profit_factor_alert"],
+        }
+    )
+    assert out["active"] is True
+    assert out["stale"] is True
+    assert out["status"] == "stale"
+    assert out["block_new_entries"] is False
+    assert float(out["risk_scale"]) == 1.0

@@ -149,6 +149,27 @@ def test_aion_outcome_quality_stale_feedback_blends_toward_neutral(monkeypatch):
     assert float(detail["freshness_weight"]) < 0.10
 
 
+def test_aion_outcome_quality_honors_explicit_stale_flag_without_age():
+    q, detail = rqg._aion_outcome_quality(
+        {
+            "active": True,
+            "status": "ok",
+            "closed_trades": 18,
+            "risk_scale": 1.02,
+            "hit_rate": 0.57,
+            "profit_factor": 1.45,
+            "expectancy_norm": 0.24,
+            "drawdown_norm": 0.5,
+            "stale": True,
+        },
+        min_closed_trades=8,
+    )
+    assert q is not None
+    assert detail["stale"] is True
+    assert float(detail["freshness_weight"]) <= 0.35
+    assert float(q) < 0.8
+
+
 def test_load_aion_feedback_falls_back_to_shadow_trades(monkeypatch, tmp_path):
     monkeypatch.setattr(rqg, "RUNS", tmp_path)
     shadow = tmp_path / "shadow_trades.csv"
