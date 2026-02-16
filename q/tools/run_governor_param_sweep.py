@@ -114,6 +114,7 @@ def _profile_from_row(row: dict) -> dict:
         "runtime_total_floor": float(row["runtime_total_floor"]),
         "shock_alpha": float(row["shock_alpha"]),
         "council_gate_strength": float(row.get("council_gate_strength", 1.0)),
+        "meta_mix_leverage_strength": float(row.get("meta_mix_leverage_strength", 1.0)),
         "meta_reliability_strength": float(row.get("meta_reliability_strength", 1.0)),
         "global_governor_strength": float(row.get("global_governor_strength", 1.0)),
         "quality_governor_strength": float(row.get("quality_governor_strength", 1.0)),
@@ -137,6 +138,7 @@ def _csv_write(rows: list[dict], outp: Path) -> None:
         "runtime_total_floor",
         "shock_alpha",
         "council_gate_strength",
+        "meta_mix_leverage_strength",
         "meta_reliability_strength",
         "global_governor_strength",
         "quality_governor_strength",
@@ -168,6 +170,7 @@ def _env_from_params(params: dict) -> dict[str, str]:
         "Q_RUNTIME_TOTAL_FLOOR": str(params["runtime_total_floor"]),
         "Q_SHOCK_ALPHA": str(params["shock_alpha"]),
         "Q_COUNCIL_GATE_STRENGTH": str(params.get("council_gate_strength", 1.0)),
+        "Q_META_MIX_LEVERAGE_STRENGTH": str(params.get("meta_mix_leverage_strength", 1.0)),
         "Q_META_RELIABILITY_STRENGTH": str(params.get("meta_reliability_strength", 1.0)),
         "Q_GLOBAL_GOVERNOR_STRENGTH": str(params.get("global_governor_strength", 1.0)),
         "Q_QUALITY_GOVERNOR_STRENGTH": str(params.get("quality_governor_strength", 1.0)),
@@ -178,12 +181,21 @@ def _env_from_params(params: dict) -> dict[str, str]:
     }
 
 
+def _evaluate_candidate(params: dict, base: dict, rows: list[dict]) -> tuple[float, dict, dict]:
+    _build_make_daily(_env_from_params(params))
+    m = _metrics()
+    score, detail = _objective(m, base)
+    row = _row_from_params(params, m, score, detail)
+    rows.append(row)
+    return score, detail, row
+
+
 def main() -> int:
     if not (RUNS / "asset_returns.csv").exists():
         print("(!) Missing runs_plus/asset_returns.csv. Run tools/rebuild_asset_matrix.py first.")
         return 0
 
-    # Compact staged grid: first coarse core knobs, then governor strengths.
+    # Compact staged grid: coarse core knobs -> coarse strengths -> local refinement.
     floors = [0.00, 0.05, 0.10, 0.15]
     shocks = [0.20, 0.35, 0.50, 0.65]
     conc_presets = [
@@ -191,10 +203,11 @@ def main() -> int:
         {"use_concentration_governor": 1, "concentration_top1_cap": 0.18, "concentration_top3_cap": 0.42, "concentration_max_hhi": 0.14},
         {"use_concentration_governor": 0, "concentration_top1_cap": 0.18, "concentration_top3_cap": 0.42, "concentration_max_hhi": 0.14},
     ]
-    council_gate_strengths = [0.80, 1.00, 1.20]
-    meta_reliability_strengths = [0.90, 1.00, 1.10]
-    global_governor_strengths = [0.85, 1.00, 1.15]
-    quality_governor_strengths = [0.80, 1.00, 1.20]
+    council_gate_strengths = [0.85, 1.00]
+    meta_mix_leverage_strengths = [0.90, 1.00]
+    meta_reliability_strengths = [0.90, 1.00]
+    global_governor_strengths = [1.00, 1.15]
+    quality_governor_strengths = [1.00, 1.20]
 
     rows: list[dict] = []
     try:
@@ -204,13 +217,14 @@ def main() -> int:
 
         best_score = -1e9
         best_row = None
-        # Stage 1: coarse search on base controls.
+        # Stage 1: coarse search on core controls.
         for floor, shock, conc in itertools.product(floors, shocks, conc_presets):
             params = {
                 "stage": "core",
                 "runtime_total_floor": float(floor),
                 "shock_alpha": float(shock),
                 "council_gate_strength": 1.0,
+                "meta_mix_leverage_strength": 1.0,
                 "meta_reliability_strength": 1.0,
                 "global_governor_strength": 1.0,
                 "quality_governor_strength": 1.0,
@@ -219,11 +233,7 @@ def main() -> int:
                 "concentration_top3_cap": float(conc["concentration_top3_cap"]),
                 "concentration_max_hhi": float(conc["concentration_max_hhi"]),
             }
-            _build_make_daily(_env_from_params(params))
-            m = _metrics()
-            score, detail = _objective(m, base)
-            row = _row_from_params(params, m, score, detail)
-            rows.append(row)
+            score, _detail, row = _evaluate_candidate(params, base, rows)
             if score > best_score:
                 best_score = score
                 best_row = row
@@ -234,8 +244,9 @@ def main() -> int:
 
         # Stage 2: local governor-strength search around the best core config.
         core_params = dict(best_row)
-        for cg, mr, gg, qg in itertools.product(
+        for cg, ml, mr, gg, qg in itertools.product(
             council_gate_strengths,
+            meta_mix_leverage_strengths,
             meta_reliability_strengths,
             global_governor_strengths,
             quality_governor_strengths,
@@ -245,6 +256,7 @@ def main() -> int:
                 "runtime_total_floor": float(core_params["runtime_total_floor"]),
                 "shock_alpha": float(core_params["shock_alpha"]),
                 "council_gate_strength": float(cg),
+                "meta_mix_leverage_strength": float(ml),
                 "meta_reliability_strength": float(mr),
                 "global_governor_strength": float(gg),
                 "quality_governor_strength": float(qg),
@@ -253,14 +265,59 @@ def main() -> int:
                 "concentration_top3_cap": float(core_params["concentration_top3_cap"]),
                 "concentration_max_hhi": float(core_params["concentration_max_hhi"]),
             }
-            _build_make_daily(_env_from_params(params))
-            m = _metrics()
-            score, detail = _objective(m, base)
-            row = _row_from_params(params, m, score, detail)
-            rows.append(row)
+            score, _detail, row = _evaluate_candidate(params, base, rows)
             if score > best_score:
                 best_score = score
                 best_row = row
+
+        # Stage 3: coordinate local refinement around stage-2 best.
+        if best_row is not None:
+            cur = dict(best_row)
+            specs = [
+                ("shock_alpha", 0.05, 0.0, 1.0),
+                ("council_gate_strength", 0.05, 0.6, 1.4),
+                ("meta_mix_leverage_strength", 0.05, 0.7, 1.3),
+                ("meta_reliability_strength", 0.05, 0.7, 1.3),
+                ("global_governor_strength", 0.05, 0.8, 1.4),
+                ("quality_governor_strength", 0.05, 0.8, 1.4),
+            ]
+            for _pass in range(2):
+                improved = False
+                for key, step, lo, hi in specs:
+                    c = float(cur[key])
+                    vals = sorted(
+                        {
+                            float(np.clip(c - 2.0 * step, lo, hi)),
+                            float(np.clip(c - step, lo, hi)),
+                            float(np.clip(c, lo, hi)),
+                            float(np.clip(c + step, lo, hi)),
+                            float(np.clip(c + 2.0 * step, lo, hi)),
+                        }
+                    )
+                    for v in vals:
+                        params = {
+                            "stage": "refine",
+                            "runtime_total_floor": float(cur["runtime_total_floor"]),
+                            "shock_alpha": float(cur["shock_alpha"]),
+                            "council_gate_strength": float(cur["council_gate_strength"]),
+                            "meta_mix_leverage_strength": float(cur["meta_mix_leverage_strength"]),
+                            "meta_reliability_strength": float(cur["meta_reliability_strength"]),
+                            "global_governor_strength": float(cur["global_governor_strength"]),
+                            "quality_governor_strength": float(cur["quality_governor_strength"]),
+                            "use_concentration_governor": int(cur["use_concentration_governor"]),
+                            "concentration_top1_cap": float(cur["concentration_top1_cap"]),
+                            "concentration_top3_cap": float(cur["concentration_top3_cap"]),
+                            "concentration_max_hhi": float(cur["concentration_max_hhi"]),
+                        }
+                        params[key] = float(v)
+                        score, _detail, row = _evaluate_candidate(params, base, rows)
+                        if score > best_score:
+                            best_score = score
+                            best_row = row
+                            cur = dict(row)
+                            improved = True
+                if not improved:
+                    break
 
         sweep_csv = RUNS / "governor_param_sweep.csv"
         _csv_write(rows, sweep_csv)
@@ -275,6 +332,7 @@ def main() -> int:
                 "shock_alpha": shocks,
                 "concentration_presets": conc_presets,
                 "council_gate_strength": council_gate_strengths,
+                "meta_mix_leverage_strength": meta_mix_leverage_strengths,
                 "meta_reliability_strength": meta_reliability_strengths,
                 "global_governor_strength": global_governor_strengths,
                 "quality_governor_strength": quality_governor_strengths,

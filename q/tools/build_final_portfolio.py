@@ -321,6 +321,13 @@ if __name__ == "__main__":
         0.0,
         2.0,
     )
+    meta_mix_leverage_strength = _env_or_profile_float(
+        "Q_META_MIX_LEVERAGE_STRENGTH",
+        "meta_mix_leverage_strength",
+        1.0,
+        0.0,
+        2.0,
+    )
     global_governor_strength = _env_or_profile_float(
         "Q_GLOBAL_GOVERNOR_STRENGTH",
         "global_governor_strength",
@@ -385,7 +392,8 @@ if __name__ == "__main__":
             lev = np.clip(1.0 + 0.20 * np.abs(mix), 0.80, 1.30)
     if _gov_enabled("meta_mix_leverage") and lev is not None:
         L = min(len(lev), W.shape[0])
-        lv = np.clip(lev[:L], 0.70, 1.40).reshape(-1, 1)
+        lv_raw = np.clip(lev[:L], 0.70, 1.40)
+        lv = _apply_governor_strength(lv_raw, meta_mix_leverage_strength, lo=0.0, hi=2.0).reshape(-1, 1)
         W[:L] = W[:L] * lv
         steps.append("meta_mix_leverage")
         _trace_put("meta_mix_leverage", lv.ravel())
@@ -612,6 +620,7 @@ if __name__ == "__main__":
                     "runtime_total_floor": _runtime_total_floor_default(),
                     "shock_alpha": shock_alpha,
                     "council_gate_strength": council_gate_strength,
+                    "meta_mix_leverage_strength": meta_mix_leverage_strength,
                     "meta_reliability_strength": meta_reliability_strength,
                     "global_governor_strength": global_governor_strength,
                     "quality_governor_strength": quality_governor_strength,
