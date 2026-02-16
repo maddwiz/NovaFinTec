@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNS = ROOT / "runs_plus"
@@ -148,6 +149,44 @@ def _analyze_execution_constraints(info: dict | None):
         if gross_before >= 0.25 and gross_after <= 0.02:
             issues.append("execution constraints collapsed gross exposure")
 
+    return metrics, issues
+
+
+def _overlay_aion_feedback_metrics(overlay: dict | None):
+    metrics = {}
+    issues = []
+    if not isinstance(overlay, dict):
+        return metrics, issues
+    rt = overlay.get("runtime_context", {})
+    if not isinstance(rt, dict):
+        return metrics, issues
+    af = rt.get("aion_feedback", {})
+    if not isinstance(af, dict):
+        return metrics, issues
+
+    active = bool(af.get("active", False))
+    status = str(af.get("status", "unknown")).strip().lower() or "unknown"
+    closed = int(max(0, _to_float(af.get("closed_trades")) or 0))
+    risk_scale = _to_float(af.get("risk_scale"))
+    hit_rate = _to_float(af.get("hit_rate"))
+    profit_factor = _to_float(af.get("profit_factor"))
+    expectancy = _to_float(af.get("expectancy"))
+    dd_norm = _to_float(af.get("drawdown_norm"))
+
+    metrics["aion_feedback_active"] = active
+    metrics["aion_feedback_status"] = status
+    metrics["aion_feedback_closed_trades"] = closed
+    metrics["aion_feedback_risk_scale"] = risk_scale
+    metrics["aion_feedback_hit_rate"] = hit_rate
+    metrics["aion_feedback_profit_factor"] = profit_factor
+    metrics["aion_feedback_expectancy"] = expectancy
+    metrics["aion_feedback_drawdown_norm"] = dd_norm
+
+    enough_closed = closed >= 8
+    if active and status in {"alert", "hard"}:
+        issues.append("aion_feedback_status=alert")
+    if active and enough_closed and risk_scale is not None and risk_scale < 0.75:
+        issues.append("aion_feedback_risk_scale_low")
     return metrics, issues
 
 
@@ -306,6 +345,7 @@ if __name__ == "__main__":
     gov_trace_total = _load_series(RUNS / "final_governor_trace.csv")
     hb_stress = _load_series(RUNS / "heartbeat_stress.csv")
     exec_info = _load_json(RUNS / "execution_constraints_info.json")
+    overlay = _load_json(RUNS / "q_signal_overlay.json")
 
     shape = {}
     if w is not None:
@@ -407,6 +447,9 @@ if __name__ == "__main__":
     exec_shape, exec_issues = _analyze_execution_constraints(exec_info)
     if exec_shape:
         shape.update(exec_shape)
+    aion_shape, aion_issues = _overlay_aion_feedback_metrics(overlay)
+    if aion_shape:
+        shape.update(aion_shape)
     stale_stats, stale_issues = _staleness_issues(
         checks,
         max_required_hours=float(np.clip(float(os.getenv("Q_SYSTEM_HEALTH_MAX_REQUIRED_HOURS", "24")), 1.0, 240.0)),
@@ -428,6 +471,7 @@ if __name__ == "__main__":
         if bad:
             issues.append("portfolio_weights_final contains NaN/Inf")
     issues.extend(exec_issues)
+    issues.extend(aion_issues)
     issues.extend(stale_issues)
 
     required_ok = sum(1 for c in checks if c["required"] and c["exists"])

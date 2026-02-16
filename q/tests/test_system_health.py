@@ -1,4 +1,5 @@
 import tools.run_system_health as rsh
+from pathlib import Path
 
 
 def test_analyze_execution_constraints_no_issues_on_reasonable_profile():
@@ -74,3 +75,64 @@ def test_staleness_issues_ignores_fresh_files():
     assert stats["stale_required_count"] == 0
     assert stats["stale_optional_count"] == 0
     assert issues == []
+
+
+def test_load_named_series_reads_requested_column(tmp_path: Path):
+    p = tmp_path / "named.csv"
+    p.write_text(
+        "\n".join(
+            [
+                "DATE,entropy_target,entropy_strength",
+                "2026-02-01,0.71,0.66",
+                "2026-02-02,0.73,0.69",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    s = rsh._load_named_series(p, "entropy_strength")
+    assert s is not None
+    assert len(s) == 2
+    assert float(s[-1]) == 0.69
+
+
+def test_load_row_mean_series_ignores_date_columns(tmp_path: Path):
+    p = tmp_path / "crowding.csv"
+    p.write_text(
+        "\n".join(
+            [
+                "DATE,EQ,FX,RATES",
+                "2026-02-01,0.60,0.40,0.50",
+                "2026-02-02,0.70,0.30,0.50",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    s = rsh._load_row_mean_series(p)
+    assert s is not None
+    assert len(s) == 2
+    assert float(s[0]) == 0.5
+    assert float(s[1]) == 0.5
+
+
+def test_overlay_aion_feedback_metrics_extracts_and_flags_alert():
+    metrics, issues = rsh._overlay_aion_feedback_metrics(
+        {
+            "runtime_context": {
+                "aion_feedback": {
+                    "active": True,
+                    "status": "alert",
+                    "risk_scale": 0.72,
+                    "closed_trades": 12,
+                    "hit_rate": 0.34,
+                    "profit_factor": 0.70,
+                    "expectancy": -2.1,
+                    "drawdown_norm": 2.8,
+                }
+            }
+        }
+    )
+    assert metrics.get("aion_feedback_active") is True
+    assert metrics.get("aion_feedback_status") == "alert"
+    assert int(metrics.get("aion_feedback_closed_trades")) == 12
+    assert any("aion_feedback_status=alert" in x for x in issues)
+    assert any("aion_feedback_risk_scale_low" in x for x in issues)
