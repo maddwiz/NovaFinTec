@@ -250,3 +250,29 @@ def test_load_aion_feedback_source_override_overlay(monkeypatch, tmp_path):
     fb, src = rqg._load_aion_feedback()
     assert src["source"] == "overlay"
     assert int(fb["closed_trades"]) == 12
+
+
+def test_load_aion_feedback_auto_prefers_fresh_overlay_when_shadow_stale(monkeypatch, tmp_path):
+    monkeypatch.setattr(rqg, "RUNS", tmp_path)
+    shadow = tmp_path / "shadow_trades.csv"
+    pd.DataFrame(
+        {
+            "timestamp": ["2025-01-01 10:00:00", "2025-01-01 10:05:00"],
+            "side": ["EXIT_BUY", "EXIT_SELL"],
+            "pnl": [3.0, -1.0],
+        }
+    ).to_csv(shadow, index=False)
+    monkeypatch.setenv("Q_AION_SHADOW_TRADES", str(shadow))
+    monkeypatch.setenv("Q_AION_FEEDBACK_MAX_AGE_HOURS", "24")
+
+    overlay = tmp_path / "q_signal_overlay.json"
+    overlay.write_text(
+        (
+            '{"runtime_context":{"aion_feedback":{"active":true,"status":"ok",'
+            '"risk_scale":1.01,"closed_trades":18,"age_hours":2.0,"stale":false}}}'
+        )
+    )
+
+    fb, src = rqg._load_aion_feedback()
+    assert src["source"] == "overlay"
+    assert int(fb["closed_trades"]) == 18

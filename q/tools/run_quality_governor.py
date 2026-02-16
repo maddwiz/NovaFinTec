@@ -269,6 +269,37 @@ def _aion_feedback_from_shadow_trades():
     return load_outcome_feedback(root=ROOT, mark_stale_reason=False)
 
 
+def _aion_feedback_is_stale(aion_feedback: dict | None):
+    if not isinstance(aion_feedback, dict):
+        return False
+    stale_flag = bool(aion_feedback.get("stale", False))
+    try:
+        age_hours = float(aion_feedback.get("age_hours", np.nan))
+        if not np.isfinite(age_hours):
+            age_hours = None
+    except Exception:
+        age_hours = None
+    try:
+        max_age_hours = float(aion_feedback.get("max_age_hours", np.nan))
+        if not np.isfinite(max_age_hours):
+            max_age_hours = None
+    except Exception:
+        max_age_hours = None
+    if max_age_hours is None:
+        try:
+            max_age_hours = float(
+                os.getenv(
+                    "Q_AION_QUALITY_MAX_AGE_HOURS",
+                    os.getenv("Q_MAX_AION_FEEDBACK_AGE_HOURS", os.getenv("Q_AION_FEEDBACK_MAX_AGE_HOURS", "72")),
+                )
+            )
+            max_age_hours = float(np.clip(max_age_hours, 1.0, 24.0 * 90.0))
+        except Exception:
+            max_age_hours = 72.0
+    age_stale = bool(age_hours is not None and age_hours > max_age_hours)
+    return bool(stale_flag or age_stale)
+
+
 def _load_aion_feedback():
     source_pref = str(os.getenv("Q_AION_FEEDBACK_SOURCE", "auto")).strip().lower() or "auto"
     overlay_path = RUNS / "q_signal_overlay.json"
@@ -288,6 +319,8 @@ def _load_aion_feedback():
                     overlay_fb = af
     fb = _aion_feedback_from_shadow_trades()
     shadow_active = bool(isinstance(fb, dict) and fb.get("active", False))
+    shadow_stale = bool(shadow_active and _aion_feedback_is_stale(fb))
+    overlay_stale = bool(overlay_fb is not None and _aion_feedback_is_stale(overlay_fb))
     if source_pref == "overlay":
         if overlay_fb is not None:
             return overlay_fb, {"source": "overlay", "path": str(overlay_path)}
@@ -299,7 +332,11 @@ def _load_aion_feedback():
             return overlay_fb, {"source": "overlay", "path": str(overlay_path)}
         return fb, {"source": "shadow_trades", "path": str(fb.get("path", ""))}
 
-    # auto mode: prefer direct shadow-trades ground truth when available.
+    # auto mode: prefer fresh ground truth, but avoid stale shadow feedback if fresh overlay exists.
+    if shadow_active and (not shadow_stale):
+        return fb, {"source": "shadow_trades", "path": str(fb.get("path", ""))}
+    if (overlay_fb is not None) and (not overlay_stale):
+        return overlay_fb, {"source": "overlay", "path": str(overlay_path)}
     if shadow_active:
         return fb, {"source": "shadow_trades", "path": str(fb.get("path", ""))}
     if overlay_fb is not None:
