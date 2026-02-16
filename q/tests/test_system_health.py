@@ -155,3 +155,22 @@ def test_overlay_aion_feedback_metrics_flags_stale_feedback(monkeypatch):
     )
     assert metrics.get("aion_feedback_stale") is True
     assert any("aion_feedback_stale" in x for x in issues)
+
+
+def test_overlay_aion_feedback_metrics_stale_suppresses_status_alert():
+    metrics, issues = rsh._overlay_aion_feedback_metrics(
+        {
+            "runtime_context": {
+                "aion_feedback": {
+                    "active": True,
+                    "status": "alert",
+                    "risk_scale": 0.70,
+                    "closed_trades": 20,
+                    "stale": True,
+                }
+            }
+        }
+    )
+    assert metrics.get("aion_feedback_stale") is True
+    assert any("aion_feedback_stale" in x for x in issues)
+    assert not any("aion_feedback_status=alert" in x for x in issues)

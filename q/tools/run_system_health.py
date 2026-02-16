@@ -196,10 +196,10 @@ def _overlay_aion_feedback_metrics(overlay: dict | None):
     metrics["aion_feedback_max_age_hours"] = max_age_hours
 
     enough_closed = closed >= 8
-    if active and status in {"alert", "hard"}:
-        issues.append("aion_feedback_status=alert")
     if active and stale:
         issues.append("aion_feedback_stale")
+    elif active and status in {"alert", "hard"}:
+        issues.append("aion_feedback_status=alert")
     if active and enough_closed and risk_scale is not None and risk_scale < 0.75:
         issues.append("aion_feedback_risk_scale_low")
     return metrics, issues

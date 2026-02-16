@@ -269,8 +269,6 @@ def build_alert_payload(
             and aion_feedback_age_hours > max_aion_feedback_age_hours
         ):
             aion_feedback_stale = True
-        if aion_feedback_status in {"alert", "hard"}:
-            issues.append("aion_feedback_status=alert")
         if aion_feedback_stale:
             age_txt = (
                 f"{float(aion_feedback_age_hours):.2f}h"
@@ -280,6 +278,8 @@ def build_alert_payload(
             issues.append(
                 f"aion_feedback_stale>{max_aion_feedback_age_hours}h ({age_txt})"
             )
+        elif aion_feedback_status in {"alert", "hard"}:
+            issues.append("aion_feedback_status=alert")
         enough_closed = (
             aion_feedback_closed_trades is not None and aion_feedback_closed_trades >= min_aion_feedback_closed_trades
         )
