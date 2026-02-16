@@ -37,6 +37,20 @@ def _load_json(path: Path):
         return None
 
 
+def _normalize_source_tag(raw: str | None, default: str = "unknown") -> str:
+    tag = str(raw or "").strip().lower() or str(default)
+    if tag == "shadow":
+        return "shadow_trades"
+    return tag
+
+
+def _normalize_source_preference(raw: str | None) -> str:
+    tag = str(raw or "").strip().lower() or "auto"
+    if tag in {"auto", "overlay", "shadow"}:
+        return tag
+    return "auto"
+
+
 def build_alert_payload(
     health: dict,
     guards: dict,
@@ -116,6 +130,8 @@ def build_alert_payload(
     aion_feedback_stale = False
     aion_feedback_max_age_hours = max_aion_feedback_age_hours
     aion_feedback_source = "none"
+    aion_feedback_source_selected = "none"
+    aion_feedback_source_preference = _normalize_source_preference(aion_feedback_source_pref)
     shape = {}
     if isinstance(health, dict):
         shape = health.get("shape", {})
@@ -211,7 +227,16 @@ def build_alert_payload(
         prefer_overlay_when_fresh=True,
     )
     if feedback_has_metrics(af):
-        aion_feedback_source = af_source
+        aion_feedback_source_selected = _normalize_source_tag(af_source, default="unknown")
+        source_from_payload = _normalize_source_tag(
+            af.get("source", af.get("source_selected", "unknown")),
+            default="unknown",
+        )
+        aion_feedback_source = (
+            source_from_payload
+            if source_from_payload not in {"", "unknown"}
+            else aion_feedback_source_selected
+        )
         aion_feedback_active = bool(af.get("active", False))
         aion_feedback_status = str(af.get("status", "unknown")).strip().lower() or "unknown"
         try:
@@ -250,6 +275,7 @@ def build_alert_payload(
             aion_feedback_active = False
         if aion_feedback_active:
             aion_feedback_source = "system_health_shape"
+            aion_feedback_source_selected = "system_health_shape"
             aion_feedback_status = str(shape.get("aion_feedback_status", "unknown")).strip().lower() or "unknown"
             try:
                 aion_feedback_risk_scale = float(shape.get("aion_feedback_risk_scale", np.nan))
@@ -499,6 +525,8 @@ def build_alert_payload(
             "hive_entropy_target_mean": hive_entropy_target_mean,
             "aion_feedback_active": aion_feedback_active,
             "aion_feedback_source": aion_feedback_source,
+            "aion_feedback_source_selected": aion_feedback_source_selected,
+            "aion_feedback_source_preference": aion_feedback_source_preference,
             "aion_feedback_status": aion_feedback_status,
             "aion_feedback_risk_scale": aion_feedback_risk_scale,
             "aion_feedback_closed_trades": aion_feedback_closed_trades,
