@@ -485,3 +485,44 @@ def test_memory_feedback_controls_disabled_noop(monkeypatch):
     assert out["max_trades_cap_runtime"] == 12
     assert out["max_open_positions_runtime"] == 5
     assert out["risk_per_trade_runtime"] == 0.02
+
+
+def test_aion_feedback_controls_block_on_alert_with_enough_closed_trades(monkeypatch):
+    monkeypatch.setattr(pl.cfg, "EXT_SIGNAL_AION_FEEDBACK_ENABLED", True)
+    monkeypatch.setattr(pl.cfg, "EXT_SIGNAL_AION_FEEDBACK_ALERT_THRESHOLD", 0.82)
+    monkeypatch.setattr(pl.cfg, "EXT_SIGNAL_AION_FEEDBACK_BLOCK_ON_ALERT", True)
+    monkeypatch.setattr(pl.cfg, "EXT_SIGNAL_AION_FEEDBACK_MIN_CLOSED_TRADES", 8)
+
+    out = pl._aion_feedback_controls(
+        {
+            "active": True,
+            "status": "alert",
+            "risk_scale": 0.78,
+            "closed_trades": 12,
+            "hit_rate": 0.39,
+            "profit_factor": 0.81,
+            "expectancy": -2.2,
+            "drawdown_norm": 2.9,
+            "reasons": ["negative_expectancy_alert"],
+            "path": "/tmp/shadow_trades.csv",
+        }
+    )
+    assert out["active"] is True
+    assert out["block_new_entries"] is True
+    assert out["status"] == "alert"
+    assert out["closed_trades"] == 12
+
+
+def test_aion_feedback_controls_no_block_when_disabled(monkeypatch):
+    monkeypatch.setattr(pl.cfg, "EXT_SIGNAL_AION_FEEDBACK_ENABLED", False)
+    out = pl._aion_feedback_controls(
+        {
+            "active": True,
+            "status": "alert",
+            "risk_scale": 0.70,
+            "closed_trades": 20,
+            "reasons": ["low_profit_factor_alert"],
+        }
+    )
+    assert out["active"] is False
+    assert out["block_new_entries"] is False

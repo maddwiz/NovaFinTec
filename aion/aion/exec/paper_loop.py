@@ -417,6 +417,61 @@ def _memory_feedback_controls(
     return out
 
 
+def _aion_feedback_controls(aion_feedback: dict | None):
+    out = {
+        "active": False,
+        "status": "unknown",
+        "reasons": [],
+        "risk_scale": 1.0,
+        "closed_trades": 0,
+        "hit_rate": None,
+        "profit_factor": None,
+        "expectancy": None,
+        "drawdown_norm": None,
+        "path": "",
+        "block_new_entries": False,
+    }
+    if not bool(getattr(cfg, "EXT_SIGNAL_AION_FEEDBACK_ENABLED", True)):
+        return out
+    if not isinstance(aion_feedback, dict):
+        return out
+
+    active = bool(aion_feedback.get("active", False))
+    if not active:
+        return out
+
+    status = str(aion_feedback.get("status", "unknown")).strip().lower() or "unknown"
+    reasons = [str(x).strip().lower() for x in aion_feedback.get("reasons", []) if str(x).strip()]
+    reasons = list(dict.fromkeys(reasons))
+    risk_scale = max(0.20, min(1.20, _safe_float(aion_feedback.get("risk_scale", 1.0), 1.0)))
+    closed_trades = max(0, _safe_int(aion_feedback.get("closed_trades"), 0))
+    hit_rate = _safe_float(aion_feedback.get("hit_rate"), None)
+    profit_factor = _safe_float(aion_feedback.get("profit_factor"), None)
+    expectancy = _safe_float(aion_feedback.get("expectancy"), None)
+    drawdown_norm = _safe_float(aion_feedback.get("drawdown_norm"), None)
+    path = str(aion_feedback.get("path", "")).strip()
+
+    out["active"] = True
+    out["status"] = status
+    out["reasons"] = reasons
+    out["risk_scale"] = float(risk_scale)
+    out["closed_trades"] = int(closed_trades)
+    out["hit_rate"] = hit_rate
+    out["profit_factor"] = profit_factor
+    out["expectancy"] = expectancy
+    out["drawdown_norm"] = drawdown_norm
+    out["path"] = path
+
+    explicit_block = bool(aion_feedback.get("block_new_entries", False))
+    alert_th = _safe_float(getattr(cfg, "EXT_SIGNAL_AION_FEEDBACK_ALERT_THRESHOLD", 0.82), 0.82)
+    block_on_alert = bool(getattr(cfg, "EXT_SIGNAL_AION_FEEDBACK_BLOCK_ON_ALERT", False))
+    min_closed = max(1, _safe_int(getattr(cfg, "EXT_SIGNAL_AION_FEEDBACK_MIN_CLOSED_TRADES", 8), 8))
+    alert_state = bool(status in {"alert", "hard"} or float(risk_scale) <= float(alert_th))
+    enough_closed = bool(closed_trades >= min_closed)
+    out["block_new_entries"] = bool(explicit_block or (block_on_alert and alert_state and enough_closed))
+    return out
+
+
 def _execution_quality_governor(
     *,
     max_trades_per_day: int,
@@ -997,6 +1052,7 @@ def main() -> int:
             aion_feedback_expectancy = None
             aion_feedback_drawdown_norm = None
             aion_feedback_path = ""
+            aion_feedback_block_new_entries = False
             if cfg.EXT_SIGNAL_ENABLED:
                 ext_bundle = load_external_signal_bundle(
                     path=cfg.EXT_SIGNAL_FILE,
@@ -1091,17 +1147,18 @@ def main() -> int:
                 memory_feedback_open_scale = _safe_float(mem_ctl.get("open_scale"), 1.0)
                 memory_feedback_block_new_entries = bool(mem_ctl.get("block_new_entries", False))
                 aion_fb = ext_bundle.get("aion_feedback", {}) if isinstance(ext_bundle, dict) else {}
-                if isinstance(aion_fb, dict):
-                    aion_feedback_active = bool(aion_fb.get("active", False))
-                    aion_feedback_status = str(aion_fb.get("status", "unknown"))
-                    aion_feedback_reasons = [str(x) for x in aion_fb.get("reasons", []) if str(x)]
-                    aion_feedback_risk_scale = _safe_float(aion_fb.get("risk_scale"), 1.0)
-                    aion_feedback_closed_trades = max(0, _safe_int(aion_fb.get("closed_trades"), 0))
-                    aion_feedback_hit_rate = _safe_float(aion_fb.get("hit_rate"), None)
-                    aion_feedback_profit_factor = _safe_float(aion_fb.get("profit_factor"), None)
-                    aion_feedback_expectancy = _safe_float(aion_fb.get("expectancy"), None)
-                    aion_feedback_drawdown_norm = _safe_float(aion_fb.get("drawdown_norm"), None)
-                    aion_feedback_path = str(aion_fb.get("path", "")).strip()
+                aion_ctl = _aion_feedback_controls(aion_fb if isinstance(aion_fb, dict) else {})
+                aion_feedback_active = bool(aion_ctl.get("active", False))
+                aion_feedback_status = str(aion_ctl.get("status", "unknown"))
+                aion_feedback_reasons = [str(x) for x in aion_ctl.get("reasons", []) if str(x)]
+                aion_feedback_risk_scale = _safe_float(aion_ctl.get("risk_scale"), 1.0)
+                aion_feedback_closed_trades = max(0, _safe_int(aion_ctl.get("closed_trades"), 0))
+                aion_feedback_hit_rate = _safe_float(aion_ctl.get("hit_rate"), None)
+                aion_feedback_profit_factor = _safe_float(aion_ctl.get("profit_factor"), None)
+                aion_feedback_expectancy = _safe_float(aion_ctl.get("expectancy"), None)
+                aion_feedback_drawdown_norm = _safe_float(aion_ctl.get("drawdown_norm"), None)
+                aion_feedback_path = str(aion_ctl.get("path", "")).strip()
+                aion_feedback_block_new_entries = bool(aion_ctl.get("block_new_entries", False))
                 sig = (
                     round(float(ext_runtime_scale), 4),
                     round(float(ext_position_risk_scale), 4),
@@ -1173,13 +1230,14 @@ def main() -> int:
                     None if aion_feedback_profit_factor is None else round(float(aion_feedback_profit_factor), 4),
                     None if aion_feedback_expectancy is None else round(float(aion_feedback_expectancy), 4),
                     None if aion_feedback_drawdown_norm is None else round(float(aion_feedback_drawdown_norm), 4),
+                    bool(aion_feedback_block_new_entries),
                     str(aion_feedback_path),
                 )
                 if aion_sig != last_aion_feedback_sig and aion_sig[0]:
                     reason_txt = ",".join(aion_sig[2]) if aion_sig[2] else "none"
                     log_run(
                         "AION outcome feedback "
-                        f"status={aion_sig[1]} reasons={reason_txt} risk_scale={aion_sig[3]:.3f} "
+                        f"status={aion_sig[1]} reasons={reason_txt} block_new={aion_sig[9]} risk_scale={aion_sig[3]:.3f} "
                         f"closed_trades={aion_sig[4]} hit_rate={(f'{aion_sig[5]:.3f}' if isinstance(aion_sig[5], float) else 'na')} "
                         f"profit_factor={(f'{aion_sig[6]:.3f}' if isinstance(aion_sig[6], float) else 'na')} "
                         f"drawdown_norm={(f'{aion_sig[8]:.3f}' if isinstance(aion_sig[8], float) else 'na')}"
@@ -1187,7 +1245,7 @@ def main() -> int:
                     if cfg.MONITORING_ENABLED and aion_sig[1] in {"warn", "alert"}:
                         monitor.record_system_event(
                             "aion_outcome_feedback",
-                            f"status={aion_sig[1]} reasons={reason_txt} risk_scale={aion_sig[3]:.3f} closed_trades={aion_sig[4]}",
+                            f"status={aion_sig[1]} reasons={reason_txt} block_new={aion_sig[9]} risk_scale={aion_sig[3]:.3f} closed_trades={aion_sig[4]}",
                         )
                 last_aion_feedback_sig = aion_sig
                 gate_sig = (bool(overlay_block_new_entries), tuple(sorted(str(x) for x in overlay_block_reasons)))
@@ -1314,6 +1372,7 @@ def main() -> int:
                 or policy_loss_hit
                 or overlay_block_new_entries
                 or memory_feedback_block_new_entries
+                or aion_feedback_block_new_entries
                 or exec_governor_block_new_entries
             )
             if policy_loss_hit and (not last_policy_loss_hit):
@@ -1377,6 +1436,7 @@ def main() -> int:
                         None if aion_feedback_drawdown_norm is None else float(aion_feedback_drawdown_norm)
                     ),
                     "aion_feedback_path": str(aion_feedback_path),
+                    "aion_feedback_block_new_entries": bool(aion_feedback_block_new_entries),
                     "exec_governor_state": str(exec_governor_state),
                     "exec_governor_reasons": list(exec_governor_reasons),
                     "exec_governor_recent_executions": int(exec_governor_recent_executions),
