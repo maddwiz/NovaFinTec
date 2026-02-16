@@ -1,7 +1,11 @@
+import json
+import os
+from datetime import datetime, timezone
 from pathlib import Path
 
 from aion.exec.runtime_health import (
     aion_feedback_runtime_info,
+    overlay_runtime_status,
     runtime_controls_stale_info,
     runtime_controls_stale_threshold_sec,
 )
@@ -68,3 +72,27 @@ def test_aion_feedback_runtime_info_falls_back_to_overlay_context():
     assert out["source"] == "overlay_runtime_context"
     assert out["state"] == "alert"
     assert out["present"] is True
+
+
+def test_overlay_runtime_status_prefers_payload_timestamp_over_mtime(tmp_path: Path):
+    p = tmp_path / "overlay.json"
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    p.write_text(
+        json.dumps(
+            {
+                "generated_at_utc": ts,
+                "runtime_context": {"runtime_multiplier": 0.9, "risk_flags": ["drift_warn"]},
+            }
+        ),
+        encoding="utf-8",
+    )
+    old_ts = 946684800
+    p.touch()
+    p.chmod(0o644)
+    # Keep old mtime so payload timestamp should still win.
+    os.utime(p, (old_ts, old_ts))
+    out = overlay_runtime_status(p, max_age_hours=1.0)
+    assert out["exists"] is True
+    assert out["age_source"] == "payload"
+    assert out["stale"] is False
+    assert "drift_warn" in out["risk_flags"]

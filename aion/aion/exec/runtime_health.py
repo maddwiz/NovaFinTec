@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -37,6 +38,16 @@ def read_runtime_controls(path: Path) -> dict:
     except Exception:
         return {}
     return data if isinstance(data, dict) else {}
+
+
+def _read_json(path: Path, default):
+    if not path.exists():
+        return default
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data
+    except Exception:
+        return default
 
 
 def runtime_controls_age_sec(path: Path, now_ts: float | None = None) -> float | None:
@@ -96,6 +107,68 @@ def runtime_controls_stale_info(
         "stale": stale,
         "payload": payload,
     }
+
+
+def overlay_runtime_status(path: Path, max_age_hours: float) -> dict:
+    out = {
+        "exists": False,
+        "age_hours": None,
+        "age_source": "unknown",
+        "generated_at_utc": None,
+        "max_age_hours": float(max_age_hours),
+        "stale": False,
+        "runtime_context_present": False,
+        "runtime_context": {},
+        "risk_flags": [],
+    }
+    if not isinstance(path, Path) or not path.exists():
+        return out
+
+    out["exists"] = True
+    payload = _read_json(path, {})
+    mtime_age = None
+    try:
+        ts = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+        mtime_age = float((datetime.now(timezone.utc) - ts).total_seconds() / 3600.0)
+    except Exception:
+        mtime_age = None
+
+    if isinstance(payload, dict):
+        raw_ts = payload.get("generated_at_utc", payload.get("generated_at"))
+        s = str(raw_ts or "").strip()
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        try:
+            dt = datetime.fromisoformat(s) if s else None
+            if dt is not None:
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                dt = dt.astimezone(timezone.utc)
+                out["generated_at_utc"] = dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+                out["age_hours"] = float((datetime.now(timezone.utc) - dt).total_seconds() / 3600.0)
+                out["age_source"] = "payload"
+        except Exception:
+            pass
+
+    if out["age_hours"] is None and isinstance(mtime_age, float):
+        out["age_hours"] = float(max(0.0, mtime_age))
+        out["age_source"] = "mtime"
+    if isinstance(out["age_hours"], float):
+        out["age_hours"] = float(max(0.0, out["age_hours"]))
+    if isinstance(out["age_hours"], float) and float(max_age_hours) > 0:
+        out["stale"] = bool(out["age_hours"] > float(max_age_hours))
+
+    if not isinstance(payload, dict):
+        return out
+
+    ext_ctx = payload.get("runtime_context", {})
+    if isinstance(ext_ctx, dict):
+        out["runtime_context_present"] = len(ext_ctx) > 0
+        out["runtime_context"] = ext_ctx
+        flags = ext_ctx.get("risk_flags", [])
+        if isinstance(flags, list):
+            out["risk_flags"] = [str(x).strip().lower() for x in flags if str(x).strip()]
+    return out
 
 
 def aion_feedback_runtime_info(
