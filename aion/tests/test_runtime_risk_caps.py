@@ -356,6 +356,21 @@ def test_overlay_entry_gate_blocks_critical_flags(monkeypatch):
     assert "critical_flag:fracture_alert" in reasons
 
 
+def test_overlay_entry_gate_blocks_hive_turnover_critical_flag(monkeypatch):
+    monkeypatch.setattr(pl.cfg, "EXT_SIGNAL_ENABLED", True)
+    monkeypatch.setattr(pl.cfg, "EXT_SIGNAL_BLOCK_CRITICAL", True)
+    monkeypatch.setattr(pl.cfg, "EXT_SIGNAL_BLOCK_CRITICAL_FLAGS", ["hive_turnover_alert"])
+    monkeypatch.setattr(pl.cfg, "EXT_SIGNAL_BLOCK_ON_QUALITY_FAIL", False)
+    monkeypatch.setattr(pl.cfg, "EXT_SIGNAL_BLOCK_STALE_HOURS", 24.0)
+
+    blocked, reasons = pl._overlay_entry_gate(
+        ext_runtime_diag={"flags": ["hive_turnover_alert"], "quality_gate_ok": True, "overlay_stale": False},
+        overlay_age_hours=2.0,
+    )
+    assert blocked is True
+    assert "critical_flag:hive_turnover_alert" in reasons
+
+
 def test_overlay_entry_gate_blocks_stale_when_age_over_threshold(monkeypatch):
     monkeypatch.setattr(pl.cfg, "EXT_SIGNAL_ENABLED", True)
     monkeypatch.setattr(pl.cfg, "EXT_SIGNAL_BLOCK_CRITICAL", False)

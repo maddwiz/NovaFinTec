@@ -303,6 +303,7 @@ EXT_SIGNAL_BLOCK_CRITICAL_FLAGS = _dedupe_strs(
             "hive_stress_alert",
             "hive_crowding_alert",
             "hive_entropy_alert",
+            "hive_turnover_alert",
             "aion_outcome_alert",
             "nested_leakage_alert",
         ],
