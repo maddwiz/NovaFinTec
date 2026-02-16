@@ -126,6 +126,7 @@ def test_overlay_remediation_includes_hive_and_outcome_guidance(tmp_path: Path):
                     "hive_crowding_alert",
                     "hive_entropy_warn",
                     "aion_outcome_alert",
+                    "aion_outcome_stale",
                     "memory_feedback_warn",
                 ],
             },
@@ -136,6 +137,7 @@ def test_overlay_remediation_includes_hive_and_outcome_guidance(tmp_path: Path):
     assert "crowding" in joined
     assert "entropy" in joined
     assert "outcome feedback" in joined
+    assert "stale" in joined
     assert "memory feedback" in joined
 
 

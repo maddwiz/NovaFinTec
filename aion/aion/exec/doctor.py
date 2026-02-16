@@ -370,6 +370,8 @@ def _overlay_remediation(checks: list[dict], overlay_path: Path) -> list[str]:
         add_tip("AION outcome feedback ALERT is active. Inspect recent closed-trade quality and recalibrate Q->AION outcome feedback.")
     elif "aion_outcome_warn" in flags:
         add_tip("AION outcome feedback WARN is active. Monitor hit-rate/profit-factor drift and keep reduced risk until recovery.")
+    if "aion_outcome_stale" in flags:
+        add_tip("AION outcome feedback is stale. Refresh Q overlay and verify recent closed trades are being ingested before trusting outcome throttles.")
     return tips
 
 
