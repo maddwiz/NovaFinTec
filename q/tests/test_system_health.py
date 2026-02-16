@@ -216,6 +216,8 @@ def test_overlay_aion_feedback_metrics_falls_back_to_shadow_feedback():
     assert metrics.get("aion_feedback_active") is True
     assert metrics.get("aion_feedback_status") == "warn"
     assert metrics.get("aion_feedback_source") == "shadow_trades"
+    assert metrics.get("aion_feedback_source_selected") == "shadow_trades"
+    assert metrics.get("aion_feedback_source_preference") == "auto"
     assert int(metrics.get("aion_feedback_closed_trades")) == 12
     assert all("aion_feedback_status=alert" not in x for x in issues)
 
@@ -241,6 +243,8 @@ def test_overlay_aion_feedback_metrics_prefers_overlay_over_fallback():
     )
     assert metrics.get("aion_feedback_status") == "alert"
     assert metrics.get("aion_feedback_source") == "overlay"
+    assert metrics.get("aion_feedback_source_selected") == "overlay"
+    assert metrics.get("aion_feedback_source_preference") == "auto"
 
 
 def test_overlay_aion_feedback_metrics_prefers_fresh_shadow_when_overlay_stale():
@@ -269,6 +273,8 @@ def test_overlay_aion_feedback_metrics_prefers_fresh_shadow_when_overlay_stale()
         },
     )
     assert metrics.get("aion_feedback_source") == "shadow_trades"
+    assert metrics.get("aion_feedback_source_selected") == "shadow_trades"
+    assert metrics.get("aion_feedback_source_preference") == "auto"
     assert metrics.get("aion_feedback_status") == "ok"
 
 
@@ -293,4 +299,33 @@ def test_overlay_aion_feedback_metrics_honors_shadow_source_preference():
         source_pref="shadow",
     )
     assert metrics.get("aion_feedback_source") == "shadow_trades"
+    assert metrics.get("aion_feedback_source_selected") == "shadow_trades"
+    assert metrics.get("aion_feedback_source_preference") == "shadow"
     assert metrics.get("aion_feedback_status") == "alert"
+
+
+def test_overlay_aion_feedback_metrics_preserves_reported_source_lineage():
+    metrics, _issues = rsh._overlay_aion_feedback_metrics_with_fallback(
+        {
+            "runtime_context": {
+                "aion_feedback": {
+                    "active": True,
+                    "status": "warn",
+                    "source": "overlay",
+                    "source_selected": "shadow_trades",
+                    "risk_scale": 0.90,
+                    "closed_trades": 14,
+                }
+            }
+        },
+        fallback_feedback={
+            "active": True,
+            "status": "ok",
+            "risk_scale": 0.99,
+            "closed_trades": 20,
+        },
+        source_pref="overlay",
+    )
+    assert metrics.get("aion_feedback_source") == "overlay"
+    assert metrics.get("aion_feedback_source_selected") == "overlay"
+    assert metrics.get("aion_feedback_source_preference") == "overlay"

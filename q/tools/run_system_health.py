@@ -118,6 +118,20 @@ def _to_float(x):
     return v if np.isfinite(v) else None
 
 
+def _normalize_source_tag(raw: str | None, default: str = "unknown") -> str:
+    tag = str(raw or "").strip().lower() or str(default)
+    if tag == "shadow":
+        return "shadow_trades"
+    return tag
+
+
+def _normalize_source_preference(raw: str | None) -> str:
+    tag = str(raw or "").strip().lower() or "auto"
+    if tag in {"auto", "overlay", "shadow"}:
+        return tag
+    return "auto"
+
+
 def _analyze_execution_constraints(info: dict | None):
     metrics = {}
     issues = []
@@ -206,6 +220,13 @@ def _overlay_aion_feedback_metrics_with_fallback(
     if (not stale) and age_hours is not None and np.isfinite(age_hours) and max_age_hours is not None:
         stale = bool(age_hours > max_age_hours)
 
+    source_selected = _normalize_source_tag(source or "unknown", default="unknown")
+    source_reported = _normalize_source_tag(
+        str(af.get("source", af.get("source_selected", source_selected))),
+        default=source_selected,
+    )
+    source_preference = _normalize_source_preference(source_pref)
+
     metrics["aion_feedback_active"] = active
     metrics["aion_feedback_status"] = status
     metrics["aion_feedback_closed_trades"] = closed
@@ -217,7 +238,9 @@ def _overlay_aion_feedback_metrics_with_fallback(
     metrics["aion_feedback_age_hours"] = age_hours
     metrics["aion_feedback_stale"] = stale
     metrics["aion_feedback_max_age_hours"] = max_age_hours
-    metrics["aion_feedback_source"] = source or "unknown"
+    metrics["aion_feedback_source"] = source_reported
+    metrics["aion_feedback_source_selected"] = source_selected
+    metrics["aion_feedback_source_preference"] = source_preference
 
     enough_closed = closed >= 8
     if active and stale:
@@ -385,7 +408,7 @@ if __name__ == "__main__":
     hb_stress = _load_series(RUNS / "heartbeat_stress.csv")
     exec_info = _load_json(RUNS / "execution_constraints_info.json")
     overlay = _load_json(RUNS / "q_signal_overlay.json")
-    aion_source_pref = str(os.getenv("Q_AION_FEEDBACK_SOURCE", "auto")).strip().lower() or "auto"
+    aion_source_pref = _normalize_source_preference(os.getenv("Q_AION_FEEDBACK_SOURCE", "auto"))
 
     shape = {}
     if w is not None:
@@ -530,6 +553,7 @@ if __name__ == "__main__":
     aion_summary = {
         "source_preference": aion_source_pref,
         "source": shape.get("aion_feedback_source", "unknown"),
+        "source_selected": shape.get("aion_feedback_source_selected", shape.get("aion_feedback_source", "unknown")),
         "active": bool(shape.get("aion_feedback_active", False)),
         "status": str(shape.get("aion_feedback_status", "unknown")),
         "stale": bool(shape.get("aion_feedback_stale", False)),
@@ -556,7 +580,7 @@ if __name__ == "__main__":
     html = (
         f"<p>Health score: <b>{health_score:.1f}</b> "
         f"(required {required_ok}/{required_total}, optional {optional_ok}/{optional_total})</p>"
-        f"<p>AION feedback: source={aion_summary['source']} "
+        f"<p>AION feedback: source={aion_summary['source']} (selected={aion_summary['source_selected']}) "
         f"(pref={aion_summary['source_preference']}), status={aion_summary['status']}, "
         f"stale={aion_summary['stale']}, age_h={aion_summary['age_hours']}</p>"
         f"<p>Issues: {', '.join(issues) if issues else 'none'}</p>"
