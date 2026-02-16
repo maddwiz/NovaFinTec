@@ -166,7 +166,11 @@ def _aion_feedback_has_metrics(af: dict | None):
     return feedback_has_metrics(af)
 
 
-def _overlay_aion_feedback_metrics_with_fallback(overlay: dict | None, fallback_feedback: dict | None = None):
+def _overlay_aion_feedback_metrics_with_fallback(
+    overlay: dict | None,
+    fallback_feedback: dict | None = None,
+    source_pref: str = "auto",
+):
     metrics = {}
     issues = []
     overlay_af = None
@@ -177,7 +181,7 @@ def _overlay_aion_feedback_metrics_with_fallback(overlay: dict | None, fallback_
     af, source = choose_feedback_source(
         overlay_af,
         fallback_feedback,
-        source_pref="auto",
+        source_pref=source_pref,
         prefer_overlay_when_fresh=True,
     )
     if not _aion_feedback_has_metrics(af):
@@ -381,6 +385,7 @@ if __name__ == "__main__":
     hb_stress = _load_series(RUNS / "heartbeat_stress.csv")
     exec_info = _load_json(RUNS / "execution_constraints_info.json")
     overlay = _load_json(RUNS / "q_signal_overlay.json")
+    aion_source_pref = str(os.getenv("Q_AION_FEEDBACK_SOURCE", "auto")).strip().lower() or "auto"
 
     shape = {}
     if w is not None:
@@ -486,6 +491,7 @@ if __name__ == "__main__":
     aion_shape, aion_issues = _overlay_aion_feedback_metrics_with_fallback(
         overlay,
         fallback_feedback=fallback_aion_feedback,
+        source_pref=aion_source_pref,
     )
     if aion_shape:
         shape.update(aion_shape)

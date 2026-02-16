@@ -203,10 +203,11 @@ def build_events():
     runtime_ctx = overlay.get("runtime_context", {}) if isinstance(overlay, dict) else {}
     overlay_feedback = runtime_ctx.get("aion_feedback", {}) if isinstance(runtime_ctx, dict) else {}
     shadow_feedback = load_outcome_feedback(root=ROOT, mark_stale_reason=False)
+    aion_source_pref = str(os.getenv("Q_AION_FEEDBACK_SOURCE", "auto")).strip().lower() or "auto"
     selected_feedback, selected_source = choose_feedback_source(
         overlay_feedback,
         shadow_feedback,
-        source_pref="auto",
+        source_pref=aion_source_pref,
         prefer_overlay_when_fresh=True,
     )
     aion_feedback_summary = _summarize_aion_feedback(selected_feedback)

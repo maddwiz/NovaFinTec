@@ -270,3 +270,27 @@ def test_overlay_aion_feedback_metrics_prefers_fresh_shadow_when_overlay_stale()
     )
     assert metrics.get("aion_feedback_source") == "shadow_trades"
     assert metrics.get("aion_feedback_status") == "ok"
+
+
+def test_overlay_aion_feedback_metrics_honors_shadow_source_preference():
+    metrics, _issues = rsh._overlay_aion_feedback_metrics_with_fallback(
+        {
+            "runtime_context": {
+                "aion_feedback": {
+                    "active": True,
+                    "status": "ok",
+                    "risk_scale": 0.98,
+                    "closed_trades": 20,
+                }
+            }
+        },
+        fallback_feedback={
+            "active": True,
+            "status": "alert",
+            "risk_scale": 0.70,
+            "closed_trades": 20,
+        },
+        source_pref="shadow",
+    )
+    assert metrics.get("aion_feedback_source") == "shadow_trades"
+    assert metrics.get("aion_feedback_status") == "alert"
