@@ -195,3 +195,91 @@ def load_outcome_feedback(
         "stale": stale,
         "reasons": _uniq_str_flags(reasons),
     }
+
+
+def feedback_has_metrics(payload: dict | None) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    if bool(payload.get("active", False)):
+        return True
+    status = str(payload.get("status", "unknown")).strip().lower()
+    if status not in {"", "unknown", "missing"}:
+        return True
+    closed = int(max(0, _safe_float(payload.get("closed_trades", 0), 0)))
+    if closed > 0:
+        return True
+    if bool(payload.get("stale", False)):
+        return True
+    risk_scale = _safe_float(payload.get("risk_scale", np.nan), default=np.nan)
+    if math.isfinite(risk_scale) and abs(float(risk_scale) - 1.0) > 1e-9:
+        return True
+    for key in ["hit_rate", "profit_factor", "expectancy", "drawdown_norm", "age_hours", "max_age_hours"]:
+        v = _safe_float(payload.get(key, np.nan), default=np.nan)
+        if math.isfinite(v):
+            return True
+    return False
+
+
+def feedback_is_stale(payload: dict | None, *, default_max_age_hours: float | None = None) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    stale_flag = bool(payload.get("stale", False))
+    age_hours = _safe_float(payload.get("age_hours", np.nan), default=np.nan)
+    max_age_hours = _safe_float(payload.get("max_age_hours", np.nan), default=np.nan)
+    if not math.isfinite(max_age_hours):
+        if default_max_age_hours is None:
+            default_max_age_hours = _safe_float(os.getenv("Q_AION_FEEDBACK_MAX_AGE_HOURS", 72.0), 72.0)
+        max_age_hours = float(default_max_age_hours)
+    max_age_hours = float(np.clip(float(max_age_hours), 1.0, 24.0 * 90.0))
+    age_stale = bool(math.isfinite(age_hours) and age_hours > max_age_hours)
+    return bool(stale_flag or age_stale)
+
+
+def choose_feedback_source(
+    overlay_feedback: dict | None,
+    shadow_feedback: dict | None,
+    *,
+    source_pref: str = "auto",
+    prefer_overlay_when_fresh: bool = False,
+) -> tuple[dict, str]:
+    pref = str(source_pref or "auto").strip().lower() or "auto"
+    overlay_has = feedback_has_metrics(overlay_feedback)
+    shadow_has = feedback_has_metrics(shadow_feedback)
+    overlay_stale = feedback_is_stale(overlay_feedback)
+    shadow_stale = feedback_is_stale(shadow_feedback)
+
+    if pref == "overlay":
+        if overlay_has:
+            return dict(overlay_feedback), "overlay"
+        if shadow_has:
+            return dict(shadow_feedback), "shadow_trades"
+    elif pref == "shadow":
+        if shadow_has:
+            return dict(shadow_feedback), "shadow_trades"
+        if overlay_has:
+            return dict(overlay_feedback), "overlay"
+    else:
+        if prefer_overlay_when_fresh:
+            if overlay_has and (not overlay_stale):
+                return dict(overlay_feedback), "overlay"
+            if shadow_has and (not shadow_stale):
+                return dict(shadow_feedback), "shadow_trades"
+            if overlay_has:
+                return dict(overlay_feedback), "overlay"
+            if shadow_has:
+                return dict(shadow_feedback), "shadow_trades"
+        else:
+            if shadow_has and (not shadow_stale):
+                return dict(shadow_feedback), "shadow_trades"
+            if overlay_has and (not overlay_stale):
+                return dict(overlay_feedback), "overlay"
+            if shadow_has:
+                return dict(shadow_feedback), "shadow_trades"
+            if overlay_has:
+                return dict(overlay_feedback), "overlay"
+
+    if isinstance(shadow_feedback, dict):
+        return dict(shadow_feedback), "shadow_trades"
+    if isinstance(overlay_feedback, dict):
+        return dict(overlay_feedback), "overlay"
+    return {}, "none"

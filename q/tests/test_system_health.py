@@ -241,3 +241,32 @@ def test_overlay_aion_feedback_metrics_prefers_overlay_over_fallback():
     )
     assert metrics.get("aion_feedback_status") == "alert"
     assert metrics.get("aion_feedback_source") == "overlay"
+
+
+def test_overlay_aion_feedback_metrics_prefers_fresh_shadow_when_overlay_stale():
+    metrics, _issues = rsh._overlay_aion_feedback_metrics_with_fallback(
+        {
+            "runtime_context": {
+                "aion_feedback": {
+                    "active": True,
+                    "status": "alert",
+                    "risk_scale": 0.70,
+                    "closed_trades": 20,
+                    "age_hours": 96.0,
+                    "max_age_hours": 24.0,
+                    "stale": True,
+                }
+            }
+        },
+        fallback_feedback={
+            "active": True,
+            "status": "ok",
+            "risk_scale": 0.96,
+            "closed_trades": 20,
+            "age_hours": 2.0,
+            "max_age_hours": 24.0,
+            "stale": False,
+        },
+    )
+    assert metrics.get("aion_feedback_source") == "shadow_trades"
+    assert metrics.get("aion_feedback_status") == "ok"

@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from qmods.aion_feedback import load_outcome_feedback  # noqa: E402
+from qmods.aion_feedback import choose_feedback_source, feedback_has_metrics, load_outcome_feedback  # noqa: E402
 
 RUNS = ROOT / "runs_plus"
 RUNS.mkdir(exist_ok=True)
@@ -163,44 +163,24 @@ def _overlay_aion_feedback_metrics(overlay: dict | None):
 
 
 def _aion_feedback_has_metrics(af: dict | None):
-    if not isinstance(af, dict):
-        return False
-    active = bool(af.get("active", False))
-    if active:
-        return True
-    status = str(af.get("status", "unknown")).strip().lower()
-    if status not in {"", "unknown", "missing"}:
-        return True
-    closed = int(max(0, _to_float(af.get("closed_trades")) or 0))
-    if closed > 0:
-        return True
-    if bool(af.get("stale", False)):
-        return True
-    risk_scale = _to_float(af.get("risk_scale"))
-    if risk_scale is not None and abs(float(risk_scale) - 1.0) > 1e-9:
-        return True
-    for key in ["hit_rate", "profit_factor", "expectancy", "drawdown_norm", "age_hours", "max_age_hours"]:
-        if _to_float(af.get(key)) is not None:
-            return True
-    return False
+    return feedback_has_metrics(af)
 
 
 def _overlay_aion_feedback_metrics_with_fallback(overlay: dict | None, fallback_feedback: dict | None = None):
     metrics = {}
     issues = []
-    source = None
-    af = None
+    overlay_af = None
     if isinstance(overlay, dict):
         rt = overlay.get("runtime_context", {})
         if isinstance(rt, dict):
             overlay_af = rt.get("aion_feedback", {})
-            if _aion_feedback_has_metrics(overlay_af):
-                af = overlay_af
-                source = "overlay"
-    if af is None and _aion_feedback_has_metrics(fallback_feedback):
-        af = fallback_feedback
-        source = "shadow_trades"
-    if not isinstance(af, dict):
+    af, source = choose_feedback_source(
+        overlay_af,
+        fallback_feedback,
+        source_pref="auto",
+        prefer_overlay_when_fresh=True,
+    )
+    if not _aion_feedback_has_metrics(af):
         return metrics, issues
 
     active = bool(af.get("active", False))

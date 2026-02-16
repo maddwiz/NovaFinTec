@@ -525,6 +525,67 @@ def test_build_alert_payload_prefers_overlay_over_shadow_fallback():
     assert payload["observed"]["aion_feedback_source"] == "overlay"
 
 
+def test_build_alert_payload_prefers_fresh_shadow_when_overlay_is_stale():
+    payload = rha.build_alert_payload(
+        health={"health_score": 95, "issues": [], "shape": {}},
+        guards={"global_governor": {"mean": 0.85}},
+        nested={"assets": 4, "avg_oos_sharpe": 0.8},
+        quality={"quality_governor_mean": 0.88, "quality_score": 0.72},
+        immune={"ok": True, "pass": True},
+        pipeline={"failed_count": 0},
+        shock={"shock_rate": 0.05},
+        concentration={"stats": {"hhi_after": 0.12, "top1_after": 0.18}},
+        drift_watch={"drift": {"status": "ok", "latest_l1": 0.5}},
+        fracture={"state": "stable", "latest_score": 0.22},
+        overlay={
+            "runtime_context": {
+                "aion_feedback": {
+                    "active": True,
+                    "status": "alert",
+                    "risk_scale": 0.70,
+                    "closed_trades": 20,
+                    "age_hours": 96.0,
+                    "max_age_hours": 24.0,
+                    "stale": True,
+                }
+            }
+        },
+        aion_feedback_fallback={
+            "active": True,
+            "status": "ok",
+            "risk_scale": 0.96,
+            "closed_trades": 20,
+            "hit_rate": 0.51,
+            "profit_factor": 1.16,
+            "age_hours": 2.0,
+            "max_age_hours": 24.0,
+            "stale": False,
+        },
+        thresholds={
+            "min_health_score": 70,
+            "min_global_governor_mean": 0.45,
+            "min_quality_gov_mean": 0.60,
+            "min_quality_score": 0.45,
+            "require_immune_pass": False,
+            "max_health_issues": 2,
+            "min_nested_sharpe": 0.2,
+            "min_nested_assets": 3,
+            "max_shock_rate": 0.25,
+            "max_concentration_hhi_after": 0.18,
+            "max_concentration_top1_after": 0.30,
+            "max_portfolio_l1_drift": 1.2,
+            "min_aion_feedback_risk_scale": 0.80,
+            "min_aion_feedback_closed_trades": 8,
+            "min_aion_feedback_hit_rate": 0.38,
+            "min_aion_feedback_profit_factor": 0.78,
+            "max_aion_feedback_age_hours": 24.0,
+        },
+    )
+    assert payload["observed"]["aion_feedback_source"] == "shadow_trades"
+    assert payload["observed"]["aion_feedback_status"] == "ok"
+    assert not any("aion_feedback_status=alert" in a for a in payload["alerts"])
+
+
 def test_build_alert_payload_prefers_overlay_aion_feedback_over_shape():
     payload = rha.build_alert_payload(
         health={

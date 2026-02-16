@@ -68,3 +68,50 @@ def test_load_outcome_feedback_can_skip_stale_reason(monkeypatch, tmp_path: Path
     assert out["active"] is True
     assert out["stale"] is True
     assert "stale_feedback" not in out["reasons"]
+
+
+def test_choose_feedback_source_prefers_fresh_shadow_when_overlay_stale():
+    selected, source = af.choose_feedback_source(
+        {
+            "active": True,
+            "status": "alert",
+            "risk_scale": 0.70,
+            "closed_trades": 20,
+            "age_hours": 96.0,
+            "max_age_hours": 24.0,
+            "stale": True,
+        },
+        {
+            "active": True,
+            "status": "ok",
+            "risk_scale": 0.96,
+            "closed_trades": 20,
+            "age_hours": 2.0,
+            "max_age_hours": 24.0,
+            "stale": False,
+        },
+        source_pref="auto",
+    )
+    assert source == "shadow_trades"
+    assert selected.get("status") == "ok"
+
+
+def test_choose_feedback_source_honors_overlay_preference():
+    selected, source = af.choose_feedback_source(
+        {"active": True, "status": "ok", "closed_trades": 10},
+        {"active": True, "status": "warn", "closed_trades": 10},
+        source_pref="overlay",
+    )
+    assert source == "overlay"
+    assert selected.get("status") == "ok"
+
+
+def test_choose_feedback_source_can_prefer_overlay_when_fresh():
+    selected, source = af.choose_feedback_source(
+        {"active": True, "status": "ok", "closed_trades": 10, "stale": False},
+        {"active": True, "status": "warn", "closed_trades": 10, "stale": False},
+        source_pref="auto",
+        prefer_overlay_when_fresh=True,
+    )
+    assert source == "overlay"
+    assert selected.get("status") == "ok"
