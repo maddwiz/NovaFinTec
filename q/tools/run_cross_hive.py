@@ -296,7 +296,10 @@ def dynamic_crowding_penalties(index_dates, hives):
         win = x[lo : t + 1, :]
         if win.shape[0] < min_points:
             continue
-        corr = np.corrcoef(win, rowvar=False)
+        # Constant hive windows can produce divide-by-zero runtime warnings in corrcoef.
+        # We treat those undefined correlations as 0 crowding below.
+        with np.errstate(invalid="ignore", divide="ignore"):
+            corr = np.corrcoef(win, rowvar=False)
         corr = np.asarray(corr, float)
         if corr.ndim != 2 or corr.shape[0] != n_h:
             continue

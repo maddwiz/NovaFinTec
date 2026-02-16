@@ -1,4 +1,5 @@
 import json
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -196,6 +197,35 @@ def test_dynamic_crowding_penalties_penalize_more_correlated_hive(tmp_path):
     assert len(pen) == len(idx)
     assert float(pen["A"].mean()) > float(pen["C"].mean())
     assert float(pen["B"].mean()) > float(pen["C"].mean())
+    assert float(pen.min().min()) >= 0.0 - 1e-9
+    assert float(pen.max().max()) <= 1.0 + 1e-9
+
+
+def test_dynamic_crowding_penalties_handles_constant_hive_without_warnings(tmp_path):
+    idx = pd.date_range("2025-01-01", periods=120, freq="D")
+    x = np.linspace(0, 10, len(idx))
+    a = np.sin(x)
+    b = np.zeros(len(idx))  # Constant signal hive.
+    c = np.cos(1.7 * x + 0.4)
+
+    rows = []
+    for d, va, vb, vc in zip(idx, a, b, c):
+        rows.append({"DATE": d.strftime("%Y-%m-%d"), "HIVE": "A", "hive_signal": float(va)})
+        rows.append({"DATE": d.strftime("%Y-%m-%d"), "HIVE": "B", "hive_signal": float(vb)})
+        rows.append({"DATE": d.strftime("%Y-%m-%d"), "HIVE": "C", "hive_signal": float(vc)})
+    pd.DataFrame(rows).to_csv(tmp_path / "hive_signals.csv", index=False)
+
+    old_runs = rch.RUNS
+    try:
+        rch.RUNS = tmp_path
+        with warnings.catch_warnings(record=True) as rec:
+            warnings.simplefilter("always")
+            pen = rch.dynamic_crowding_penalties(idx, ["A", "B", "C"])
+    finally:
+        rch.RUNS = old_runs
+
+    assert len(rec) == 0
+    assert np.isfinite(pen.values).all()
     assert float(pen.min().min()) >= 0.0 - 1e-9
     assert float(pen.max().max()) <= 1.0 + 1e-9
 
