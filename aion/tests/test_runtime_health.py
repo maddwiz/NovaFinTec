@@ -45,6 +45,7 @@ def test_aion_feedback_runtime_info_prefers_runtime_controls_and_flags_stale():
             "aion_feedback_age_hours": 96.0,
             "aion_feedback_max_age_hours": 72.0,
             "aion_feedback_stale": False,
+            "aion_feedback_last_closed_ts": "2026-02-16T15:35:00Z",
         },
         {"runtime_context": {"aion_feedback": {"active": True, "status": "ok", "risk_scale": 1.0}}},
     )
@@ -52,6 +53,7 @@ def test_aion_feedback_runtime_info_prefers_runtime_controls_and_flags_stale():
     assert out["present"] is True
     assert out["stale"] is True
     assert out["state"] == "stale"
+    assert out["last_closed_ts"] == "2026-02-16T15:35:00Z"
 
 
 def test_aion_feedback_runtime_info_falls_back_to_overlay_context():
@@ -64,6 +66,7 @@ def test_aion_feedback_runtime_info_falls_back_to_overlay_context():
                     "status": "alert",
                     "risk_scale": 0.76,
                     "closed_trades": 20,
+                    "last_closed_ts": "2026-02-16T15:35:00Z",
                     "stale": False,
                 }
             }
@@ -72,6 +75,7 @@ def test_aion_feedback_runtime_info_falls_back_to_overlay_context():
     assert out["source"] == "overlay_runtime_context"
     assert out["state"] == "alert"
     assert out["present"] is True
+    assert out["last_closed_ts"] == "2026-02-16T15:35:00Z"
 
 
 def test_overlay_runtime_status_prefers_payload_timestamp_over_mtime(tmp_path: Path):

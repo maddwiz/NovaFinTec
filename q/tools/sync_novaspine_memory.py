@@ -193,6 +193,7 @@ def build_events():
         "age_hours": _safe_float(aion_feedback.get("age_hours", np.nan), np.nan),
         "max_age_hours": _safe_float(aion_feedback.get("max_age_hours", np.nan), np.nan),
         "stale": bool(aion_feedback.get("stale", False)),
+        "last_closed_ts": str(aion_feedback.get("last_closed_ts", "")).strip() or None,
         "reasons": list(aion_feedback.get("reasons", []) or []) if isinstance(aion_feedback.get("reasons", []), list) else [],
     }
     if aion_feedback.get("path"):

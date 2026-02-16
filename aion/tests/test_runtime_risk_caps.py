@@ -522,6 +522,7 @@ def test_aion_feedback_controls_block_on_alert_with_enough_closed_trades(monkeyp
             "profit_factor": 0.81,
             "expectancy": -2.2,
             "drawdown_norm": 2.9,
+            "last_closed_ts": "2026-02-16T15:35:00Z",
             "reasons": ["negative_expectancy_alert"],
             "path": "/tmp/shadow_trades.csv",
         }
@@ -530,6 +531,7 @@ def test_aion_feedback_controls_block_on_alert_with_enough_closed_trades(monkeyp
     assert out["block_new_entries"] is True
     assert out["status"] == "alert"
     assert out["closed_trades"] == 12
+    assert out["last_closed_ts"] == "2026-02-16T15:35:00Z"
 
 
 def test_aion_feedback_controls_no_block_when_disabled(monkeypatch):

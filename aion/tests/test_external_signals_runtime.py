@@ -88,6 +88,7 @@ def test_load_external_signal_bundle_parses_aion_feedback(tmp_path: Path):
                         "age_hours": 40.0,
                         "max_age_hours": 24.0,
                         "stale": True,
+                        "last_closed_ts": "2026-02-16T15:35:00Z",
                         "reasons": ["negative_expectancy_alert"],
                         "path": "/tmp/shadow_trades.csv",
                     },
@@ -106,6 +107,7 @@ def test_load_external_signal_bundle_parses_aion_feedback(tmp_path: Path):
     assert int(af.get("closed_trades")) == 22
     assert af.get("stale") is True
     assert float(af.get("age_hours")) == 40.0
+    assert af.get("last_closed_ts") == "2026-02-16T15:35:00Z"
     assert "aion_outcome_alert" in b.get("risk_flags", [])
 
 

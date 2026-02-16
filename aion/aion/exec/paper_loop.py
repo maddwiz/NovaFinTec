@@ -436,6 +436,7 @@ def _aion_feedback_controls(aion_feedback: dict | None):
         "age_hours": None,
         "max_age_hours": None,
         "stale": False,
+        "last_closed_ts": None,
         "path": "",
         "block_new_entries": False,
     }
@@ -462,6 +463,7 @@ def _aion_feedback_controls(aion_feedback: dict | None):
     stale = bool(aion_feedback.get("stale", False))
     if (not stale) and age_hours is not None and max_age_hours > 0.0:
         stale = bool(age_hours > max_age_hours)
+    last_closed_ts = str(aion_feedback.get("last_closed_ts", "")).strip() or None
     path = str(aion_feedback.get("path", "")).strip()
 
     out["active"] = True
@@ -476,6 +478,7 @@ def _aion_feedback_controls(aion_feedback: dict | None):
     out["age_hours"] = age_hours
     out["max_age_hours"] = max_age_hours if max_age_hours > 0.0 else None
     out["stale"] = bool(stale)
+    out["last_closed_ts"] = last_closed_ts
     out["path"] = path
 
     if stale and "stale_feedback" not in out["reasons"]:
@@ -1078,6 +1081,7 @@ def main() -> int:
             aion_feedback_age_hours = None
             aion_feedback_max_age_hours = None
             aion_feedback_stale = False
+            aion_feedback_last_closed_ts = None
             aion_feedback_path = ""
             aion_feedback_block_new_entries = False
             if cfg.EXT_SIGNAL_ENABLED:
@@ -1188,6 +1192,9 @@ def main() -> int:
                 aion_feedback_age_hours = _safe_float(aion_ctl.get("age_hours"), None)
                 aion_feedback_max_age_hours = _safe_float(aion_ctl.get("max_age_hours"), None)
                 aion_feedback_stale = bool(aion_ctl.get("stale", False))
+                aion_feedback_last_closed_ts = (
+                    str(aion_ctl.get("last_closed_ts", "")).strip() or None
+                )
                 aion_feedback_path = str(aion_ctl.get("path", "")).strip()
                 aion_feedback_block_new_entries = bool(aion_ctl.get("block_new_entries", False))
                 sig = (
@@ -1264,6 +1271,7 @@ def main() -> int:
                     None if aion_feedback_age_hours is None else round(float(aion_feedback_age_hours), 3),
                     None if aion_feedback_max_age_hours is None else round(float(aion_feedback_max_age_hours), 3),
                     bool(aion_feedback_stale),
+                    aion_feedback_last_closed_ts if aion_feedback_last_closed_ts is not None else "na",
                     bool(aion_feedback_block_new_entries),
                     str(aion_feedback_path),
                 )
@@ -1271,17 +1279,17 @@ def main() -> int:
                     reason_txt = ",".join(aion_sig[2]) if aion_sig[2] else "none"
                     log_run(
                         "AION outcome feedback "
-                        f"status={aion_sig[1]} reasons={reason_txt} block_new={aion_sig[12]} risk_scale={aion_sig[3]:.3f} "
+                        f"status={aion_sig[1]} reasons={reason_txt} block_new={aion_sig[13]} risk_scale={aion_sig[3]:.3f} "
                         f"closed_trades={aion_sig[4]} hit_rate={(f'{aion_sig[5]:.3f}' if isinstance(aion_sig[5], float) else 'na')} "
                         f"profit_factor={(f'{aion_sig[6]:.3f}' if isinstance(aion_sig[6], float) else 'na')} "
                         f"drawdown_norm={(f'{aion_sig[8]:.3f}' if isinstance(aion_sig[8], float) else 'na')} "
                         f"age_h={(f'{aion_sig[9]:.2f}' if isinstance(aion_sig[9], float) else 'na')} "
-                        f"stale={aion_sig[11]}"
+                        f"stale={aion_sig[11]} last_closed_ts={aion_sig[12]}"
                     )
                     if cfg.MONITORING_ENABLED and (aion_sig[1] in {"warn", "alert"} or aion_sig[11]):
                         monitor.record_system_event(
                             "aion_outcome_feedback",
-                            f"status={aion_sig[1]} reasons={reason_txt} block_new={aion_sig[12]} risk_scale={aion_sig[3]:.3f} closed_trades={aion_sig[4]} stale={aion_sig[11]}",
+                            f"status={aion_sig[1]} reasons={reason_txt} block_new={aion_sig[13]} risk_scale={aion_sig[3]:.3f} closed_trades={aion_sig[4]} stale={aion_sig[11]} last_closed_ts={aion_sig[12]}",
                         )
                 last_aion_feedback_sig = aion_sig
                 gate_sig = (bool(overlay_block_new_entries), tuple(sorted(str(x) for x in overlay_block_reasons)))
@@ -1478,6 +1486,7 @@ def main() -> int:
                         None if aion_feedback_max_age_hours is None else float(aion_feedback_max_age_hours)
                     ),
                     "aion_feedback_stale": bool(aion_feedback_stale),
+                    "aion_feedback_last_closed_ts": aion_feedback_last_closed_ts,
                     "aion_feedback_path": str(aion_feedback_path),
                     "aion_feedback_block_new_entries": bool(aion_feedback_block_new_entries),
                     "exec_governor_state": str(exec_governor_state),

@@ -176,6 +176,7 @@ def load_external_signal_bundle(
             "age_hours": None,
             "max_age_hours": None,
             "stale": False,
+            "last_closed_ts": None,
             "reasons": [],
             "path": "",
         },
@@ -253,6 +254,7 @@ def load_external_signal_bundle(
                     "age_hours": af_age,
                     "max_age_hours": af_max_age,
                     "stale": af_stale,
+                    "last_closed_ts": str(af.get("last_closed_ts", "")).strip() or None,
                     "reasons": _uniq_flags(af.get("reasons", [])),
                     "path": str(af.get("path", "")).strip(),
                 }

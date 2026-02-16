@@ -32,6 +32,7 @@ def test_build_events_includes_governance_audit_events(tmp_path, monkeypatch):
                     "age_hours": 18.0,
                     "max_age_hours": 72.0,
                     "stale": False,
+                    "last_closed_ts": "2026-02-16T15:35:00Z",
                     "reasons": ["low_profit_factor_warn"],
                     "path": "/tmp/shadow_trades.csv",
                 },
@@ -122,6 +123,7 @@ def test_build_events_includes_governance_audit_events(tmp_path, monkeypatch):
     assert float(af.get("risk_scale")) > 0.0
     assert float(af.get("age_hours")) >= 0.0
     assert af.get("stale") is False
+    assert af.get("last_closed_ts") == "2026-02-16T15:35:00Z"
     dream = rc.get("payload", {}).get("dream_coherence", {})
     assert dream.get("status") == "ok"
     assert float(dream.get("mean_coherence")) > 0.0
@@ -168,6 +170,7 @@ def test_build_events_includes_governance_audit_events(tmp_path, monkeypatch):
     assert af2.get("status") == "warn"
     assert int(af2.get("closed_trades")) == 16
     assert float(af2.get("age_hours")) >= 0.0
+    assert af2.get("last_closed_ts") == "2026-02-16T15:35:00Z"
     trusts = [float(e.get("trust", 0.0)) for e in events]
     assert all(0.0 <= t <= 1.0 for t in trusts)
 
