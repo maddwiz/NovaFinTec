@@ -19,7 +19,13 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from qmods.aion_feedback import choose_feedback_source, feedback_has_metrics, load_outcome_feedback  # noqa: E402
+from qmods.aion_feedback import (  # noqa: E402
+    choose_feedback_source,
+    feedback_has_metrics,
+    load_outcome_feedback,
+    normalize_source_preference,
+    normalize_source_tag,
+)
 
 RUNS = ROOT / "runs_plus"
 RUNS.mkdir(exist_ok=True)
@@ -118,20 +124,6 @@ def _to_float(x):
     return v if np.isfinite(v) else None
 
 
-def _normalize_source_tag(raw: str | None, default: str = "unknown") -> str:
-    tag = str(raw or "").strip().lower() or str(default)
-    if tag == "shadow":
-        return "shadow_trades"
-    return tag
-
-
-def _normalize_source_preference(raw: str | None) -> str:
-    tag = str(raw or "").strip().lower() or "auto"
-    if tag in {"auto", "overlay", "shadow"}:
-        return tag
-    return "auto"
-
-
 def _analyze_execution_constraints(info: dict | None):
     metrics = {}
     issues = []
@@ -220,12 +212,12 @@ def _overlay_aion_feedback_metrics_with_fallback(
     if (not stale) and age_hours is not None and np.isfinite(age_hours) and max_age_hours is not None:
         stale = bool(age_hours > max_age_hours)
 
-    source_selected = _normalize_source_tag(source or "unknown", default="unknown")
-    source_reported = _normalize_source_tag(
+    source_selected = normalize_source_tag(source or "unknown", default="unknown")
+    source_reported = normalize_source_tag(
         str(af.get("source", af.get("source_selected", source_selected))),
         default=source_selected,
     )
-    source_preference = _normalize_source_preference(source_pref)
+    source_preference = normalize_source_preference(source_pref)
 
     metrics["aion_feedback_active"] = active
     metrics["aion_feedback_status"] = status
@@ -408,7 +400,7 @@ if __name__ == "__main__":
     hb_stress = _load_series(RUNS / "heartbeat_stress.csv")
     exec_info = _load_json(RUNS / "execution_constraints_info.json")
     overlay = _load_json(RUNS / "q_signal_overlay.json")
-    aion_source_pref = _normalize_source_preference(os.getenv("Q_AION_FEEDBACK_SOURCE", "auto"))
+    aion_source_pref = normalize_source_preference(os.getenv("Q_AION_FEEDBACK_SOURCE", "auto"))
 
     shape = {}
     if w is not None:

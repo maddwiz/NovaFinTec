@@ -25,7 +25,12 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from qmods.novaspine_adapter import publish_events  # noqa: E402
-from qmods.aion_feedback import choose_feedback_source, load_outcome_feedback  # noqa: E402
+from qmods.aion_feedback import (  # noqa: E402
+    choose_feedback_source,
+    load_outcome_feedback,
+    normalize_source_preference,
+    normalize_source_tag,
+)
 
 RUNS = ROOT / "runs_plus"
 RUNS.mkdir(exist_ok=True)
@@ -110,31 +115,17 @@ def _safe_float(x, default: float = 0.0) -> float:
         return float(default)
 
 
-def _normalize_source_tag(raw: str | None, default: str = "unknown") -> str:
-    tag = str(raw or "").strip().lower() or str(default)
-    if tag == "shadow":
-        return "shadow_trades"
-    return tag
-
-
-def _normalize_source_preference(raw: str | None) -> str:
-    tag = str(raw or "").strip().lower() or "auto"
-    if tag in {"auto", "overlay", "shadow"}:
-        return tag
-    return "auto"
-
-
 def _summarize_aion_feedback(payload: dict | None) -> dict:
     aion_feedback = payload if isinstance(payload, dict) else {}
-    src = _normalize_source_tag(
+    src = normalize_source_tag(
         str(aion_feedback.get("source", aion_feedback.get("source_selected", "unknown"))),
         default="unknown",
     )
-    src_selected = _normalize_source_tag(
+    src_selected = normalize_source_tag(
         str(aion_feedback.get("source_selected", src)),
         default=src,
     )
-    src_pref = _normalize_source_preference(aion_feedback.get("source_preference", "auto"))
+    src_pref = normalize_source_preference(aion_feedback.get("source_preference", "auto"))
     out = {
         "active": bool(aion_feedback.get("active", False)),
         "status": str(aion_feedback.get("status", "unknown")).strip().lower() or "unknown",
@@ -229,7 +220,7 @@ def build_events():
     runtime_ctx = overlay.get("runtime_context", {}) if isinstance(overlay, dict) else {}
     overlay_feedback = runtime_ctx.get("aion_feedback", {}) if isinstance(runtime_ctx, dict) else {}
     shadow_feedback = load_outcome_feedback(root=ROOT, mark_stale_reason=False)
-    aion_source_pref = str(os.getenv("Q_AION_FEEDBACK_SOURCE", "auto")).strip().lower() or "auto"
+    aion_source_pref = normalize_source_preference(os.getenv("Q_AION_FEEDBACK_SOURCE", "auto"))
     selected_feedback, selected_source = choose_feedback_source(
         overlay_feedback,
         shadow_feedback,
@@ -237,8 +228,9 @@ def build_events():
         prefer_overlay_when_fresh=True,
     )
     aion_feedback_summary = _summarize_aion_feedback(selected_feedback)
-    aion_feedback_summary["source_selected"] = _normalize_source_tag(selected_source, default="unknown")
-    aion_feedback_summary["source_preference"] = _normalize_source_preference(aion_source_pref)
+    selected_source_norm = normalize_source_tag(selected_source, default="unknown")
+    aion_feedback_summary["source_selected"] = selected_source_norm
+    aion_feedback_summary["source_preference"] = normalize_source_preference(aion_source_pref)
     if str(aion_feedback_summary.get("source", "")).strip() in {"", "unknown"}:
         aion_feedback_summary["source"] = str(aion_feedback_summary["source_selected"])
     cross_ad = cross.get("adaptive_diagnostics", {}) if isinstance(cross, dict) and isinstance(cross.get("adaptive_diagnostics"), dict) else {}
@@ -552,7 +544,7 @@ if __name__ == "__main__":
         "namespace": namespace,
         "novaspine_url": novaspine_url,
         "aion_feedback_source_preference": aion_source_pref,
-        "aion_feedback_source_selected": selected_source,
+        "aion_feedback_source_selected": selected_source_norm,
         "events_count": int(len(events)),
         "namespaces": ns_counts,
         "event_types": type_counts,
@@ -578,7 +570,7 @@ if __name__ == "__main__":
             "namespace": namespace,
             "novaspine_url": novaspine_url,
             "aion_feedback_source_preference": aion_source_pref,
-            "aion_feedback_source_selected": selected_source,
+            "aion_feedback_source_selected": selected_source_norm,
             "published": int(res.published),
             "queued": int(res.queued),
             "failed": int(res.failed),
@@ -596,7 +588,7 @@ if __name__ == "__main__":
             "namespace": namespace,
             "novaspine_url": novaspine_url,
             "aion_feedback_source_preference": aion_source_pref,
-            "aion_feedback_source_selected": selected_source,
+            "aion_feedback_source_selected": selected_source_norm,
             "published": 0,
             "queued": int(len(events)),
             "failed": 0,

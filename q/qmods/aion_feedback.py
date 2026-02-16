@@ -34,6 +34,20 @@ def _uniq_str_flags(flags) -> list[str]:
     return out
 
 
+def normalize_source_tag(raw: str | None, default: str = "unknown") -> str:
+    tag = str(raw or "").strip().lower() or str(default)
+    if tag == "shadow":
+        return "shadow_trades"
+    return tag
+
+
+def normalize_source_preference(raw: str | None) -> str:
+    tag = str(raw or "").strip().lower() or "auto"
+    if tag in {"auto", "overlay", "shadow"}:
+        return tag
+    return "auto"
+
+
 def resolve_shadow_trades_path(root: Path | None = None) -> Path:
     env_path = str(os.getenv("Q_AION_SHADOW_TRADES", "")).strip()
     if env_path:
@@ -242,7 +256,7 @@ def choose_feedback_source(
     source_pref: str = "auto",
     prefer_overlay_when_fresh: bool = False,
 ) -> tuple[dict, str]:
-    pref = str(source_pref or "auto").strip().lower() or "auto"
+    pref = normalize_source_preference(source_pref)
     overlay_has = feedback_has_metrics(overlay_feedback)
     shadow_has = feedback_has_metrics(shadow_feedback)
     overlay_stale = feedback_is_stale(overlay_feedback)

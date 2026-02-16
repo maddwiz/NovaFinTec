@@ -115,3 +115,16 @@ def test_choose_feedback_source_can_prefer_overlay_when_fresh():
     )
     assert source == "overlay"
     assert selected.get("status") == "ok"
+
+
+def test_normalize_source_tag_maps_shadow_alias():
+    assert af.normalize_source_tag("shadow") == "shadow_trades"
+    assert af.normalize_source_tag("SHADOW") == "shadow_trades"
+    assert af.normalize_source_tag("overlay") == "overlay"
+
+
+def test_normalize_source_preference_accepts_known_values_and_falls_back():
+    assert af.normalize_source_preference("auto") == "auto"
+    assert af.normalize_source_preference("overlay") == "overlay"
+    assert af.normalize_source_preference("shadow") == "shadow"
+    assert af.normalize_source_preference("weird") == "auto"

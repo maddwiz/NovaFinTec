@@ -22,7 +22,13 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from qmods.aion_feedback import choose_feedback_source, feedback_has_metrics, load_outcome_feedback  # noqa: E402
+from qmods.aion_feedback import (  # noqa: E402
+    choose_feedback_source,
+    feedback_has_metrics,
+    load_outcome_feedback,
+    normalize_source_preference,
+    normalize_source_tag,
+)
 
 RUNS = ROOT / "runs_plus"
 RUNS.mkdir(exist_ok=True)
@@ -35,20 +41,6 @@ def _load_json(path: Path):
         return json.loads(path.read_text())
     except Exception:
         return None
-
-
-def _normalize_source_tag(raw: str | None, default: str = "unknown") -> str:
-    tag = str(raw or "").strip().lower() or str(default)
-    if tag == "shadow":
-        return "shadow_trades"
-    return tag
-
-
-def _normalize_source_preference(raw: str | None) -> str:
-    tag = str(raw or "").strip().lower() or "auto"
-    if tag in {"auto", "overlay", "shadow"}:
-        return tag
-    return "auto"
 
 
 def build_alert_payload(
@@ -131,7 +123,7 @@ def build_alert_payload(
     aion_feedback_max_age_hours = max_aion_feedback_age_hours
     aion_feedback_source = "none"
     aion_feedback_source_selected = "none"
-    aion_feedback_source_preference = _normalize_source_preference(aion_feedback_source_pref)
+    aion_feedback_source_preference = normalize_source_preference(aion_feedback_source_pref)
     shape = {}
     if isinstance(health, dict):
         shape = health.get("shape", {})
@@ -227,8 +219,8 @@ def build_alert_payload(
         prefer_overlay_when_fresh=True,
     )
     if feedback_has_metrics(af):
-        aion_feedback_source_selected = _normalize_source_tag(af_source, default="unknown")
-        source_from_payload = _normalize_source_tag(
+        aion_feedback_source_selected = normalize_source_tag(af_source, default="unknown")
+        source_from_payload = normalize_source_tag(
             af.get("source", af.get("source_selected", "unknown")),
             default="unknown",
         )
@@ -580,7 +572,7 @@ if __name__ == "__main__":
     max_hive_crowding_mean = float(os.getenv("Q_MAX_HIVE_CROWDING_MEAN", "0.65"))
     max_hive_entropy_strength_mean = float(os.getenv("Q_MAX_HIVE_ENTROPY_STRENGTH_MEAN", "0.90"))
     max_hive_entropy_target_mean = float(os.getenv("Q_MAX_HIVE_ENTROPY_TARGET_MEAN", "0.84"))
-    aion_feedback_source_pref = str(os.getenv("Q_AION_FEEDBACK_SOURCE", "auto")).strip().lower() or "auto"
+    aion_feedback_source_pref = normalize_source_preference(os.getenv("Q_AION_FEEDBACK_SOURCE", "auto"))
     max_aion_feedback_age_hours = float(
         os.getenv("Q_MAX_AION_FEEDBACK_AGE_HOURS", os.getenv("Q_AION_FEEDBACK_MAX_AGE_HOURS", "72"))
     )

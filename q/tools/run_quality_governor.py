@@ -27,7 +27,11 @@ from qmods.quality_governor import (  # noqa: E402
     hit_quality,
     sharpe_quality,
 )
-from qmods.aion_feedback import choose_feedback_source, load_outcome_feedback  # noqa: E402
+from qmods.aion_feedback import (  # noqa: E402
+    choose_feedback_source,
+    load_outcome_feedback,
+    normalize_source_preference,
+)
 
 RUNS = ROOT / "runs_plus"
 RUNS.mkdir(exist_ok=True)
@@ -822,7 +826,7 @@ if __name__ == "__main__":
         "quality_governor_max_abs_step": step_abs_max,
         "quality_governor_mean_abs_step": step_abs_mean,
         "quality_governor_max_step_cfg": max_step,
-        "aion_feedback_source_preference": str(os.getenv("Q_AION_FEEDBACK_SOURCE", "auto")).strip().lower() or "auto",
+        "aion_feedback_source_preference": normalize_source_preference(os.getenv("Q_AION_FEEDBACK_SOURCE", "auto")),
         "aion_feedback_selected_source": dict(aion_feedback_source),
         "length": int(T),
         "components": {
