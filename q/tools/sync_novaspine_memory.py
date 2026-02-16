@@ -554,6 +554,24 @@ if __name__ == "__main__":
     novaspine_token = str(os.getenv("C3AE_API_TOKEN", "")).strip() or http_token
 
     events = build_events()
+    aion_source_pref = "auto"
+    selected_source_norm = "unknown"
+    for ev in events:
+        if str(ev.get("event_type", "")).strip().lower() != "memory.feedback_state":
+            continue
+        payload = ev.get("payload", {})
+        if not isinstance(payload, dict):
+            continue
+        af = payload.get("aion_feedback", {})
+        if not isinstance(af, dict):
+            continue
+        pref = str(af.get("source_preference", "")).strip().lower()
+        sel = str(af.get("source_selected", "")).strip().lower()
+        if pref:
+            aion_source_pref = pref
+        if sel:
+            selected_source_norm = sel
+        break
     ns_counts = {}
     type_counts = {}
     for ev in events:

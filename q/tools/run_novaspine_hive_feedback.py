@@ -92,7 +92,7 @@ def _append_card(title, html):
 
 if __name__ == "__main__":
     enabled = str(os.getenv("C3_MEMORY_RECALL_ENABLE", "1")).strip().lower() in {"1", "true", "yes", "on"}
-    backend = str(os.getenv("C3_MEMORY_BACKEND", "novaspine_api")).strip().lower()
+    backend = str(os.getenv("C3_MEMORY_BACKEND", "filesystem")).strip().lower()
     base = str(os.getenv("C3_MEMORY_NOVASPINE_URL", "http://127.0.0.1:8420")).strip() or "http://127.0.0.1:8420"
     token = str(os.getenv("C3AE_API_TOKEN", "")).strip() or None
     top_k = int(max(1, int(float(os.getenv("C3_MEMORY_HIVE_RECALL_TOPK", "4")))))
@@ -177,7 +177,7 @@ if __name__ == "__main__":
             status = "unreachable"
             err = str(e)
     elif enabled:
-        status = "skipped"
+        status = "local_only"
     else:
         status = "disabled"
 

@@ -842,6 +842,32 @@ def save_runtime_controls(payload: dict):
         pass
 
 
+def save_runtime_controls_heartbeat(
+    *,
+    day_key: str,
+    trades_today: int,
+    open_positions: dict,
+    watchlist_size: int = 0,
+    status: str = "running",
+):
+    save_runtime_controls(
+        {
+            "ts": dt.datetime.now().isoformat(),
+            "day": str(day_key),
+            "loop_seconds": int(cfg.LOOP_SECONDS),
+            "watchlist_size": max(0, _safe_int(watchlist_size, 0)),
+            "trades_today": max(0, _safe_int(trades_today, 0)),
+            "open_positions": max(0, len(open_positions) if isinstance(open_positions, dict) else 0),
+            "max_trades_cap_runtime": int(cfg.MAX_TRADES_PER_DAY),
+            "max_open_positions_runtime": int(cfg.MAX_OPEN_POSITIONS),
+            "risk_per_trade_runtime": float(cfg.RISK_PER_TRADE),
+            "max_position_notional_pct_runtime": float(cfg.MAX_POSITION_NOTIONAL_PCT),
+            "max_gross_leverage_runtime": float(cfg.MAX_GROSS_LEVERAGE),
+            "heartbeat_status": str(status or "running"),
+        }
+    )
+
+
 def _position_pnl(position: dict, mark_price: float) -> float:
     qty = position["qty"]
     if position["side"] == "LONG":
@@ -1118,6 +1144,13 @@ def main() -> int:
                     for msg in monitor.check_alerts():
                         log_alert(msg)
                         log_run(f"ALERT: {msg}")
+                save_runtime_controls_heartbeat(
+                    day_key=day_key,
+                    trades_today=trades_today,
+                    open_positions=open_positions,
+                    watchlist_size=0,
+                    status="ib_unavailable",
+                )
                 save_runtime_state(day_key, cash, closed_pnl, trades_today, open_positions, cooldown)
                 time.sleep(cfg.LOOP_SECONDS)
                 continue
@@ -1152,6 +1185,13 @@ def main() -> int:
             profile = load_profile()
             if profile.get("trading_enabled") is False:
                 log_run("Adaptive profile disabled trading; sleeping.")
+                save_runtime_controls_heartbeat(
+                    day_key=day_key,
+                    trades_today=trades_today,
+                    open_positions=open_positions,
+                    watchlist_size=0,
+                    status="adaptive_disabled",
+                )
                 save_runtime_state(day_key, cash, closed_pnl, trades_today, open_positions, cooldown)
                 time.sleep(cfg.LOOP_SECONDS)
                 continue
@@ -1174,6 +1214,13 @@ def main() -> int:
             wl = load_watchlist()
             if not wl:
                 log_run("No watchlist found. Run universe_scan first. Sleeping.")
+                save_runtime_controls_heartbeat(
+                    day_key=day_key,
+                    trades_today=trades_today,
+                    open_positions=open_positions,
+                    watchlist_size=0,
+                    status="watchlist_missing",
+                )
                 save_runtime_state(day_key, cash, closed_pnl, trades_today, open_positions, cooldown)
                 time.sleep(cfg.LOOP_SECONDS)
                 continue

@@ -11,9 +11,14 @@ export IB_HOST="${IB_HOST:-127.0.0.1}"
 export IB_PORT="${IB_PORT:-4002}"
 export AION_MODE="${AION_MODE:-brain}"
 export AION_TASK="${AION_TASK:-trade}"
-export AION_SKIP_DOCTOR="${AION_SKIP_DOCTOR:-0}"
+export IB_CLIENT_ID="${IB_CLIENT_ID:-2731}"
+export AION_HIST_USE_RTH="${AION_HIST_USE_RTH:-0}"
+export AION_MAX_TRADES_PER_DAY="${AION_MAX_TRADES_PER_DAY:-15}"
+export AION_SKIP_DOCTOR="${AION_SKIP_DOCTOR:-1}"
+export AION_SKIP_UNIVERSE_SCAN="${AION_SKIP_UNIVERSE_SCAN:-1}"
+export AION_EXT_SIGNAL_BLOCK_CRITICAL_FLAGS="${AION_EXT_SIGNAL_BLOCK_CRITICAL_FLAGS:-fracture_alert,drift_alert,exec_risk_hard,hive_stress_alert,hive_crowding_alert,hive_entropy_alert,hive_turnover_alert,memory_turnover_alert,nested_leakage_alert}"
 export AION_DEGRADED_STARTUP="${AION_DEGRADED_STARTUP:-1}"
-export AION_AUTO_TUNE_ON_START="${AION_AUTO_TUNE_ON_START:-1}"
+export AION_AUTO_TUNE_ON_START="${AION_AUTO_TUNE_ON_START:-0}"
 export AION_AUTO_CLEAN_STALE_WORKERS="${AION_AUTO_CLEAN_STALE_WORKERS:-1}"
 export AION_AUTO_RESOLVE_IB_CONFLICT="${AION_AUTO_RESOLVE_IB_CONFLICT:-1}"
 export AION_AUTO_RESTART_IB_ON_TIMEOUT="${AION_AUTO_RESTART_IB_ON_TIMEOUT:-1}"
@@ -128,13 +133,17 @@ if [[ "$AION_MODE" == "brain" ]]; then
           fi
         fi
       fi
-      echo "[AION] Running brain universe scan..."
-      if ! "$PYTHON_BIN" -m aion.exec.universe_scan; then
-        if [[ "$AION_DEGRADED_STARTUP" == "1" && -s "$WATCHLIST_FILE" ]]; then
-          echo "[AION] WARN: universe scan failed; reusing existing watchlist at $WATCHLIST_FILE."
-        else
-          echo "[AION] ERROR: universe scan failed and no watchlist fallback is available."
-          exit 1
+      if [[ "$AION_SKIP_UNIVERSE_SCAN" == "1" && -s "$WATCHLIST_FILE" ]]; then
+        echo "[AION] Using existing watchlist; skipping universe scan."
+      else
+        echo "[AION] Running brain universe scan..."
+        if ! "$PYTHON_BIN" -m aion.exec.universe_scan; then
+          if [[ "$AION_DEGRADED_STARTUP" == "1" && -s "$WATCHLIST_FILE" ]]; then
+            echo "[AION] WARN: universe scan failed; reusing existing watchlist at $WATCHLIST_FILE."
+          else
+            echo "[AION] ERROR: universe scan failed and no watchlist fallback is available."
+            exit 1
+          fi
         fi
       fi
       if [[ "$AION_AUTO_TUNE_ON_START" == "1" ]]; then
