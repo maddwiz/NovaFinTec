@@ -145,3 +145,64 @@ def test_status_payload_includes_external_overlay_fields(tmp_path: Path, monkeyp
     assert s["runtime_controls_stale_threshold_sec"] >= 60
     assert s["runtime_controls_stale"] is False
     assert s["watchlist_count"] == 2
+
+
+def test_status_payload_falls_back_to_live_overlay_when_doctor_is_stale(tmp_path: Path, monkeypatch):
+    log_dir = tmp_path / "logs"
+    state_dir = tmp_path / "state"
+    ops_status = tmp_path / "ops_guard_status.json"
+    monkeypatch.setattr(dash.cfg, "LOG_DIR", log_dir)
+    monkeypatch.setattr(dash.cfg, "STATE_DIR", state_dir)
+    monkeypatch.setattr(dash.cfg, "OPS_GUARD_STATUS_FILE", ops_status)
+    monkeypatch.setattr(dash.cfg, "OPS_GUARD_TARGETS", ["trade", "dashboard"])
+    overlay_file = tmp_path / "q_signal_overlay.json"
+    monkeypatch.setattr(dash.cfg, "EXT_SIGNAL_FILE", overlay_file)
+    monkeypatch.setattr(dash.cfg, "EXT_SIGNAL_MAX_AGE_HOURS", 12.0)
+
+    doctor_path = log_dir / "doctor_report.json"
+    _write(
+        doctor_path,
+        {
+            "ok": True,
+            "checks": [
+                {
+                    "name": "external_overlay",
+                    "ok": False,
+                    "msg": "External overlay issues: quality_gate_not_ok",
+                    "details": {"quality_gate_ok": False, "signals": 0, "risk_flags": ["fracture_alert"]},
+                }
+            ],
+        },
+    )
+    old_ts = 946684800
+    os.utime(doctor_path, (old_ts, old_ts))
+
+    _write(log_dir / "runtime_monitor.json", {"alerts": [], "system_events": []})
+    _write(log_dir / "performance_report.json", {"trade_metrics": {"closed_trades": 1}, "equity_metrics": {}})
+    _write(state_dir / "strategy_profile.json", {"trading_enabled": True, "adaptive_stats": {}})
+    _write(
+        ops_status,
+        {
+            "running": {
+                "trade": {"running": True, "pids": [123]},
+                "dashboard": {"running": True, "pids": [456]},
+            }
+        },
+    )
+    _write(state_dir / "runtime_controls.json", {})
+    _write(
+        overlay_file,
+        {
+            "generated_at_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "signals": {"AAPL": {"bias": 0.2, "confidence": 0.8}},
+            "quality_gate": {"ok": True},
+            "runtime_context": {"runtime_multiplier": 0.93, "risk_flags": []},
+            "degraded_safe_mode": False,
+        },
+    )
+
+    s = dash._status_payload()
+    assert s["external_overlay_source"] == "live_check"
+    assert s["external_overlay_ok"] is True
+    assert "healthy" in str(s["external_overlay_msg"]).lower()
+    assert s["external_overlay"]["quality_gate_ok"] is True

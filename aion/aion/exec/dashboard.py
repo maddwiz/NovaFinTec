@@ -1,12 +1,14 @@
 import csv
 import errno
 import json
+import math
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 from urllib.request import urlopen
 
 from .. import config as cfg
+from .doctor import check_external_overlay
 from .runtime_decision import runtime_decision_summary
 from .runtime_health import (
     aion_feedback_runtime_info,
@@ -67,6 +69,13 @@ def _doctor_check(doctor: dict, name: str):
     return None
 
 
+def _mtime(path: Path) -> float | None:
+    try:
+        return float(path.stat().st_mtime)
+    except Exception:
+        return None
+
+
 def _is_aion_dashboard_running(host: str, port: int) -> bool:
     probe_hosts = [host]
     if host in {"0.0.0.0", "::"}:
@@ -86,7 +95,8 @@ def _is_aion_dashboard_running(host: str, port: int) -> bool:
 
 
 def _status_payload():
-    doctor = _read_json(cfg.LOG_DIR / "doctor_report.json", {})
+    doctor_path = cfg.LOG_DIR / "doctor_report.json"
+    doctor = _read_json(doctor_path, {})
     monitor = _read_json(cfg.LOG_DIR / "runtime_monitor.json", {})
     perf = _read_json(cfg.LOG_DIR / "performance_report.json", {})
     profile = _read_json(cfg.STATE_DIR / "strategy_profile.json", {})
@@ -104,6 +114,28 @@ def _status_payload():
     equity_metrics = perf.get("equity_metrics", {})
     ext = _doctor_check(doctor, "external_overlay") or {}
     ext_details = ext.get("details", {}) if isinstance(ext.get("details"), dict) else {}
+    ext_ok = bool(ext.get("ok", True))
+    ext_msg = ext.get("msg")
+    ext_source = "doctor_report"
+
+    doctor_mtime = _mtime(doctor_path)
+    overlay_mtime = _mtime(cfg.EXT_SIGNAL_FILE)
+    stale_doctor_vs_overlay = False
+    if isinstance(doctor_mtime, float) and isinstance(overlay_mtime, float):
+        stale_doctor_vs_overlay = bool(math.isfinite(doctor_mtime) and math.isfinite(overlay_mtime) and (overlay_mtime - doctor_mtime) > 120.0)
+
+    if (not isinstance(ext, dict)) or (len(ext) == 0) or stale_doctor_vs_overlay:
+        live_ok, live_msg, live_details = check_external_overlay(
+            cfg.EXT_SIGNAL_FILE,
+            max_age_hours=float(cfg.EXT_SIGNAL_MAX_AGE_HOURS),
+            require_runtime_context=True,
+        )
+        ext_ok = bool(live_ok)
+        ext_msg = live_msg
+        if isinstance(live_details, dict):
+            ext_details = live_details
+        ext_source = "live_check"
+
     risk_flags = ext_details.get("risk_flags", []) if isinstance(ext_details, dict) else []
     if not isinstance(risk_flags, list):
         risk_flags = []
@@ -156,8 +188,9 @@ def _status_payload():
         "ib": doctor.get("ib", {}),
         "doctor_ok": bool(doctor.get("ok", False)),
         "doctor_remediation": doctor.get("remediation", []),
-        "external_overlay_ok": bool(ext.get("ok", True)),
-        "external_overlay_msg": ext.get("msg"),
+        "external_overlay_ok": ext_ok,
+        "external_overlay_msg": ext_msg,
+        "external_overlay_source": ext_source,
         "external_overlay": ext_details,
         "external_overlay_runtime": ext_runtime,
         "external_overlay_risk_flags": risk_flags,
