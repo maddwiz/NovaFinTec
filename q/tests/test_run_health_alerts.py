@@ -424,6 +424,104 @@ def test_build_alert_payload_uses_system_health_shape_for_aion_feedback_when_ove
     assert any("aion_feedback_risk_scale<" in a for a in payload["alerts"])
 
 
+def test_build_alert_payload_uses_shadow_fallback_when_overlay_and_shape_missing():
+    payload = rha.build_alert_payload(
+        health={"health_score": 95, "issues": [], "shape": {}},
+        guards={"global_governor": {"mean": 0.85}},
+        nested={"assets": 4, "avg_oos_sharpe": 0.8},
+        quality={"quality_governor_mean": 0.88, "quality_score": 0.72},
+        immune={"ok": True, "pass": True},
+        pipeline={"failed_count": 0},
+        shock={"shock_rate": 0.05},
+        concentration={"stats": {"hhi_after": 0.12, "top1_after": 0.18}},
+        drift_watch={"drift": {"status": "ok", "latest_l1": 0.5}},
+        fracture={"state": "stable", "latest_score": 0.22},
+        overlay={},
+        aion_feedback_fallback={
+            "active": True,
+            "status": "alert",
+            "risk_scale": 0.72,
+            "closed_trades": 12,
+            "hit_rate": 0.34,
+            "profit_factor": 0.70,
+        },
+        thresholds={
+            "min_health_score": 70,
+            "min_global_governor_mean": 0.45,
+            "min_quality_gov_mean": 0.60,
+            "min_quality_score": 0.45,
+            "require_immune_pass": False,
+            "max_health_issues": 2,
+            "min_nested_sharpe": 0.2,
+            "min_nested_assets": 3,
+            "max_shock_rate": 0.25,
+            "max_concentration_hhi_after": 0.18,
+            "max_concentration_top1_after": 0.30,
+            "max_portfolio_l1_drift": 1.2,
+            "min_aion_feedback_risk_scale": 0.80,
+            "min_aion_feedback_closed_trades": 8,
+            "min_aion_feedback_hit_rate": 0.38,
+            "min_aion_feedback_profit_factor": 0.78,
+        },
+    )
+    assert any("aion_feedback_status=alert" in a for a in payload["alerts"])
+    assert any("aion_feedback_risk_scale<" in a for a in payload["alerts"])
+    assert payload["observed"]["aion_feedback_status"] == "alert"
+
+
+def test_build_alert_payload_prefers_overlay_over_shadow_fallback():
+    payload = rha.build_alert_payload(
+        health={"health_score": 95, "issues": [], "shape": {}},
+        guards={"global_governor": {"mean": 0.85}},
+        nested={"assets": 4, "avg_oos_sharpe": 0.8},
+        quality={"quality_governor_mean": 0.88, "quality_score": 0.72},
+        immune={"ok": True, "pass": True},
+        pipeline={"failed_count": 0},
+        shock={"shock_rate": 0.05},
+        concentration={"stats": {"hhi_after": 0.12, "top1_after": 0.18}},
+        drift_watch={"drift": {"status": "ok", "latest_l1": 0.5}},
+        fracture={"state": "stable", "latest_score": 0.22},
+        overlay={
+            "runtime_context": {
+                "aion_feedback": {
+                    "active": True,
+                    "status": "ok",
+                    "risk_scale": 0.95,
+                    "closed_trades": 20,
+                    "hit_rate": 0.52,
+                    "profit_factor": 1.18,
+                }
+            }
+        },
+        aion_feedback_fallback={
+            "active": True,
+            "status": "alert",
+            "risk_scale": 0.70,
+            "closed_trades": 20,
+        },
+        thresholds={
+            "min_health_score": 70,
+            "min_global_governor_mean": 0.45,
+            "min_quality_gov_mean": 0.60,
+            "min_quality_score": 0.45,
+            "require_immune_pass": False,
+            "max_health_issues": 2,
+            "min_nested_sharpe": 0.2,
+            "min_nested_assets": 3,
+            "max_shock_rate": 0.25,
+            "max_concentration_hhi_after": 0.18,
+            "max_concentration_top1_after": 0.30,
+            "max_portfolio_l1_drift": 1.2,
+            "min_aion_feedback_risk_scale": 0.80,
+            "min_aion_feedback_closed_trades": 8,
+            "min_aion_feedback_hit_rate": 0.38,
+            "min_aion_feedback_profit_factor": 0.78,
+        },
+    )
+    assert not any("aion_feedback_status=alert" in a for a in payload["alerts"])
+    assert payload["observed"]["aion_feedback_status"] == "ok"
+
+
 def test_build_alert_payload_prefers_overlay_aion_feedback_over_shape():
     payload = rha.build_alert_payload(
         health={

@@ -13,11 +13,17 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from qmods.aion_feedback import load_outcome_feedback  # noqa: E402
+
 RUNS = ROOT / "runs_plus"
 RUNS.mkdir(exist_ok=True)
 
@@ -44,7 +50,38 @@ def build_alert_payload(
     thresholds: dict,
     fracture: dict | None = None,
     overlay: dict | None = None,
+    aion_feedback_fallback: dict | None = None,
 ):
+    def _has_aion_feedback_metrics(af: dict | None) -> bool:
+        if not isinstance(af, dict):
+            return False
+        if bool(af.get("active", False)):
+            return True
+        status = str(af.get("status", "unknown")).strip().lower()
+        if status not in {"", "unknown", "missing"}:
+            return True
+        try:
+            if int(af.get("closed_trades", 0)) > 0:
+                return True
+        except Exception:
+            pass
+        try:
+            risk_scale = float(af.get("risk_scale", np.nan))
+            if np.isfinite(risk_scale) and abs(risk_scale - 1.0) > 1e-9:
+                return True
+        except Exception:
+            pass
+        if bool(af.get("stale", False)):
+            return True
+        for key in ["hit_rate", "profit_factor", "expectancy", "drawdown_norm", "age_hours", "max_age_hours"]:
+            try:
+                v = float(af.get(key, np.nan))
+            except Exception:
+                continue
+            if np.isfinite(v):
+                return True
+        return False
+
     min_health = float(thresholds.get("min_health_score", 70.0))
     min_global = float(thresholds.get("min_global_governor_mean", 0.45))
     min_quality_gov = float(thresholds.get("min_quality_gov_mean", 0.60))
@@ -194,7 +231,7 @@ def build_alert_payload(
         rt = overlay.get("runtime_context", {})
         if isinstance(rt, dict):
             af = rt.get("aion_feedback", {})
-            if isinstance(af, dict):
+            if _has_aion_feedback_metrics(af):
                 aion_feedback_active = bool(af.get("active", False))
                 aion_feedback_status = str(af.get("status", "unknown")).strip().lower() or "unknown"
                 try:
@@ -225,6 +262,39 @@ def build_alert_payload(
                     aion_feedback_max_age_hours = float(af.get("max_age_hours", max_aion_feedback_age_hours))
                 except Exception:
                     aion_feedback_max_age_hours = max_aion_feedback_age_hours
+
+    if (not aion_feedback_active) and _has_aion_feedback_metrics(aion_feedback_fallback):
+        af = aion_feedback_fallback
+        aion_feedback_active = bool(af.get("active", False))
+        aion_feedback_status = str(af.get("status", "unknown")).strip().lower() or "unknown"
+        try:
+            aion_feedback_risk_scale = float(af.get("risk_scale", np.nan))
+        except Exception:
+            aion_feedback_risk_scale = None
+        try:
+            aion_feedback_closed_trades = int(af.get("closed_trades", 0))
+        except Exception:
+            aion_feedback_closed_trades = None
+        try:
+            aion_feedback_hit_rate = float(af.get("hit_rate", np.nan))
+        except Exception:
+            aion_feedback_hit_rate = None
+        try:
+            aion_feedback_profit_factor = float(af.get("profit_factor", np.nan))
+        except Exception:
+            aion_feedback_profit_factor = None
+        try:
+            aion_feedback_age_hours = float(af.get("age_hours", np.nan))
+        except Exception:
+            aion_feedback_age_hours = None
+        try:
+            aion_feedback_stale = bool(af.get("stale", False))
+        except Exception:
+            aion_feedback_stale = False
+        try:
+            aion_feedback_max_age_hours = float(af.get("max_age_hours", max_aion_feedback_age_hours))
+        except Exception:
+            aion_feedback_max_age_hours = max_aion_feedback_age_hours
 
     if (not aion_feedback_active) and isinstance(shape, dict):
         try:
@@ -548,6 +618,7 @@ if __name__ == "__main__":
     drift_watch = _load_json(RUNS / "portfolio_drift_watch.json") or {}
     fracture = _load_json(RUNS / "regime_fracture_info.json") or {}
     overlay = _load_json(RUNS / "q_signal_overlay.json") or {}
+    fallback_aion_feedback = load_outcome_feedback(root=ROOT, mark_stale_reason=False)
     payload = build_alert_payload(
         health=health,
         guards=guards,
@@ -560,6 +631,7 @@ if __name__ == "__main__":
         drift_watch=drift_watch,
         fracture=fracture,
         overlay=overlay,
+        aion_feedback_fallback=fallback_aion_feedback,
         thresholds={
             "min_health_score": min_health,
             "min_global_governor_mean": min_global,
