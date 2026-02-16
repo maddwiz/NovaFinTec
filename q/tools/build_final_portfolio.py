@@ -44,15 +44,35 @@ TRACE_STEPS = [
 ]
 
 
+def _load_governor_profile() -> dict:
+    p = RUNS / "governor_profile.json"
+    if not p.exists():
+        return {}
+    try:
+        obj = json.loads(p.read_text())
+    except Exception:
+        return {}
+    return obj if isinstance(obj, dict) else {}
+
+
+_GOV_PROFILE = _load_governor_profile()
+
+
 def _disabled_governors() -> set[str]:
     raw = str(os.getenv("Q_DISABLE_GOVERNORS", "")).strip()
-    if not raw:
-        return set()
     out = set()
-    for token in raw.split(","):
-        t = str(token).strip().lower()
-        if t:
-            out.add(t)
+    if raw:
+        for token in raw.split(","):
+            t = str(token).strip().lower()
+            if t:
+                out.add(t)
+        return out
+    vals = _GOV_PROFILE.get("disable_governors", [])
+    if isinstance(vals, list):
+        for token in vals:
+            t = str(token).strip().lower()
+            if t:
+                out.add(t)
     return out
 
 
@@ -61,6 +81,19 @@ _DISABLED_GOVS = _disabled_governors()
 
 def _gov_enabled(name: str) -> bool:
     return str(name).strip().lower() not in _DISABLED_GOVS
+
+def _runtime_total_floor_default() -> float:
+    env_raw = str(os.getenv("Q_RUNTIME_TOTAL_FLOOR", "")).strip()
+    if env_raw:
+        try:
+            return float(np.clip(float(env_raw), 0.0, 1.0))
+        except Exception:
+            pass
+    try:
+        prof_v = float(_GOV_PROFILE.get("runtime_total_floor", 0.25))
+    except Exception:
+        prof_v = 0.25
+    return float(np.clip(prof_v, 0.0, 1.0))
 
 
 def _auto_turnover_govern(w: np.ndarray):
@@ -394,7 +427,7 @@ if __name__ == "__main__":
         _trace_put("shock_mask_guard", sc.ravel())
 
     # 23) Runtime floor guard: avoid excessive exposure collapse from stacked governors.
-    runtime_floor = float(np.clip(float(os.getenv("Q_RUNTIME_TOTAL_FLOOR", "0.25")), 0.0, 1.0))
+    runtime_floor = _runtime_total_floor_default()
     if _gov_enabled("runtime_floor") and runtime_floor > 0.0:
         active_keys = [k for k in TRACE_STEPS if (k in trace and k != "runtime_floor")]
         if active_keys:
@@ -457,7 +490,7 @@ if __name__ == "__main__":
                 "T": int(T),
                 "N": int(N),
                 "disabled_governors": sorted(list(_DISABLED_GOVS)),
-                "runtime_total_floor_target": float(np.clip(float(os.getenv("Q_RUNTIME_TOTAL_FLOOR", "0.25")), 0.0, 1.0)),
+                "runtime_total_floor_target": _runtime_total_floor_default(),
                 "governor_trace_file": str(RUNS / "final_governor_trace.csv"),
                 "runtime_total_scalar_mean": float(np.mean(trace_total)),
                 "runtime_total_scalar_min": float(np.min(trace_total)),
