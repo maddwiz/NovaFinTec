@@ -21,6 +21,7 @@ def _cfg(**kwargs):
         "MEMORY_NAMESPACE": "private/nova/actions",
         "MEMORY_OUTBOX_DIR": Path("logs") / "novaspine_outbox_aion",
         "MEMORY_TIMEOUT_SEC": 3.0,
+        "MEMORY_FAIL_COOLDOWN_SEC": 120.0,
         "MEMORY_SOURCE_PREFIX": "aion",
         "MEMORY_TOKEN": "",
         "MEMORY_NOVASPINE_URL": "http://127.0.0.1:8420",
@@ -204,3 +205,65 @@ def test_emit_trade_event_novaspine_api_cooldown_short_circuits(tmp_path: Path, 
     assert "unreachable" in str(out1.get("error", ""))
     assert str(out2.get("error", "")).startswith("cooldown_active")
     assert calls["n"] == 1
+
+
+def test_replay_trade_outbox_novaspine_api_success_moves_file(tmp_path: Path, monkeypatch):
+    calls = {"health": 0, "ingest": 0}
+
+    def _fake_json_request(url, method="GET", payload=None, token=None, timeout_sec=6.0):
+        if str(url).endswith("/api/v1/health"):
+            calls["health"] += 1
+            return 200, {"ok": True}
+        if str(url).endswith("/api/v1/memory/ingest"):
+            calls["ingest"] += 1
+            return 200, {"ok": True}
+        return 404, None
+
+    monkeypatch.setattr(nsb, "_json_request", _fake_json_request)
+    events = [
+        {"event_type": "trade.entry", "payload": {"symbol": "AAPL"}},
+        {"event_type": "trade.exit", "payload": {"symbol": "AAPL"}},
+    ]
+    nsb.write_jsonl_outbox(events, outbox_dir=tmp_path, prefix="batch")
+
+    out = nsb.replay_trade_outbox(_cfg(MEMORY_BACKEND="novaspine_api", MEMORY_OUTBOX_DIR=tmp_path))
+    assert out["ok"] is True
+    assert out["backend"] == "novaspine_api"
+    assert out["replayed"] == 2
+    assert out["failed"] == 0
+    assert out["processed_files"] == 1
+    assert out["remaining_files"] == 0
+    assert len(list((tmp_path / "sent").glob("*.jsonl"))) == 1
+    assert calls["health"] == 1
+    assert calls["ingest"] == 2
+
+
+def test_replay_trade_outbox_partial_failure_keeps_failed_events(tmp_path: Path, monkeypatch):
+    calls = {"ingest": 0}
+
+    def _fake_json_request(url, method="GET", payload=None, token=None, timeout_sec=6.0):
+        if str(url).endswith("/api/v1/health"):
+            return 200, {"ok": True}
+        if str(url).endswith("/api/v1/memory/ingest"):
+            calls["ingest"] += 1
+            if calls["ingest"] == 1:
+                return 200, {"ok": True}
+            return 503, {"ok": False}
+        return 404, None
+
+    monkeypatch.setattr(nsb, "_json_request", _fake_json_request)
+    events = [
+        {"event_type": "trade.entry", "payload": {"symbol": "AAPL"}},
+        {"event_type": "trade.exit", "payload": {"symbol": "AAPL"}},
+    ]
+    batch = nsb.write_jsonl_outbox(events, outbox_dir=tmp_path, prefix="batch")
+
+    out = nsb.replay_trade_outbox(_cfg(MEMORY_BACKEND="novaspine_api", MEMORY_OUTBOX_DIR=tmp_path))
+    assert out["ok"] is False
+    assert out["replayed"] == 1
+    assert out["failed"] == 1
+    assert out["remaining_files"] == 1
+    lines = batch.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 1
+    row = json.loads(lines[0])
+    assert row["event_type"] == "trade.exit"

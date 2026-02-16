@@ -66,6 +66,40 @@ def write_jsonl_outbox(events: list[dict], outbox_dir: Path, prefix: str = "aion
     return p
 
 
+def _load_jsonl_outbox(path: Path) -> list[dict]:
+    out = []
+    try:
+        lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
+    except Exception:
+        return []
+    for ln in lines:
+        s = str(ln).strip()
+        if not s:
+            continue
+        try:
+            row = json.loads(s)
+        except Exception:
+            continue
+        if isinstance(row, dict):
+            out.append(_normalize_event(row))
+    return out
+
+
+def _rewrite_jsonl_outbox(path: Path, events: list[dict]):
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with tmp.open("w", encoding="utf-8") as f:
+        for ev in events:
+            f.write(json.dumps(ev, separators=(",", ":"), ensure_ascii=True) + "\n")
+    tmp.replace(path)
+
+
+def _resolve_outbox_dir(cfg) -> Path:
+    outbox_raw = getattr(cfg, "MEMORY_OUTBOX_DIR", Path("logs") / "novaspine_outbox_aion")
+    if outbox_raw is None or str(outbox_raw).strip() == "":
+        outbox_raw = Path("logs") / "novaspine_outbox_aion"
+    return Path(outbox_raw)
+
+
 def _json_request(
     url: str,
     method: str = "GET",
@@ -200,10 +234,7 @@ def emit_trade_event(event: dict, cfg) -> dict:
 
     backend = str(getattr(cfg, "MEMORY_BACKEND", "filesystem")).strip().lower()
     namespace = str(getattr(cfg, "MEMORY_NAMESPACE", "private/nova/actions")).strip() or "private/nova/actions"
-    outbox_raw = getattr(cfg, "MEMORY_OUTBOX_DIR", Path("logs") / "novaspine_outbox_aion")
-    if outbox_raw is None or str(outbox_raw).strip() == "":
-        outbox_raw = Path("logs") / "novaspine_outbox_aion"
-    outbox_dir = Path(outbox_raw)
+    outbox_dir = _resolve_outbox_dir(cfg)
     timeout_sec = float(getattr(cfg, "MEMORY_TIMEOUT_SEC", 6.0))
     fail_cooldown_sec = max(0.0, float(getattr(cfg, "MEMORY_FAIL_COOLDOWN_SEC", 120.0)))
     source_prefix = str(getattr(cfg, "MEMORY_SOURCE_PREFIX", "aion")).strip() or "aion"
@@ -291,4 +322,179 @@ def emit_trade_event(event: dict, cfg) -> dict:
         "failed": 0,
         "outbox_file": str(p),
         "error": "unknown_backend",
+    }
+
+
+def replay_trade_outbox(cfg, max_files: int = 4, max_events: int = 200) -> dict:
+    global _LAST_API_FAIL_TS
+
+    enabled = bool(getattr(cfg, "MEMORY_ENABLE", False))
+    if not enabled:
+        return {
+            "ok": True,
+            "backend": "disabled",
+            "replayed": 0,
+            "failed": 0,
+            "processed_files": 0,
+            "moved_files": 0,
+            "remaining_files": 0,
+        }
+
+    backend = str(getattr(cfg, "MEMORY_BACKEND", "filesystem")).strip().lower()
+    outbox_dir = _resolve_outbox_dir(cfg)
+    outbox_dir.mkdir(parents=True, exist_ok=True)
+    sent_dir = outbox_dir / "sent"
+    sent_dir.mkdir(parents=True, exist_ok=True)
+    files = sorted([p for p in outbox_dir.glob("*.jsonl") if p.is_file()], key=lambda p: p.name)
+    queued_files = int(len(files))
+
+    if backend in {"filesystem", "file", "local"}:
+        return {
+            "ok": True,
+            "backend": "filesystem",
+            "replayed": 0,
+            "failed": 0,
+            "processed_files": 0,
+            "moved_files": 0,
+            "queued_files": queued_files,
+            "remaining_files": queued_files,
+            "reason": "filesystem_backend",
+        }
+
+    if backend not in {"novaspine", "novaspine_api", "c3ae"}:
+        return {
+            "ok": False,
+            "backend": backend,
+            "replayed": 0,
+            "failed": 0,
+            "processed_files": 0,
+            "moved_files": 0,
+            "queued_files": queued_files,
+            "remaining_files": queued_files,
+            "error": "unknown_backend",
+        }
+
+    if queued_files <= 0:
+        return {
+            "ok": True,
+            "backend": "novaspine_api",
+            "replayed": 0,
+            "failed": 0,
+            "processed_files": 0,
+            "moved_files": 0,
+            "queued_files": 0,
+            "remaining_files": 0,
+        }
+
+    timeout_sec = float(getattr(cfg, "MEMORY_TIMEOUT_SEC", 6.0))
+    fail_cooldown_sec = max(0.0, float(getattr(cfg, "MEMORY_FAIL_COOLDOWN_SEC", 120.0)))
+    namespace = str(getattr(cfg, "MEMORY_NAMESPACE", "private/nova/actions")).strip() or "private/nova/actions"
+    source_prefix = str(getattr(cfg, "MEMORY_SOURCE_PREFIX", "aion")).strip() or "aion"
+    token = str(getattr(cfg, "MEMORY_TOKEN", "")).strip() or None
+    base = _base_url(getattr(cfg, "MEMORY_NOVASPINE_URL", "http://127.0.0.1:8420"), "http://127.0.0.1:8420")
+    health_url = parse.urljoin(base + "/", "api/v1/health")
+    ingest_url = parse.urljoin(base + "/", "api/v1/memory/ingest")
+
+    if _LAST_API_FAIL_TS > 0 and fail_cooldown_sec > 0:
+        dt_sec = time.monotonic() - float(_LAST_API_FAIL_TS)
+        if dt_sec < fail_cooldown_sec:
+            return {
+                "ok": False,
+                "backend": "novaspine_api",
+                "replayed": 0,
+                "failed": 0,
+                "processed_files": 0,
+                "moved_files": 0,
+                "queued_files": queued_files,
+                "remaining_files": queued_files,
+                "error": f"cooldown_active:{dt_sec:.2f}s<{fail_cooldown_sec:.2f}s",
+            }
+
+    try:
+        code, _ = _json_request(health_url, method="GET", token=token, timeout_sec=timeout_sec)
+        if not (200 <= int(code) < 300):
+            raise RuntimeError(f"health_status_{code}")
+    except Exception as exc:
+        _LAST_API_FAIL_TS = time.monotonic()
+        return {
+            "ok": False,
+            "backend": "novaspine_api",
+            "replayed": 0,
+            "failed": 0,
+            "processed_files": 0,
+            "moved_files": 0,
+            "queued_files": queued_files,
+            "remaining_files": queued_files,
+            "error": f"unreachable:{exc}",
+        }
+
+    processed_files = 0
+    moved_files = 0
+    replayed = 0
+    failed = 0
+    replay_budget = max(1, int(max_events))
+    file_budget = max(1, int(max_files))
+    last_err = None
+
+    for p in files:
+        if processed_files >= file_budget or replay_budget <= 0:
+            break
+        events = _load_jsonl_outbox(p)
+        processed_files += 1
+        if not events:
+            try:
+                p.rename(sent_dir / p.name)
+                moved_files += 1
+            except Exception:
+                pass
+            continue
+
+        remaining: list[dict] = []
+        for idx, ev in enumerate(events):
+            if replay_budget <= 0:
+                remaining.extend(events[idx:])
+                break
+            payload = _event_to_novaspine_ingest(ev, namespace=namespace, source_prefix=source_prefix)
+            try:
+                code, _ = _json_request(ingest_url, method="POST", payload=payload, token=token, timeout_sec=timeout_sec)
+                if 200 <= int(code) < 300:
+                    replayed += 1
+                else:
+                    failed += 1
+                    remaining.append(ev)
+                    last_err = f"ingest_status_{code}"
+            except Exception as exc:
+                failed += 1
+                remaining.append(ev)
+                last_err = str(exc)
+            replay_budget -= 1
+
+        if remaining:
+            try:
+                _rewrite_jsonl_outbox(p, remaining)
+            except Exception:
+                last_err = last_err or "outbox_rewrite_failed"
+        else:
+            try:
+                p.rename(sent_dir / p.name)
+                moved_files += 1
+            except Exception:
+                last_err = last_err or "outbox_move_failed"
+
+    if failed > 0:
+        _LAST_API_FAIL_TS = time.monotonic()
+    else:
+        _LAST_API_FAIL_TS = 0.0
+
+    remaining_files = int(len([p for p in outbox_dir.glob("*.jsonl") if p.is_file()]))
+    return {
+        "ok": failed == 0 and last_err is None,
+        "backend": "novaspine_api",
+        "replayed": int(replayed),
+        "failed": int(failed),
+        "processed_files": int(processed_files),
+        "moved_files": int(moved_files),
+        "queued_files": int(queued_files),
+        "remaining_files": int(remaining_files),
+        "error": last_err,
     }

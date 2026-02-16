@@ -16,7 +16,7 @@ from ..brain.external_signals import (
     load_external_signal_bundle,
     runtime_overlay_scale,
 )
-from ..brain.novaspine_bridge import build_trade_event, emit_trade_event
+from ..brain.novaspine_bridge import build_trade_event, emit_trade_event, replay_trade_outbox
 from ..data.ib_client import disconnect, hist_bars_cached, ib
 from ..execution.simulator import ExecutionSimulator
 from ..ml.meta_label import MetaLabelModel
@@ -1063,6 +1063,7 @@ def main() -> int:
     last_exec_governor_sig = None
     last_memory_feedback_sig = None
     last_aion_feedback_sig = None
+    last_memory_replay_ts = 0.0
 
     if cfg.META_LABEL_ENABLED:
         samples = meta_model.fit_from_trades(cfg.LOG_DIR / "shadow_trades.csv")
@@ -1094,6 +1095,31 @@ def main() -> int:
                 save_runtime_state(day_key, cash, closed_pnl, trades_today, open_positions, cooldown)
                 time.sleep(cfg.LOOP_SECONDS)
                 continue
+
+            if bool(getattr(cfg, "MEMORY_REPLAY_ENABLED", True)) and bool(getattr(cfg, "MEMORY_ENABLE", False)):
+                replay_interval = max(5.0, float(getattr(cfg, "MEMORY_REPLAY_INTERVAL_SEC", 300.0)))
+                now_mono = time.monotonic()
+                if (now_mono - float(last_memory_replay_ts)) >= replay_interval:
+                    replay_res = replay_trade_outbox(
+                        cfg,
+                        max_files=max(1, int(getattr(cfg, "MEMORY_REPLAY_MAX_FILES", 4))),
+                        max_events=max(1, int(getattr(cfg, "MEMORY_REPLAY_MAX_EVENTS", 200))),
+                    )
+                    last_memory_replay_ts = now_mono
+                    replayed = int(replay_res.get("replayed", 0))
+                    failed = int(replay_res.get("failed", 0))
+                    if replayed > 0 or failed > 0:
+                        msg = (
+                            "NovaSpine outbox replay "
+                            f"replayed={replayed} failed={failed} "
+                            f"processed_files={int(replay_res.get('processed_files', 0))} "
+                            f"remaining_files={int(replay_res.get('remaining_files', 0))}"
+                        )
+                        if replay_res.get("error"):
+                            msg += f" error={replay_res.get('error')}"
+                        log_run(msg)
+                        if cfg.MONITORING_ENABLED and failed > 0:
+                            monitor.record_system_event("novaspine_replay_fail", msg)
 
             profile = load_profile()
             if profile.get("trading_enabled") is False:
