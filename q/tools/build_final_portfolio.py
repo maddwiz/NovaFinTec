@@ -90,9 +90,9 @@ def _runtime_total_floor_default() -> float:
         except Exception:
             pass
     try:
-        prof_v = float(_GOV_PROFILE.get("runtime_total_floor", 0.25))
+        prof_v = float(_GOV_PROFILE.get("runtime_total_floor", 0.10))
     except Exception:
-        prof_v = 0.25
+        prof_v = 0.10
     return float(np.clip(prof_v, 0.0, 1.0))
 
 

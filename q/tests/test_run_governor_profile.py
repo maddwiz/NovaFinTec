@@ -33,5 +33,4 @@ def test_build_governor_profile_marks_neutral_and_protected_governors():
     assert "quality_governor" not in disable
     assert "runtime_floor" not in disable
     floor = float(out["runtime_total_floor"])
-    assert 0.20 <= floor <= 0.35
-    assert floor >= 0.22
+    assert 0.05 <= floor <= 0.15

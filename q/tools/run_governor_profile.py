@@ -55,7 +55,7 @@ def build_governor_profile(
             "ok": False,
             "reason": "missing_trace",
             "disable_governors": [],
-            "runtime_total_floor": 0.25,
+            "runtime_total_floor": 0.10,
             "governors": [],
         }
 
@@ -109,7 +109,9 @@ def build_governor_profile(
     p10 = float(np.percentile(rtv, 10))
     p25 = float(np.percentile(rtv, 25))
     p50 = float(np.percentile(rtv, 50))
-    floor_target = float(np.clip(max(0.22, p25), 0.20, 0.35))
+    # Keep a light anti-collapse floor by default; aggressive floors can
+    # suppress valid exposure and flatten Sharpe.
+    floor_target = float(np.clip(max(0.05, min(0.10, p10)), 0.05, 0.15))
 
     return {
         "ok": True,
@@ -169,12 +171,12 @@ def main():
         "Profile: disable=%d | runtime_total(mean/p25/min)=%.3f/%.3f/%.3f | runtime_floor=%.3f"
         % (
             len(disable),
-            _safe_float(rt.get("mean"), 0.0),
-            _safe_float(rt.get("p25"), 0.0),
-            _safe_float(rt.get("min"), 0.0),
-            _safe_float(prof.get("runtime_total_floor"), 0.25),
+                _safe_float(rt.get("mean"), 0.0),
+                _safe_float(rt.get("p25"), 0.0),
+                _safe_float(rt.get("min"), 0.0),
+                _safe_float(prof.get("runtime_total_floor"), 0.10),
+            )
         )
-    )
     if disable:
         print("Disable candidates:", ", ".join(disable))
     return 0
