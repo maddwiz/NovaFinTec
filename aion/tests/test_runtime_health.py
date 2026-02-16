@@ -148,6 +148,18 @@ def test_memory_feedback_runtime_info_falls_back_to_overlay_context():
     assert "turnover_guard:alert" in out["reasons"]
 
 
+def test_memory_feedback_runtime_info_defaults_inactive_when_missing():
+    out = memory_feedback_runtime_info({}, {})
+    assert out["source"] == "none"
+    assert out["present"] is False
+    assert out["state"] == "inactive"
+    assert out["severity"] == 0
+    assert out["risk_scale"] is None
+    assert out["turnover_pressure"] is None
+    assert out["turnover_dampener"] is None
+    assert out["reasons"] == []
+
+
 def test_overlay_runtime_status_prefers_payload_timestamp_over_mtime(tmp_path: Path):
     p = tmp_path / "overlay.json"
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")

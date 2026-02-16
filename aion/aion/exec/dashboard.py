@@ -284,6 +284,7 @@ def _html_template():
         runtime_controls: s.runtime_controls,
         runtime_decision: s.runtime_decision,
         aion_feedback_runtime: s.aion_feedback_runtime,
+        memory_feedback_runtime: s.memory_feedback_runtime,
         runtime_controls_age_sec: s.runtime_controls_age_sec,
         runtime_controls_stale_threshold_sec: s.runtime_controls_stale_threshold_sec,
         runtime_controls_stale: s.runtime_controls_stale,
