@@ -365,6 +365,10 @@ def _overlay_remediation(checks: list[dict], overlay_path: Path) -> list[str]:
         add_tip("Hive entropy ALERT is active. Re-run `q/tools/run_cross_hive.py` with stronger diversification pressure.")
     elif "hive_entropy_warn" in flags:
         add_tip("Hive entropy WARN is active. Review entropy schedule and regime allocations before restoring risk.")
+    if "hive_turnover_alert" in flags:
+        add_tip("Hive turnover ALERT is active. Tighten cross-hive turnover caps and verify rolling turnover budget in cross_hive_summary.json.")
+    elif "hive_turnover_warn" in flags:
+        add_tip("Hive turnover WARN is active. Check cross-hive churn and lower turnover limits before increasing risk.")
     if "heartbeat_alert" in flags:
         add_tip("Heartbeat ALERT is active. Treat volatility metabolism as stressed and keep AION in defensive mode.")
     elif "heartbeat_warn" in flags:

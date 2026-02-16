@@ -218,6 +218,17 @@ def test_runtime_risk_caps_hive_entropy_alert_tightens_caps():
     assert opens <= 3
 
 
+def test_runtime_risk_caps_hive_turnover_alert_tightens_caps():
+    trades, opens = _runtime_risk_caps(
+        max_trades_cap=20,
+        max_open_positions_cap=8,
+        ext_runtime_scale=1.0,
+        ext_runtime_diag={"flags": ["hive_turnover_alert"], "degraded": False, "quality_gate_ok": True, "regime": "balanced"},
+    )
+    assert trades <= 12
+    assert opens <= 2
+
+
 def test_runtime_position_risk_scale_hive_entropy_alert_tighter_than_warn():
     s_warn = _runtime_position_risk_scale(
         ext_runtime_scale=1.0,
@@ -226,6 +237,18 @@ def test_runtime_position_risk_scale_hive_entropy_alert_tighter_than_warn():
     s_alert = _runtime_position_risk_scale(
         ext_runtime_scale=1.0,
         ext_runtime_diag={"flags": ["hive_entropy_alert"], "degraded": False, "quality_gate_ok": True, "regime": "balanced"},
+    )
+    assert 0.2 <= s_alert < s_warn < 1.0
+
+
+def test_runtime_position_risk_scale_hive_turnover_alert_tighter_than_warn():
+    s_warn = _runtime_position_risk_scale(
+        ext_runtime_scale=1.0,
+        ext_runtime_diag={"flags": ["hive_turnover_warn"], "degraded": False, "quality_gate_ok": True, "regime": "balanced"},
+    )
+    s_alert = _runtime_position_risk_scale(
+        ext_runtime_scale=1.0,
+        ext_runtime_diag={"flags": ["hive_turnover_alert"], "degraded": False, "quality_gate_ok": True, "regime": "balanced"},
     )
     assert 0.2 <= s_alert < s_warn < 1.0
 

@@ -43,6 +43,7 @@ def _canonicalize_flags(flags) -> list[str]:
         ("hive_stress_alert", "hive_stress_warn"),
         ("hive_crowding_alert", "hive_crowding_warn"),
         ("hive_entropy_alert", "hive_entropy_warn"),
+        ("hive_turnover_alert", "hive_turnover_warn"),
         ("aion_outcome_alert", "aion_outcome_warn"),
         ("heartbeat_alert", "heartbeat_warn"),
         ("council_divergence_alert", "council_divergence_warn"),
@@ -398,6 +399,10 @@ def runtime_overlay_scale(
         if "hive_entropy_alert" in flags:
             scale *= float(_clamp(hive_stress_alert_scale, 0.20, 1.20))
         elif "hive_entropy_warn" in flags:
+            scale *= float(_clamp(hive_stress_warn_scale, 0.20, 1.20))
+        if "hive_turnover_alert" in flags:
+            scale *= float(_clamp(hive_stress_alert_scale, 0.20, 1.20))
+        elif "hive_turnover_warn" in flags:
             scale *= float(_clamp(hive_stress_warn_scale, 0.20, 1.20))
         if "heartbeat_alert" in flags:
             scale *= float(_clamp(heartbeat_alert_scale, 0.20, 1.20))

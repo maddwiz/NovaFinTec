@@ -73,6 +73,24 @@ def test_runtime_decision_summary_hive_entropy_adds_targeted_action():
     assert any(a.get("id") == "hive_entropy_regime_reset" for a in out["recommended_actions"])
 
 
+def test_runtime_decision_summary_hive_turnover_adds_targeted_action():
+    out = runtime_decision_summary(
+        runtime_controls={
+            "overlay_block_new_entries": False,
+            "policy_block_new_entries": False,
+            "external_position_risk_scale": 0.90,
+            "external_runtime_scale": 0.90,
+            "exec_governor_state": "ok",
+            "memory_feedback_status": "ok",
+        },
+        external_overlay_runtime={"stale": False},
+        external_overlay_risk_flags=["hive_turnover_alert"],
+    )
+    assert out["throttle_state"] in {"warn", "alert"}
+    assert "hive_turnover_alert" in out["throttle_reasons"]
+    assert any(a.get("id") == "hive_turnover_throttle" for a in out["recommended_actions"])
+
+
 def test_runtime_decision_summary_aion_outcome_adds_targeted_action():
     out = runtime_decision_summary(
         runtime_controls={

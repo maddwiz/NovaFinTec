@@ -136,6 +136,7 @@ def test_overlay_remediation_includes_hive_and_outcome_guidance(tmp_path: Path):
                 "risk_flags": [
                     "hive_crowding_alert",
                     "hive_entropy_warn",
+                    "hive_turnover_alert",
                     "aion_outcome_alert",
                     "aion_outcome_stale",
                     "memory_feedback_warn",
@@ -147,6 +148,7 @@ def test_overlay_remediation_includes_hive_and_outcome_guidance(tmp_path: Path):
     joined = " | ".join(tips).lower()
     assert "crowding" in joined
     assert "entropy" in joined
+    assert "turnover" in joined
     assert "outcome feedback" in joined
     assert "stale" in joined
     assert "memory feedback" in joined

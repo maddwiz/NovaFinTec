@@ -162,6 +162,20 @@ def _remediation_actions(blocked_reasons: list[str], throttle_reasons: list[str]
                 ],
             )
         )
+    if any(x in {"hive_turnover_alert", "hive_turnover_warn"} for x in tr):
+        acts.append(
+            _action(
+                "hive_turnover_throttle",
+                1,
+                "Stabilize cross-hive turnover",
+                "Cross-hive turnover pressure indicates unstable reallocation churn.",
+                [
+                    "Inspect /Users/desmondpottle/Documents/New project/q/runs_plus/cross_hive_summary.json turnover metrics",
+                    "Set tighter CROSS_HIVE_MAX_STEP_TURNOVER and CROSS_HIVE_TURNOVER_LIMIT before next run",
+                    "Re-run q/tools/run_cross_hive.py and confirm rolling_turnover_max is below alert threshold",
+                ],
+            )
+        )
     if any(x.startswith("aion_feedback") for x in br) or any(
         x in {"aion_outcome_alert", "aion_outcome_warn", "aion_outcome_stale"} for x in tr
     ):
@@ -289,6 +303,12 @@ def runtime_decision_summary(
     elif "hive_entropy_warn" in ext_flags:
         score += 1
         throttle_reasons.append("hive_entropy_warn")
+    if "hive_turnover_alert" in ext_flags:
+        score += 2
+        throttle_reasons.append("hive_turnover_alert")
+    elif "hive_turnover_warn" in ext_flags:
+        score += 1
+        throttle_reasons.append("hive_turnover_warn")
     if "aion_outcome_alert" in ext_flags:
         score += 2
         throttle_reasons.append("aion_outcome_alert")
@@ -305,6 +325,7 @@ def runtime_decision_summary(
         or "hive_stress_alert" in ext_flags
         or "hive_crowding_alert" in ext_flags
         or "hive_entropy_alert" in ext_flags
+        or "hive_turnover_alert" in ext_flags
         or "aion_outcome_alert" in ext_flags
     ):
         score += 1
