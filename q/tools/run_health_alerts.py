@@ -533,6 +533,9 @@ if __name__ == "__main__":
     max_hive_crowding_mean = float(os.getenv("Q_MAX_HIVE_CROWDING_MEAN", "0.65"))
     max_hive_entropy_strength_mean = float(os.getenv("Q_MAX_HIVE_ENTROPY_STRENGTH_MEAN", "0.90"))
     max_hive_entropy_target_mean = float(os.getenv("Q_MAX_HIVE_ENTROPY_TARGET_MEAN", "0.84"))
+    max_aion_feedback_age_hours = float(
+        os.getenv("Q_MAX_AION_FEEDBACK_AGE_HOURS", os.getenv("Q_AION_FEEDBACK_MAX_AGE_HOURS", "72"))
+    )
 
     health = _load_json(RUNS / "system_health.json") or {}
     guards = _load_json(RUNS / "guardrails_summary.json") or {}
@@ -585,7 +588,7 @@ if __name__ == "__main__":
             "min_aion_feedback_closed_trades": int(os.getenv("Q_MIN_AION_FEEDBACK_CLOSED_TRADES", "8")),
             "min_aion_feedback_hit_rate": float(os.getenv("Q_MIN_AION_FEEDBACK_HIT_RATE", "0.38")),
             "min_aion_feedback_profit_factor": float(os.getenv("Q_MIN_AION_FEEDBACK_PROFIT_FACTOR", "0.78")),
-            "max_aion_feedback_age_hours": float(os.getenv("Q_MAX_AION_FEEDBACK_AGE_HOURS", "72")),
+            "max_aion_feedback_age_hours": max_aion_feedback_age_hours,
         },
     )
     (RUNS / "health_alerts.json").write_text(json.dumps(payload, indent=2))

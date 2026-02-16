@@ -478,7 +478,18 @@ def _aion_outcome_quality(aion_feedback: dict | None, min_closed_trades: int = 8
     if not mature:
         aion_q = float(np.clip(0.75 * aion_q + 0.25 * 0.60, 0.0, 1.0))
 
-    max_age_hours = float(np.clip(float(os.getenv("Q_AION_QUALITY_MAX_AGE_HOURS", "72")), 1.0, 24.0 * 90.0))
+    max_age_hours = float(
+        np.clip(
+            float(
+                os.getenv(
+                    "Q_AION_QUALITY_MAX_AGE_HOURS",
+                    os.getenv("Q_MAX_AION_FEEDBACK_AGE_HOURS", os.getenv("Q_AION_FEEDBACK_MAX_AGE_HOURS", "72")),
+                )
+            ),
+            1.0,
+            24.0 * 90.0,
+        )
+    )
     stale_rolloff_hours = float(np.clip(float(os.getenv("Q_AION_QUALITY_STALE_ROLLOFF_HOURS", "72")), 1.0, 24.0 * 120.0))
     freshness_weight = 1.0
     is_stale = bool(stale_flag or (age_hours is not None and np.isfinite(age_hours) and age_hours > max_age_hours))

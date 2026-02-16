@@ -170,6 +170,29 @@ def test_aion_outcome_quality_honors_explicit_stale_flag_without_age():
     assert float(q) < 0.8
 
 
+def test_aion_outcome_quality_uses_legacy_age_env_fallback(monkeypatch):
+    monkeypatch.delenv("Q_AION_QUALITY_MAX_AGE_HOURS", raising=False)
+    monkeypatch.setenv("Q_AION_FEEDBACK_MAX_AGE_HOURS", "12")
+    monkeypatch.setenv("Q_AION_QUALITY_STALE_ROLLOFF_HOURS", "24")
+    q, detail = rqg._aion_outcome_quality(
+        {
+            "active": True,
+            "status": "ok",
+            "closed_trades": 16,
+            "risk_scale": 1.02,
+            "hit_rate": 0.56,
+            "profit_factor": 1.4,
+            "expectancy_norm": 0.2,
+            "drawdown_norm": 0.5,
+            "age_hours": 30.0,
+        },
+        min_closed_trades=8,
+    )
+    assert q is not None
+    assert detail["stale"] is True
+    assert float(detail["max_age_hours"]) == 12.0
+
+
 def test_load_aion_feedback_falls_back_to_shadow_trades(monkeypatch, tmp_path):
     monkeypatch.setattr(rqg, "RUNS", tmp_path)
     shadow = tmp_path / "shadow_trades.csv"

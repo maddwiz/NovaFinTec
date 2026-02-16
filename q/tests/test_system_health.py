@@ -157,6 +157,26 @@ def test_overlay_aion_feedback_metrics_flags_stale_feedback(monkeypatch):
     assert any("aion_feedback_stale" in x for x in issues)
 
 
+def test_overlay_aion_feedback_metrics_legacy_age_env_fallback(monkeypatch):
+    monkeypatch.delenv("Q_MAX_AION_FEEDBACK_AGE_HOURS", raising=False)
+    monkeypatch.setenv("Q_AION_FEEDBACK_MAX_AGE_HOURS", "10")
+    metrics, issues = rsh._overlay_aion_feedback_metrics(
+        {
+            "runtime_context": {
+                "aion_feedback": {
+                    "active": True,
+                    "status": "ok",
+                    "risk_scale": 0.98,
+                    "closed_trades": 20,
+                    "age_hours": 12.0,
+                }
+            }
+        }
+    )
+    assert metrics.get("aion_feedback_stale") is True
+    assert any("aion_feedback_stale" in x for x in issues)
+
+
 def test_overlay_aion_feedback_metrics_stale_suppresses_status_alert():
     metrics, issues = rsh._overlay_aion_feedback_metrics(
         {

@@ -177,7 +177,7 @@ def _overlay_aion_feedback_metrics(overlay: dict | None):
     max_age_hours = _to_float(af.get("max_age_hours"))
     if max_age_hours is None:
         try:
-            max_age_hours = float(os.getenv("Q_MAX_AION_FEEDBACK_AGE_HOURS", "72"))
+            max_age_hours = float(os.getenv("Q_MAX_AION_FEEDBACK_AGE_HOURS", os.getenv("Q_AION_FEEDBACK_MAX_AGE_HOURS", "72")))
         except Exception:
             max_age_hours = 72.0
     if (not stale) and age_hours is not None and np.isfinite(age_hours) and max_age_hours is not None:

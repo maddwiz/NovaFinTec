@@ -582,6 +582,52 @@ def test_build_alert_payload_stale_aion_feedback_suppresses_status_alert():
     assert not any("aion_feedback_status=alert" in a for a in payload["alerts"])
 
 
+def test_build_alert_payload_applies_legacy_max_age_threshold_name():
+    payload = rha.build_alert_payload(
+        health={"health_score": 95, "issues": []},
+        guards={"global_governor": {"mean": 0.85}},
+        nested={"assets": 4, "avg_oos_sharpe": 0.8},
+        quality={"quality_governor_mean": 0.88, "quality_score": 0.72},
+        immune={"ok": True, "pass": True},
+        pipeline={"failed_count": 0},
+        shock={"shock_rate": 0.05},
+        concentration={"stats": {"hhi_after": 0.12, "top1_after": 0.18}},
+        drift_watch={"drift": {"status": "ok", "latest_l1": 0.5}},
+        fracture={"state": "stable", "latest_score": 0.22},
+        overlay={
+            "runtime_context": {
+                "aion_feedback": {
+                    "active": True,
+                    "status": "ok",
+                    "risk_scale": 0.92,
+                    "closed_trades": 20,
+                    "age_hours": 30.0,
+                }
+            }
+        },
+        thresholds={
+            "min_health_score": 70,
+            "min_global_governor_mean": 0.45,
+            "min_quality_gov_mean": 0.60,
+            "min_quality_score": 0.45,
+            "require_immune_pass": False,
+            "max_health_issues": 2,
+            "min_nested_sharpe": 0.2,
+            "min_nested_assets": 3,
+            "max_shock_rate": 0.25,
+            "max_concentration_hhi_after": 0.18,
+            "max_concentration_top1_after": 0.30,
+            "max_portfolio_l1_drift": 1.2,
+            "min_aion_feedback_risk_scale": 0.80,
+            "min_aion_feedback_closed_trades": 8,
+            "min_aion_feedback_hit_rate": 0.38,
+            "min_aion_feedback_profit_factor": 0.78,
+            "max_aion_feedback_age_hours": 24.0,
+        },
+    )
+    assert any("aion_feedback_stale>24.0h" in a for a in payload["alerts"])
+
+
 def test_build_alert_payload_triggers_quality_governor_step_alert():
     payload = rha.build_alert_payload(
         health={"health_score": 95, "issues": []},
