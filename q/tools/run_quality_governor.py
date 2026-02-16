@@ -407,6 +407,56 @@ def _aion_outcome_quality(aion_feedback: dict | None, min_closed_trades: int = 8
     return aion_q, detail
 
 
+def _cross_hive_turnover_quality(cross_info: dict | None):
+    if not isinstance(cross_info, dict):
+        return None, {"available": False}
+
+    def _f(x):
+        try:
+            v = float(x)
+            return v if np.isfinite(v) else None
+        except Exception:
+            return None
+
+    mean_turn = _f(cross_info.get("mean_turnover"))
+    max_turn = _f(cross_info.get("max_turnover"))
+    roll_turn = _f(cross_info.get("rolling_turnover_max"))
+    parts = []
+    if mean_turn is not None:
+        q_mean = float(np.clip(1.0 - max(0.0, mean_turn - 0.20) / (0.60 - 0.20 + 1e-9), 0.0, 1.0))
+        parts.append(q_mean)
+    else:
+        q_mean = None
+    if max_turn is not None:
+        q_max = float(np.clip(1.0 - max(0.0, max_turn - 0.70) / (1.50 - 0.70 + 1e-9), 0.0, 1.0))
+        parts.append(q_max)
+    else:
+        q_max = None
+    if roll_turn is not None:
+        q_roll = float(np.clip(1.0 - max(0.0, roll_turn - 1.00) / (2.00 - 1.00 + 1e-9), 0.0, 1.0))
+        parts.append(q_roll)
+    else:
+        q_roll = None
+    if not parts:
+        return None, {
+            "available": False,
+            "mean_turnover": mean_turn,
+            "max_turnover": max_turn,
+            "rolling_turnover_max": roll_turn,
+        }
+
+    q = float(np.clip(float(np.mean(parts)), 0.0, 1.0))
+    return q, {
+        "available": True,
+        "mean_turnover": mean_turn,
+        "max_turnover": max_turn,
+        "rolling_turnover_max": roll_turn,
+        "q_mean_turnover": q_mean,
+        "q_max_turnover": q_max,
+        "q_rolling_turnover": q_roll,
+    }
+
+
 if __name__ == "__main__":
     nested = _load_json(RUNS / "nested_wf_summary.json") or {}
     health = _load_json(RUNS / "system_health.json") or {}
@@ -427,6 +477,7 @@ if __name__ == "__main__":
     aion_min_closed = int(np.clip(float(os.getenv("Q_AION_QUALITY_MIN_CLOSED_TRADES", "8")), 3, 100))
     aion_q, aion_q_detail = _aion_outcome_quality(aion_feedback, min_closed_trades=aion_min_closed)
     aion_lineage_q, aion_lineage_detail = lineage_quality(aion_feedback_source)
+    hive_turnover_q, hive_turnover_detail = _cross_hive_turnover_quality(cross_info)
 
     hive_sh = None
     hive_hit = None
@@ -661,6 +712,7 @@ if __name__ == "__main__":
             "hive_downside": (hive_downside_q, 0.10),
             "hive_crowding": (hive_crowding_q, 0.08),
             "hive_entropy": (hive_entropy_q, 0.08),
+            "hive_turnover": (hive_turnover_q, 0.07),
             "reflex_downside": (reflex_downside_q, 0.08),
             "dna_downside": (dna_downside_q, 0.06),
             "system_health": (health_q, 0.13),
@@ -817,6 +869,8 @@ if __name__ == "__main__":
         runtime_mod *= float(np.clip(0.78 + 0.42 * aion_q, 0.70, 1.10))
     if aion_lineage_q is not None:
         runtime_mod *= float(np.clip(0.88 + 0.22 * aion_lineage_q, 0.75, 1.08))
+    if hive_turnover_q is not None:
+        runtime_mod *= float(np.clip(0.86 + 0.24 * hive_turnover_q, 0.72, 1.08))
 
     q_lo = float(np.clip(float(os.getenv("Q_QUALITY_GOV_LO", "0.58")), 0.30, 1.20))
     q_hi = float(np.clip(float(os.getenv("Q_QUALITY_GOV_HI", "1.15")), 0.50, 1.30))
@@ -859,6 +913,7 @@ if __name__ == "__main__":
             "hive_downside": {"score": float(hive_downside_q) if hive_downside_q is not None else None},
             "hive_crowding": {"score": float(hive_crowding_q) if hive_crowding_q is not None else None},
             "hive_entropy": {"score": float(hive_entropy_q) if hive_entropy_q is not None else None},
+            "hive_turnover": {"score": float(hive_turnover_q) if hive_turnover_q is not None else None, "detail": hive_turnover_detail},
             "reflex_downside": {"score": float(reflex_downside_q) if reflex_downside_q is not None else None},
             "dna_downside": {"score": float(dna_downside_q) if dna_downside_q is not None else None},
             "ecosystem": {"score": float(eco_q) if eco_q is not None else None},

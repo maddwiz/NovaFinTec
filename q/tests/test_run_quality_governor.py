@@ -90,6 +90,32 @@ def test_nested_leakage_quality_drops_with_low_utilization_and_heavy_purge():
     assert float(detail["purge_embargo_ratio"]) == 0.95
 
 
+def test_cross_hive_turnover_quality_penalizes_churn_spikes():
+    q, detail = rqg._cross_hive_turnover_quality(
+        {
+            "mean_turnover": 0.52,
+            "max_turnover": 1.12,
+            "rolling_turnover_max": 1.50,
+        }
+    )
+    assert q is not None
+    assert float(q) < 0.55
+    assert detail["available"] is True
+
+
+def test_cross_hive_turnover_quality_is_high_when_stable():
+    q, detail = rqg._cross_hive_turnover_quality(
+        {
+            "mean_turnover": 0.19,
+            "max_turnover": 0.61,
+            "rolling_turnover_max": 0.74,
+        }
+    )
+    assert q is not None
+    assert float(q) > 0.90
+    assert detail["available"] is True
+
+
 def test_aion_outcome_quality_high_on_strong_feedback():
     q, detail = rqg._aion_outcome_quality(
         {
