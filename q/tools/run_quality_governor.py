@@ -451,6 +451,34 @@ if __name__ == "__main__":
                 hive_downside_q = float(np.clip(1.0 - float(np.mean(vals)), 0.0, 1.0))
     except Exception:
         hive_downside_q = None
+    hive_crowding_q = None
+    try:
+        cr = cross_info.get("crowding_penalty_mean", {})
+        if isinstance(cr, dict) and cr:
+            vals = [float(v) for v in cr.values() if np.isfinite(float(v))]
+            if vals:
+                hive_crowding_q = float(np.clip(1.0 - float(np.mean(vals)), 0.0, 1.0))
+        elif cr is not None:
+            xv = float(cr)
+            if np.isfinite(xv):
+                hive_crowding_q = float(np.clip(1.0 - xv, 0.0, 1.0))
+    except Exception:
+        hive_crowding_q = None
+    hive_entropy_q = None
+    try:
+        ent = cross_info.get("entropy_adaptive_diagnostics", {})
+        if isinstance(ent, dict) and ent:
+            e_target = float(ent.get("entropy_target_mean", np.nan))
+            e_strength = float(ent.get("entropy_strength_mean", np.nan))
+            e_target_n = float(np.clip((e_target - 0.45) / (0.92 - 0.45 + 1e-9), 0.0, 1.0)) if np.isfinite(e_target) else np.nan
+            e_strength_n = float(np.clip(e_strength, 0.0, 1.0)) if np.isfinite(e_strength) else np.nan
+            if np.isfinite(e_target_n) and np.isfinite(e_strength_n):
+                estress = 0.55 * e_strength_n + 0.45 * e_target_n
+                hive_entropy_q = float(np.clip(1.0 - estress, 0.0, 1.0))
+            elif np.isfinite(e_strength_n):
+                hive_entropy_q = float(np.clip(1.0 - e_strength_n, 0.0, 1.0))
+    except Exception:
+        hive_entropy_q = None
     reflex_downside_q = None
     try:
         d = float(reflex_info.get("downside_penalty_mean", np.nan))
@@ -484,6 +512,8 @@ if __name__ == "__main__":
             "reflex_health": (reflex_q, 0.06),
             "symbolic": (sym_q, 0.08),
             "hive_downside": (hive_downside_q, 0.10),
+            "hive_crowding": (hive_crowding_q, 0.08),
+            "hive_entropy": (hive_entropy_q, 0.08),
             "reflex_downside": (reflex_downside_q, 0.08),
             "dna_downside": (dna_downside_q, 0.06),
             "system_health": (health_q, 0.13),
@@ -595,6 +625,29 @@ if __name__ == "__main__":
         dn = np.clip(np.asarray(hdp[:L], float), 0.0, 1.0)
         runtime_mod[:L] *= np.clip(1.02 - 0.22 * dn, 0.78, 1.02)
 
+    # Hive crowding penalty modifier (mean across hives).
+    hcp = _load_row_mean_series(RUNS / "hive_crowding_penalty.csv")
+    if hcp is not None and len(hcp):
+        L = min(T, len(hcp))
+        cs = np.clip(np.asarray(hcp[:L], float), 0.0, 1.0)
+        runtime_mod[:L] *= np.clip(1.02 - 0.24 * cs, 0.76, 1.02)
+
+    # Adaptive entropy pressure modifier from cross-hive schedule.
+    hesp = RUNS / "hive_entropy_schedule.csv"
+    if hesp.exists():
+        try:
+            hdf = pd.read_csv(hesp)
+            if {"entropy_target", "entropy_strength"}.issubset(hdf.columns):
+                et = pd.to_numeric(hdf["entropy_target"], errors="coerce").ffill().fillna(0.60).values.astype(float)
+                es = pd.to_numeric(hdf["entropy_strength"], errors="coerce").ffill().fillna(0.25).values.astype(float)
+                L = min(T, len(et), len(es))
+                etn = np.clip((et[:L] - 0.45) / (0.92 - 0.45 + 1e-9), 0.0, 1.0)
+                esn = np.clip(es[:L], 0.0, 1.0)
+                estress = np.clip(0.55 * esn + 0.45 * etn, 0.0, 1.0)
+                runtime_mod[:L] *= np.clip(1.03 - 0.22 * estress, 0.78, 1.03)
+        except Exception:
+            pass
+
     # Reflex downside penalty modifier.
     rcomp = RUNS / "reflex_health_components.csv"
     if rcomp.exists():
@@ -647,6 +700,8 @@ if __name__ == "__main__":
             "reflex_health": {"score": float(reflex_q) if reflex_q is not None else None},
             "symbolic": {"score": float(sym_q) if sym_q is not None else None},
             "hive_downside": {"score": float(hive_downside_q) if hive_downside_q is not None else None},
+            "hive_crowding": {"score": float(hive_crowding_q) if hive_crowding_q is not None else None},
+            "hive_entropy": {"score": float(hive_entropy_q) if hive_entropy_q is not None else None},
             "reflex_downside": {"score": float(reflex_downside_q) if reflex_downside_q is not None else None},
             "dna_downside": {"score": float(dna_downside_q) if dna_downside_q is not None else None},
             "ecosystem": {"score": float(eco_q) if eco_q is not None else None},
@@ -667,6 +722,8 @@ if __name__ == "__main__":
             "meta_mix_info": (RUNS / "meta_mix_info.json").exists(),
             "hive_evolution": (RUNS / "hive_evolution.json").exists(),
             "hive_downside_penalty": (RUNS / "hive_downside_penalty.csv").exists(),
+            "hive_crowding_penalty": (RUNS / "hive_crowding_penalty.csv").exists(),
+            "hive_entropy_schedule": (RUNS / "hive_entropy_schedule.csv").exists(),
             "meta_mix_reliability_governor": (RUNS / "meta_mix_reliability_governor.csv").exists(),
             "shock_mask_info": (RUNS / "shock_mask_info.json").exists(),
             "shock_mask": (RUNS / "shock_mask.csv").exists(),

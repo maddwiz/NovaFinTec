@@ -182,6 +182,11 @@ def build_events():
     cross_dis = _safe_float(cross_ad.get("mean_disagreement", 0.0))
     cross_disp = _safe_float(cross_ad.get("mean_stability_dispersion", 0.0))
     cross_frac = _safe_float(cross_ad.get("mean_regime_fracture", 0.0))
+    cross_ent = cross.get("entropy_adaptive_diagnostics", {}) if isinstance(cross, dict) and isinstance(cross.get("entropy_adaptive_diagnostics"), dict) else {}
+    ent_target_mean = _safe_float(cross_ent.get("entropy_target_mean", 0.0))
+    ent_target_max = _safe_float(cross_ent.get("entropy_target_max", 0.0))
+    ent_strength_mean = _safe_float(cross_ent.get("entropy_strength_mean", 0.0))
+    ent_strength_max = _safe_float(cross_ent.get("entropy_strength_max", 0.0))
     eco_action_pressure = _safe_float((eco or {}).get("action_pressure_mean", 0.0))
     crowd_obj = cross.get("crowding_penalty_mean", {}) if isinstance(cross, dict) else {}
     crowd_rows = []
@@ -332,6 +337,12 @@ def build_events():
                     "top_hive": crowd_top_hive,
                     "top_hive_penalty": crowd_top_penalty,
                 },
+                "hive_entropy": {
+                    "entropy_target_mean": ent_target_mean,
+                    "entropy_target_max": ent_target_max,
+                    "entropy_strength_mean": ent_strength_mean,
+                    "entropy_strength_max": ent_strength_max,
+                },
                 "cross_hive_stability": {
                     "mean_turnover": _safe_float((cross or {}).get("mean_turnover", 0.0)),
                     "mean_disagreement": cross_dis,
@@ -384,6 +395,12 @@ def build_events():
                         "max_penalty": crowd_max,
                         "top_hive": crowd_top_hive,
                         "top_hive_penalty": crowd_top_penalty,
+                    },
+                    "entropy": {
+                        "entropy_target_mean": ent_target_mean,
+                        "entropy_target_max": ent_target_max,
+                        "entropy_strength_mean": ent_strength_mean,
+                        "entropy_strength_max": ent_strength_max,
                     },
                     "stability": {
                         "mean_turnover": _safe_float((cross or {}).get("mean_turnover", 0.0)),

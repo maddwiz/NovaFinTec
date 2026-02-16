@@ -53,6 +53,12 @@ def test_build_events_includes_governance_audit_events(tmp_path, monkeypatch):
                 "mean_stability_dispersion": 0.37,
                 "mean_regime_fracture": 0.19,
             },
+            "entropy_adaptive_diagnostics": {
+                "entropy_target_mean": 0.76,
+                "entropy_target_max": 0.89,
+                "entropy_strength_mean": 0.80,
+                "entropy_strength_max": 0.93,
+            },
         },
     )
     _write_json(tmp_path / "hive_evolution.json", {"events": [{"event": "split_applied"}], "action_pressure_mean": 0.17})
@@ -119,6 +125,9 @@ def test_build_events_includes_governance_audit_events(tmp_path, monkeypatch):
     hc = rc.get("payload", {}).get("hive_crowding", {})
     assert hc.get("top_hive") == "EQ"
     assert float(hc.get("mean_penalty")) > 0.0
+    he = rc.get("payload", {}).get("hive_entropy", {})
+    assert float(he.get("entropy_target_mean")) > 0.0
+    assert float(he.get("entropy_strength_max")) > 0.0
     chs = rc.get("payload", {}).get("cross_hive_stability", {})
     assert float(chs.get("mean_turnover")) > 0.0
     assert float(chs.get("mean_disagreement")) > 0.0
@@ -127,6 +136,7 @@ def test_build_events_includes_governance_audit_events(tmp_path, monkeypatch):
     assert dfrac.get("state") == "fracture_warn"
     dch = drc.get("payload", {}).get("cross_hive", {})
     assert dch.get("crowding", {}).get("top_hive") == "EQ"
+    assert float(dch.get("entropy", {}).get("entropy_strength_mean")) > 0.0
     assert float(dch.get("stability", {}).get("mean_turnover")) > 0.0
     trusts = [float(e.get("trust", 0.0)) for e in events]
     assert all(0.0 <= t <= 1.0 for t in trusts)
