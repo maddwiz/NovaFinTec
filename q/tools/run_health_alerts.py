@@ -89,6 +89,9 @@ def build_alert_payload(
     min_novaspine_turnover_quality = float(thresholds.get("min_novaspine_turnover_quality", 0.45))
     max_memory_turnover_pressure = float(thresholds.get("max_memory_turnover_pressure", 0.72))
     max_memory_turnover_dampener = float(thresholds.get("max_memory_turnover_dampener", 0.10))
+    max_memory_replay_failed_events = int(thresholds.get("max_memory_replay_failed_events", 0))
+    max_memory_replay_backlog_warn = int(thresholds.get("max_memory_replay_backlog_warn", 5))
+    max_memory_replay_backlog_alert = int(thresholds.get("max_memory_replay_backlog_alert", 20))
     min_aion_feedback_risk_scale = float(thresholds.get("min_aion_feedback_risk_scale", 0.80))
     min_aion_feedback_closed_trades = int(thresholds.get("min_aion_feedback_closed_trades", 8))
     min_aion_feedback_hit_rate = float(thresholds.get("min_aion_feedback_hit_rate", 0.38))
@@ -124,6 +127,9 @@ def build_alert_payload(
     cross_hive_rolling_turnover = None
     memory_turnover_pressure = None
     memory_turnover_dampener = None
+    memory_replay_enabled = False
+    memory_replay_queued_files = None
+    memory_replay_failed_events = None
     novaspine_turnover_quality = None
     aion_feedback_active = False
     aion_feedback_status = "unknown"
@@ -185,6 +191,18 @@ def build_alert_payload(
                 memory_turnover_dampener = float(shape.get("novaspine_turnover_dampener_max", np.nan))
             except Exception:
                 memory_turnover_dampener = None
+            try:
+                memory_replay_enabled = bool(shape.get("novaspine_replay_enabled", False))
+            except Exception:
+                memory_replay_enabled = False
+            try:
+                memory_replay_queued_files = float(shape.get("novaspine_replay_queued_files", np.nan))
+            except Exception:
+                memory_replay_queued_files = None
+            try:
+                memory_replay_failed_events = float(shape.get("novaspine_replay_failed_events", np.nan))
+            except Exception:
+                memory_replay_failed_events = None
     if hb_stress is not None and np.isfinite(hb_stress) and hb_stress > max_heartbeat_stress:
         issues.append(f"heartbeat_stress_mean>{max_heartbeat_stress} ({hb_stress:.3f})")
     if (
@@ -280,6 +298,28 @@ def build_alert_payload(
         issues.append(
             f"memory_turnover_dampener>{max_memory_turnover_dampener} ({memory_turnover_dampener:.3f})"
         )
+    if (
+        bool(memory_replay_enabled)
+        and memory_replay_failed_events is not None
+        and np.isfinite(memory_replay_failed_events)
+        and memory_replay_failed_events > float(max_memory_replay_failed_events)
+    ):
+        issues.append(
+            f"memory_replay_failed_events>{max_memory_replay_failed_events} ({memory_replay_failed_events:.0f})"
+        )
+    if (
+        bool(memory_replay_enabled)
+        and memory_replay_queued_files is not None
+        and np.isfinite(memory_replay_queued_files)
+    ):
+        if memory_replay_queued_files >= float(max_memory_replay_backlog_alert):
+            issues.append(
+                f"memory_replay_backlog_alert>{max_memory_replay_backlog_alert} ({memory_replay_queued_files:.0f})"
+            )
+        elif memory_replay_queued_files >= float(max_memory_replay_backlog_warn):
+            issues.append(
+                f"memory_replay_backlog_warn>{max_memory_replay_backlog_warn} ({memory_replay_queued_files:.0f})"
+            )
 
     overlay_af = None
     if isinstance(overlay, dict):
@@ -591,6 +631,9 @@ def build_alert_payload(
             "min_novaspine_turnover_quality": min_novaspine_turnover_quality,
             "max_memory_turnover_pressure": max_memory_turnover_pressure,
             "max_memory_turnover_dampener": max_memory_turnover_dampener,
+            "max_memory_replay_failed_events": max_memory_replay_failed_events,
+            "max_memory_replay_backlog_warn": max_memory_replay_backlog_warn,
+            "max_memory_replay_backlog_alert": max_memory_replay_backlog_alert,
             "min_aion_feedback_risk_scale": min_aion_feedback_risk_scale,
             "min_aion_feedback_closed_trades": min_aion_feedback_closed_trades,
             "min_aion_feedback_hit_rate": min_aion_feedback_hit_rate,
@@ -617,6 +660,9 @@ def build_alert_payload(
             "novaspine_turnover_quality": novaspine_turnover_quality,
             "memory_turnover_pressure": memory_turnover_pressure,
             "memory_turnover_dampener": memory_turnover_dampener,
+            "memory_replay_enabled": memory_replay_enabled,
+            "memory_replay_queued_files": memory_replay_queued_files,
+            "memory_replay_failed_events": memory_replay_failed_events,
             "aion_feedback_active": aion_feedback_active,
             "aion_feedback_source": aion_feedback_source,
             "aion_feedback_source_selected": aion_feedback_source_selected,
@@ -680,6 +726,9 @@ if __name__ == "__main__":
     min_novaspine_turnover_quality = float(os.getenv("Q_MIN_NOVASPINE_TURNOVER_QUALITY", "0.45"))
     max_memory_turnover_pressure = float(os.getenv("Q_MAX_MEMORY_TURNOVER_PRESSURE", "0.72"))
     max_memory_turnover_dampener = float(os.getenv("Q_MAX_MEMORY_TURNOVER_DAMPENER", "0.10"))
+    max_memory_replay_failed_events = int(os.getenv("Q_MAX_MEMORY_REPLAY_FAILED_EVENTS", "0"))
+    max_memory_replay_backlog_warn = int(os.getenv("Q_MAX_MEMORY_REPLAY_BACKLOG_WARN", "5"))
+    max_memory_replay_backlog_alert = int(os.getenv("Q_MAX_MEMORY_REPLAY_BACKLOG_ALERT", "20"))
     aion_feedback_source_pref = normalize_source_preference(os.getenv("Q_AION_FEEDBACK_SOURCE", "auto"))
     max_aion_feedback_age_hours = float(
         os.getenv("Q_MAX_AION_FEEDBACK_AGE_HOURS", os.getenv("Q_AION_FEEDBACK_MAX_AGE_HOURS", "72"))
@@ -743,6 +792,9 @@ if __name__ == "__main__":
             "min_novaspine_turnover_quality": min_novaspine_turnover_quality,
             "max_memory_turnover_pressure": max_memory_turnover_pressure,
             "max_memory_turnover_dampener": max_memory_turnover_dampener,
+            "max_memory_replay_failed_events": max_memory_replay_failed_events,
+            "max_memory_replay_backlog_warn": max_memory_replay_backlog_warn,
+            "max_memory_replay_backlog_alert": max_memory_replay_backlog_alert,
             "min_aion_feedback_risk_scale": float(os.getenv("Q_MIN_AION_FEEDBACK_RISK_SCALE", "0.80")),
             "min_aion_feedback_closed_trades": int(os.getenv("Q_MIN_AION_FEEDBACK_CLOSED_TRADES", "8")),
             "min_aion_feedback_hit_rate": float(os.getenv("Q_MIN_AION_FEEDBACK_HIT_RATE", "0.38")),

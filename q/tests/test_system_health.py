@@ -106,6 +106,42 @@ def test_analyze_novaspine_turnover_flags_breaches_and_unhealthy_status():
     assert any("endpoint unhealthy" in x for x in issues)
 
 
+def test_analyze_novaspine_replay_no_issues_when_stable():
+    metrics, issues = rsh._analyze_novaspine_replay(
+        {
+            "enabled": True,
+            "backend": "novaspine_api",
+            "queued_files": 2,
+            "replayed_events": 18,
+            "failed_events": 0,
+        },
+        warn_backlog_files=5,
+        alert_backlog_files=20,
+        max_failed_events=0,
+    )
+    assert metrics["novaspine_replay_enabled"] is True
+    assert float(metrics["novaspine_replay_queued_files"]) == 2.0
+    assert float(metrics["novaspine_replay_failed_events"]) == 0.0
+    assert issues == []
+
+
+def test_analyze_novaspine_replay_flags_failed_and_backlog():
+    _metrics, issues = rsh._analyze_novaspine_replay(
+        {
+            "enabled": True,
+            "backend": "novaspine_api",
+            "queued_files": 24,
+            "replayed_events": 0,
+            "failed_events": 3,
+        },
+        warn_backlog_files=5,
+        alert_backlog_files=20,
+        max_failed_events=0,
+    )
+    assert any("failed events exceed threshold" in x for x in issues)
+    assert any("backlog exceeds alert threshold" in x for x in issues)
+
+
 def test_staleness_issues_flags_old_required_and_optional():
     stats, issues = rsh._staleness_issues(
         [

@@ -264,6 +264,20 @@ def test_runtime_context_flags_memory_turnover_alert(tmp_path: Path):
     assert "memory_turnover_warn" not in ctx.get("risk_flags", [])
 
 
+def test_runtime_context_flags_memory_feedback_when_replay_backlog_stalls(tmp_path: Path):
+    (tmp_path / "novaspine_replay_status.json").write_text(
+        (
+            '{"enabled": true, "backend": "novaspine_api", '
+            '"queued_files": 26, "replayed_events": 0, "failed_events": 2}'
+        ),
+        encoding="utf-8",
+    )
+    ctx = ex._runtime_context(tmp_path)
+    assert ctx["components"]["novaspine_replay_modifier"]["found"] is True
+    assert "memory_feedback_alert" in ctx.get("risk_flags", [])
+    assert "memory_feedback_warn" not in ctx.get("risk_flags", [])
+
+
 def test_runtime_context_includes_aion_outcome_feedback(tmp_path: Path, monkeypatch):
     base = datetime.now(timezone.utc)
     rows = []

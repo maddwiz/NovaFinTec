@@ -740,6 +740,21 @@ def _runtime_context(runs_dir: Path):
                 elif st == "warn":
                     risk_flags.append("aion_outcome_warn")
 
+    replay = _load_json(runs_dir / "novaspine_replay_status.json") or {}
+    replay_enabled = bool(replay.get("enabled", False))
+    replay_queued = _safe_float(replay.get("queued_files", np.nan), default=np.nan)
+    replay_failed = _safe_float(replay.get("failed_events", np.nan), default=np.nan)
+    if replay_enabled and (math.isfinite(replay_queued) or math.isfinite(replay_failed)):
+        rq = replay_queued if math.isfinite(replay_queued) else 0.0
+        rf = replay_failed if math.isfinite(replay_failed) else 0.0
+        replay_mod = _clamp(1.02 - 0.06 * max(0.0, rq - 2.0) - 0.14 * max(0.0, rf), 0.70, 1.02)
+        comps["novaspine_replay_modifier"] = {"value": float(replay_mod), "found": True}
+        active_vals.append(float(replay_mod))
+        if (rf > 0.0) or (rq >= 20.0):
+            risk_flags.append("memory_feedback_alert")
+        elif rq >= 5.0:
+            risk_flags.append("memory_feedback_warn")
+
     # Recompute final multiplier after late-stage feedback modifiers.
     if active_vals:
         arr = np.clip(np.asarray(active_vals, float), 0.20, 2.00)

@@ -254,6 +254,53 @@ def _analyze_novaspine_turnover(
     return metrics, issues
 
 
+def _analyze_novaspine_replay(
+    replay_info: dict | None,
+    *,
+    warn_backlog_files: int = 5,
+    alert_backlog_files: int = 20,
+    max_failed_events: int = 0,
+):
+    metrics = {}
+    issues = []
+    info = replay_info if isinstance(replay_info, dict) else {}
+    if not info:
+        return metrics, issues
+
+    enabled = bool(info.get("enabled", False))
+    backend = str(info.get("backend", "na")).strip().lower() or "na"
+    queued_files = _to_float(info.get("queued_files"))
+    replayed_events = _to_float(info.get("replayed_events"))
+    failed_events = _to_float(info.get("failed_events"))
+
+    metrics["novaspine_replay_enabled"] = bool(enabled)
+    metrics["novaspine_replay_backend"] = backend
+    if queued_files is not None:
+        metrics["novaspine_replay_queued_files"] = float(max(0.0, queued_files))
+    if replayed_events is not None:
+        metrics["novaspine_replay_replayed_events"] = float(max(0.0, replayed_events))
+    if failed_events is not None:
+        metrics["novaspine_replay_failed_events"] = float(max(0.0, failed_events))
+
+    if not enabled:
+        return metrics, issues
+
+    warn_n = max(1, int(warn_backlog_files))
+    alert_n = max(warn_n + 1, int(alert_backlog_files))
+    fail_cap = max(0, int(max_failed_events))
+    qn = int(queued_files) if queued_files is not None else 0
+    fn = int(failed_events) if failed_events is not None else 0
+
+    if fn > fail_cap:
+        issues.append("novaspine replay failed events exceed threshold")
+    if qn >= alert_n:
+        issues.append("novaspine replay backlog exceeds alert threshold")
+    elif qn >= warn_n:
+        issues.append("novaspine replay backlog exceeds warn threshold")
+
+    return metrics, issues
+
+
 def _overlay_aion_feedback_metrics(overlay: dict | None):
     return _overlay_aion_feedback_metrics_with_fallback(overlay, fallback_feedback=None)
 
@@ -490,6 +537,7 @@ if __name__ == "__main__":
     hb_stress = _load_series(RUNS / "heartbeat_stress.csv")
     exec_info = _load_json(RUNS / "execution_constraints_info.json")
     cross_info = _load_json(RUNS / "cross_hive_summary.json")
+    replay_info = _load_json(RUNS / "novaspine_replay_status.json")
     nsp_ctx = _load_json(RUNS / "novaspine_context.json")
     nsp_hive = _load_json(RUNS / "novaspine_hive_feedback.json")
     overlay = _load_json(RUNS / "q_signal_overlay.json")
@@ -611,6 +659,14 @@ if __name__ == "__main__":
     )
     if nsp_shape:
         shape.update(nsp_shape)
+    replay_shape, replay_issues = _analyze_novaspine_replay(
+        replay_info,
+        warn_backlog_files=int(max(1, int(os.getenv("Q_SYSTEM_HEALTH_MAX_NOVASPINE_REPLAY_WARN_FILES", "5")))),
+        alert_backlog_files=int(max(2, int(os.getenv("Q_SYSTEM_HEALTH_MAX_NOVASPINE_REPLAY_ALERT_FILES", "20")))),
+        max_failed_events=int(max(0, int(os.getenv("Q_SYSTEM_HEALTH_MAX_NOVASPINE_REPLAY_FAILED_EVENTS", "0")))),
+    )
+    if replay_shape:
+        shape.update(replay_shape)
     fallback_aion_feedback = load_outcome_feedback(root=ROOT, mark_stale_reason=False)
     aion_shape, aion_issues = _overlay_aion_feedback_metrics_with_fallback(
         overlay,
@@ -642,6 +698,7 @@ if __name__ == "__main__":
     issues.extend(exec_issues)
     issues.extend(cross_issues)
     issues.extend(nsp_issues)
+    issues.extend(replay_issues)
     issues.extend(aion_issues)
     issues.extend(stale_issues)
 
