@@ -1080,6 +1080,16 @@ def main() -> int:
     last_memory_feedback_sig = None
     last_aion_feedback_sig = None
     last_memory_replay_ts = 0.0
+    last_memory_replay_ts_utc = None
+    last_memory_replay_result = {
+        "ok": True,
+        "replayed": 0,
+        "failed": 0,
+        "processed_files": 0,
+        "queued_files": 0,
+        "remaining_files": 0,
+        "error": None,
+    }
 
     if cfg.META_LABEL_ENABLED:
         samples = meta_model.fit_from_trades(cfg.LOG_DIR / "shadow_trades.csv")
@@ -1122,9 +1132,11 @@ def main() -> int:
                         max_events=max(1, int(getattr(cfg, "MEMORY_REPLAY_MAX_EVENTS", 200))),
                     )
                     last_memory_replay_ts = now_mono
+                    last_memory_replay_ts_utc = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                    last_memory_replay_result = dict(replay_res if isinstance(replay_res, dict) else {})
                     replayed = int(replay_res.get("replayed", 0))
                     failed = int(replay_res.get("failed", 0))
-                    if replayed > 0 or failed > 0:
+                    if replayed > 0 or failed > 0 or (not bool(replay_res.get("ok", True))):
                         msg = (
                             "NovaSpine outbox replay "
                             f"replayed={replayed} failed={failed} "
@@ -1134,7 +1146,7 @@ def main() -> int:
                         if replay_res.get("error"):
                             msg += f" error={replay_res.get('error')}"
                         log_run(msg)
-                        if cfg.MONITORING_ENABLED and failed > 0:
+                        if cfg.MONITORING_ENABLED and (failed > 0 or not bool(replay_res.get("ok", True))):
                             monitor.record_system_event("novaspine_replay_fail", msg)
 
             profile = load_profile()
@@ -1643,6 +1655,42 @@ def main() -> int:
                         else float(memory_feedback_turnover_dampener)
                     ),
                     "memory_feedback_block_new_entries": bool(memory_feedback_block_new_entries),
+                    "memory_replay_enabled": bool(
+                        bool(getattr(cfg, "MEMORY_REPLAY_ENABLED", True))
+                        and bool(getattr(cfg, "MEMORY_ENABLE", False))
+                    ),
+                    "memory_replay_interval_sec": float(max(5.0, float(getattr(cfg, "MEMORY_REPLAY_INTERVAL_SEC", 300.0)))),
+                    "memory_replay_last_ts_utc": last_memory_replay_ts_utc,
+                    "memory_replay_last_ok": (
+                        bool(last_memory_replay_result.get("ok"))
+                        if "ok" in last_memory_replay_result
+                        else None
+                    ),
+                    "memory_replay_last_error": (
+                        str(last_memory_replay_result.get("error")).strip()
+                        if last_memory_replay_result.get("error")
+                        else None
+                    ),
+                    "memory_replay_last_replayed": int(last_memory_replay_result.get("replayed", 0)),
+                    "memory_replay_last_failed": int(last_memory_replay_result.get("failed", 0)),
+                    "memory_replay_last_processed_files": int(last_memory_replay_result.get("processed_files", 0)),
+                    "memory_replay_queued_files": (
+                        int(last_memory_replay_result.get("queued_files"))
+                        if last_memory_replay_result.get("queued_files") is not None
+                        else None
+                    ),
+                    "memory_replay_remaining_files": (
+                        int(last_memory_replay_result.get("remaining_files"))
+                        if last_memory_replay_result.get("remaining_files") is not None
+                        else None
+                    ),
+                    "memory_outbox_warn_files": int(max(1, int(getattr(cfg, "MEMORY_OUTBOX_WARN_FILES", 5)))),
+                    "memory_outbox_alert_files": int(
+                        max(
+                            int(max(1, int(getattr(cfg, "MEMORY_OUTBOX_WARN_FILES", 5)))) + 1,
+                            int(getattr(cfg, "MEMORY_OUTBOX_ALERT_FILES", 20)),
+                        )
+                    ),
                     "aion_feedback_active": bool(aion_feedback_active),
                     "aion_feedback_status": str(aion_feedback_status),
                     "aion_feedback_source": str(aion_feedback_source),

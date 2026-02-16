@@ -106,6 +106,20 @@ def _remediation_actions(blocked_reasons: list[str], throttle_reasons: list[str]
                 ],
             )
         )
+    if any(x.startswith("memory_outbox") for x in br) or any("memory_outbox" in x for x in tr):
+        acts.append(
+            _action(
+                "memory_outbox_replay",
+                1,
+                "Drain NovaSpine outbox backlog",
+                "Queued memory events are not replaying cleanly to NovaSpine.",
+                [
+                    "Inspect /Users/desmondpottle/Documents/New project/aion/logs/novaspine_outbox_aion and sent/",
+                    "Check memory_replay_* fields in /Users/desmondpottle/Documents/New project/aion/state/runtime_controls.json",
+                    "Verify AION_MEMORY_NOVASPINE_URL and token, then restart trade loop if replay remains stalled",
+                ],
+            )
+        )
     if any(x == "execution_governor" for x in br) or any("execution_governor" in x for x in tr):
         acts.append(
             _action(
@@ -338,6 +352,35 @@ def runtime_decision_summary(
     if "aion_outcome_stale" in ext_flags:
         score += 1
         throttle_reasons.append("aion_outcome_stale")
+
+    mem_replay_enabled = _to_bool(rc.get("memory_replay_enabled", False))
+    mem_replay_last_ok = rc.get("memory_replay_last_ok", None)
+    mem_replay_last_error = str(rc.get("memory_replay_last_error", "")).strip().lower()
+    mem_replay_failed = _to_float(rc.get("memory_replay_last_failed"), 0.0) or 0.0
+    mem_replay_remaining = _to_float(rc.get("memory_replay_remaining_files"), None)
+    mem_replay_queued = _to_float(rc.get("memory_replay_queued_files"), None)
+    outbox_warn_n = max(1, int((_to_float(rc.get("memory_outbox_warn_files"), 5.0) or 5.0)))
+    outbox_alert_n = max(outbox_warn_n + 1, int((_to_float(rc.get("memory_outbox_alert_files"), 20.0) or 20.0)))
+    outbox_backlog = max(
+        int(mem_replay_remaining) if mem_replay_remaining is not None else 0,
+        int(mem_replay_queued) if mem_replay_queued is not None else 0,
+    )
+    if mem_replay_enabled:
+        if mem_replay_failed > 0:
+            score += 2
+            throttle_reasons.append("memory_outbox_alert")
+        elif bool(mem_replay_last_ok is False) and ("unreachable" in mem_replay_last_error or "health_status" in mem_replay_last_error):
+            score += 2
+            throttle_reasons.append("memory_outbox_alert")
+        elif outbox_backlog >= outbox_alert_n:
+            score += 2
+            throttle_reasons.append("memory_outbox_alert")
+        elif outbox_backlog >= outbox_warn_n:
+            score += 1
+            throttle_reasons.append("memory_outbox_warn")
+        elif bool(mem_replay_last_ok is False):
+            score += 1
+            throttle_reasons.append("memory_outbox_warn")
 
     if (
         "fracture_alert" in ext_flags

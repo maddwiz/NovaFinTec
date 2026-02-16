@@ -51,7 +51,10 @@ def test_operator_status_includes_runtime_controls_and_overlay(tmp_path, monkeyp
             '"memory_feedback_open_scale": 0.75, '
             '"memory_feedback_turnover_pressure": 0.51, "memory_feedback_turnover_dampener": 0.84, '
             '"memory_feedback_reasons": ["turnover_guard:warn"], '
-            '"memory_feedback_block_new_entries": false}'
+            '"memory_feedback_block_new_entries": false, '
+            '"memory_replay_enabled": true, "memory_replay_last_ok": true, '
+            '"memory_replay_remaining_files": 6, "memory_replay_queued_files": 6, '
+            '"memory_outbox_warn_files": 5, "memory_outbox_alert_files": 20}'
         ),
         encoding="utf-8",
     )
@@ -96,6 +99,11 @@ def test_operator_status_includes_runtime_controls_and_overlay(tmp_path, monkeyp
     assert payload["memory_feedback_runtime"]["max_trades_scale"] == 0.8
     assert payload["memory_feedback_runtime"]["max_open_scale"] == 0.75
     assert "turnover_guard:warn" in payload["memory_feedback_runtime"]["reasons"]
+    assert payload["memory_outbox_runtime"]["present"] is True
+    assert payload["memory_outbox_runtime"]["source"] == "runtime_controls"
+    assert payload["memory_outbox_runtime"]["state"] == "warn"
+    assert payload["memory_outbox_runtime"]["severity"] == 2
+    assert payload["memory_outbox_runtime"]["remaining_files"] == 6
     assert payload["runtime_decision"]["entry_blocked"] is True
     assert any("external_overlay" in x for x in payload["runtime_decision"]["entry_block_reasons"])
     assert isinstance(payload["runtime_remediation"], list)

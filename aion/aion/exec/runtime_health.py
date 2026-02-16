@@ -412,3 +412,70 @@ def memory_feedback_runtime_info(
         "source": source,
         "present": source != "none",
     }
+
+
+def memory_outbox_runtime_info(
+    runtime_controls: dict | None,
+    *,
+    warn_files: int = 5,
+    alert_files: int = 20,
+) -> dict:
+    rc = runtime_controls if isinstance(runtime_controls, dict) else {}
+    enabled = bool(rc.get("memory_replay_enabled", False))
+    source = "runtime_controls" if any(k.startswith("memory_replay_") for k in rc.keys()) else "none"
+
+    data = {
+        "enabled": enabled,
+        "interval_sec": _safe_float(rc.get("memory_replay_interval_sec"), None),
+        "last_ts_utc": str(rc.get("memory_replay_last_ts_utc", "")).strip() or None,
+        "last_ok": rc.get("memory_replay_last_ok", None),
+        "last_error": str(rc.get("memory_replay_last_error", "")).strip() or None,
+        "last_replayed": max(0, _safe_int(rc.get("memory_replay_last_replayed", 0), 0)),
+        "last_failed": max(0, _safe_int(rc.get("memory_replay_last_failed", 0), 0)),
+        "last_processed_files": max(0, _safe_int(rc.get("memory_replay_last_processed_files", 0), 0)),
+        "queued_files": _safe_int(rc.get("memory_replay_queued_files"), 0) if rc.get("memory_replay_queued_files") is not None else None,
+        "remaining_files": _safe_int(rc.get("memory_replay_remaining_files"), 0)
+        if rc.get("memory_replay_remaining_files") is not None
+        else None,
+    }
+
+    if not enabled:
+        state = "inactive"
+    else:
+        queued = data.get("queued_files")
+        remaining = data.get("remaining_files")
+        last_ok = data.get("last_ok")
+        last_failed = int(data.get("last_failed") or 0)
+        err = str(data.get("last_error") or "").strip().lower()
+        backlog = max(
+            int(queued) if isinstance(queued, int) else 0,
+            int(remaining) if isinstance(remaining, int) else 0,
+        )
+        warn_n = max(1, int(warn_files))
+        alert_n = max(warn_n + 1, int(alert_files))
+
+        if last_failed > 0:
+            state = "alert"
+        elif backlog >= alert_n:
+            state = "alert"
+        elif bool(last_ok is False) and ("unreachable" in err or "health_status" in err):
+            state = "alert"
+        elif backlog >= warn_n:
+            state = "warn"
+        elif bool(last_ok is False) and ("cooldown_active" in err):
+            state = "warn"
+        elif bool(last_ok is False):
+            state = "warn"
+        elif last_ok is True:
+            state = "ok"
+        else:
+            state = "unknown"
+
+    severity = {"inactive": 0, "unknown": 1, "ok": 1, "warn": 2, "alert": 3}.get(state, 1)
+    return {
+        **data,
+        "state": state,
+        "severity": int(severity),
+        "source": source,
+        "present": source != "none",
+    }

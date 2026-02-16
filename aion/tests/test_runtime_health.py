@@ -5,6 +5,7 @@ from pathlib import Path
 
 from aion.exec.runtime_health import (
     aion_feedback_runtime_info,
+    memory_outbox_runtime_info,
     memory_feedback_runtime_info,
     overlay_runtime_status,
     runtime_controls_stale_info,
@@ -188,6 +189,43 @@ def test_memory_feedback_runtime_info_alerts_on_dampener_threshold():
     assert out["state"] == "alert"
     assert out["severity"] == 3
     assert out["turnover_dampener"] == 0.12
+
+
+def test_memory_outbox_runtime_info_inactive_when_disabled():
+    out = memory_outbox_runtime_info({"memory_replay_enabled": False})
+    assert out["state"] == "inactive"
+    assert out["severity"] == 0
+
+
+def test_memory_outbox_runtime_info_warns_on_backlog():
+    out = memory_outbox_runtime_info(
+        {
+            "memory_replay_enabled": True,
+            "memory_replay_last_ok": True,
+            "memory_replay_remaining_files": 7,
+        },
+        warn_files=5,
+        alert_files=20,
+    )
+    assert out["state"] == "warn"
+    assert out["severity"] == 2
+    assert out["remaining_files"] == 7
+
+
+def test_memory_outbox_runtime_info_alerts_on_unreachable_replay():
+    out = memory_outbox_runtime_info(
+        {
+            "memory_replay_enabled": True,
+            "memory_replay_last_ok": False,
+            "memory_replay_last_failed": 0,
+            "memory_replay_last_error": "unreachable:connection reset",
+            "memory_replay_remaining_files": 2,
+        },
+        warn_files=5,
+        alert_files=20,
+    )
+    assert out["state"] == "alert"
+    assert out["severity"] == 3
 
 
 def test_overlay_runtime_status_prefers_payload_timestamp_over_mtime(tmp_path: Path):
