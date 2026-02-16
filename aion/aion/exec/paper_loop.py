@@ -879,6 +879,7 @@ def main() -> int:
     last_overlay_gate_sig = None
     last_exec_governor_sig = None
     last_memory_feedback_sig = None
+    last_aion_feedback_sig = None
 
     if cfg.META_LABEL_ENABLED:
         samples = meta_model.fit_from_trades(cfg.LOG_DIR / "shadow_trades.csv")
@@ -986,6 +987,16 @@ def main() -> int:
             memory_feedback_trades_scale = 1.0
             memory_feedback_open_scale = 1.0
             memory_feedback_block_new_entries = False
+            aion_feedback_active = False
+            aion_feedback_status = "unknown"
+            aion_feedback_reasons = []
+            aion_feedback_risk_scale = 1.0
+            aion_feedback_closed_trades = 0
+            aion_feedback_hit_rate = None
+            aion_feedback_profit_factor = None
+            aion_feedback_expectancy = None
+            aion_feedback_drawdown_norm = None
+            aion_feedback_path = ""
             if cfg.EXT_SIGNAL_ENABLED:
                 ext_bundle = load_external_signal_bundle(
                     path=cfg.EXT_SIGNAL_FILE,
@@ -1079,6 +1090,18 @@ def main() -> int:
                 memory_feedback_trades_scale = _safe_float(mem_ctl.get("trades_scale"), 1.0)
                 memory_feedback_open_scale = _safe_float(mem_ctl.get("open_scale"), 1.0)
                 memory_feedback_block_new_entries = bool(mem_ctl.get("block_new_entries", False))
+                aion_fb = ext_bundle.get("aion_feedback", {}) if isinstance(ext_bundle, dict) else {}
+                if isinstance(aion_fb, dict):
+                    aion_feedback_active = bool(aion_fb.get("active", False))
+                    aion_feedback_status = str(aion_fb.get("status", "unknown"))
+                    aion_feedback_reasons = [str(x) for x in aion_fb.get("reasons", []) if str(x)]
+                    aion_feedback_risk_scale = _safe_float(aion_fb.get("risk_scale"), 1.0)
+                    aion_feedback_closed_trades = max(0, _safe_int(aion_fb.get("closed_trades"), 0))
+                    aion_feedback_hit_rate = _safe_float(aion_fb.get("hit_rate"), None)
+                    aion_feedback_profit_factor = _safe_float(aion_fb.get("profit_factor"), None)
+                    aion_feedback_expectancy = _safe_float(aion_fb.get("expectancy"), None)
+                    aion_feedback_drawdown_norm = _safe_float(aion_fb.get("drawdown_norm"), None)
+                    aion_feedback_path = str(aion_fb.get("path", "")).strip()
                 sig = (
                     round(float(ext_runtime_scale), 4),
                     round(float(ext_position_risk_scale), 4),
@@ -1140,6 +1163,33 @@ def main() -> int:
                             f"status={mem_sig[1]} reasons={reason_txt} block_new={mem_sig[3]} risk_scale={mem_sig[4]:.3f}",
                         )
                 last_memory_feedback_sig = mem_sig
+                aion_sig = (
+                    bool(aion_feedback_active),
+                    str(aion_feedback_status).strip().lower(),
+                    tuple(sorted(str(x).strip().lower() for x in aion_feedback_reasons if str(x).strip())),
+                    round(float(aion_feedback_risk_scale), 4),
+                    int(aion_feedback_closed_trades),
+                    None if aion_feedback_hit_rate is None else round(float(aion_feedback_hit_rate), 4),
+                    None if aion_feedback_profit_factor is None else round(float(aion_feedback_profit_factor), 4),
+                    None if aion_feedback_expectancy is None else round(float(aion_feedback_expectancy), 4),
+                    None if aion_feedback_drawdown_norm is None else round(float(aion_feedback_drawdown_norm), 4),
+                    str(aion_feedback_path),
+                )
+                if aion_sig != last_aion_feedback_sig and aion_sig[0]:
+                    reason_txt = ",".join(aion_sig[2]) if aion_sig[2] else "none"
+                    log_run(
+                        "AION outcome feedback "
+                        f"status={aion_sig[1]} reasons={reason_txt} risk_scale={aion_sig[3]:.3f} "
+                        f"closed_trades={aion_sig[4]} hit_rate={(f'{aion_sig[5]:.3f}' if isinstance(aion_sig[5], float) else 'na')} "
+                        f"profit_factor={(f'{aion_sig[6]:.3f}' if isinstance(aion_sig[6], float) else 'na')} "
+                        f"drawdown_norm={(f'{aion_sig[8]:.3f}' if isinstance(aion_sig[8], float) else 'na')}"
+                    )
+                    if cfg.MONITORING_ENABLED and aion_sig[1] in {"warn", "alert"}:
+                        monitor.record_system_event(
+                            "aion_outcome_feedback",
+                            f"status={aion_sig[1]} reasons={reason_txt} risk_scale={aion_sig[3]:.3f} closed_trades={aion_sig[4]}",
+                        )
+                last_aion_feedback_sig = aion_sig
                 gate_sig = (bool(overlay_block_new_entries), tuple(sorted(str(x) for x in overlay_block_reasons)))
                 if gate_sig != last_overlay_gate_sig:
                     reason_txt = ",".join(gate_sig[1]) if gate_sig[1] else "none"
@@ -1309,6 +1359,24 @@ def main() -> int:
                     "memory_feedback_trades_scale": float(memory_feedback_trades_scale),
                     "memory_feedback_open_scale": float(memory_feedback_open_scale),
                     "memory_feedback_block_new_entries": bool(memory_feedback_block_new_entries),
+                    "aion_feedback_active": bool(aion_feedback_active),
+                    "aion_feedback_status": str(aion_feedback_status),
+                    "aion_feedback_reasons": list(aion_feedback_reasons),
+                    "aion_feedback_risk_scale": float(aion_feedback_risk_scale),
+                    "aion_feedback_closed_trades": int(aion_feedback_closed_trades),
+                    "aion_feedback_hit_rate": (
+                        None if aion_feedback_hit_rate is None else float(aion_feedback_hit_rate)
+                    ),
+                    "aion_feedback_profit_factor": (
+                        None if aion_feedback_profit_factor is None else float(aion_feedback_profit_factor)
+                    ),
+                    "aion_feedback_expectancy": (
+                        None if aion_feedback_expectancy is None else float(aion_feedback_expectancy)
+                    ),
+                    "aion_feedback_drawdown_norm": (
+                        None if aion_feedback_drawdown_norm is None else float(aion_feedback_drawdown_norm)
+                    ),
+                    "aion_feedback_path": str(aion_feedback_path),
                     "exec_governor_state": str(exec_governor_state),
                     "exec_governor_reasons": list(exec_governor_reasons),
                     "exec_governor_recent_executions": int(exec_governor_recent_executions),

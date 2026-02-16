@@ -162,7 +162,7 @@ def _remediation_actions(blocked_reasons: list[str], throttle_reasons: list[str]
                 ],
             )
         )
-    if any(x in {"aion_outcome_alert", "aion_outcome_warn"} for x in tr):
+    if any(x.startswith("aion_feedback") for x in br) or any(x in {"aion_outcome_alert", "aion_outcome_warn"} for x in tr):
         acts.append(
             _action(
                 "aion_outcome_recalibration",
@@ -214,6 +214,10 @@ def runtime_decision_summary(
         blocked_reasons.append("memory_feedback")
         for r in rc.get("memory_feedback_reasons", []) if isinstance(rc.get("memory_feedback_reasons", []), list) else []:
             blocked_reasons.append(f"memory_feedback:{str(r).strip().lower()}")
+    if _to_bool(rc.get("aion_feedback_block_new_entries", False)):
+        blocked_reasons.append("aion_feedback")
+        for r in rc.get("aion_feedback_reasons", []) if isinstance(rc.get("aion_feedback_reasons", []), list) else []:
+            blocked_reasons.append(f"aion_feedback:{str(r).strip().lower()}")
     if _to_bool(rc.get("exec_governor_block_new_entries", False)):
         blocked_reasons.append("execution_governor")
     if _to_bool(ext_rt.get("stale", False)):
@@ -254,6 +258,13 @@ def runtime_decision_summary(
     elif mem_state == "warn":
         score += 1
         throttle_reasons.append("memory_feedback_warn")
+    aion_state = str(rc.get("aion_feedback_status", "unknown")).strip().lower()
+    if aion_state == "alert":
+        score += 2
+        throttle_reasons.append("aion_outcome_alert")
+    elif aion_state == "warn":
+        score += 1
+        throttle_reasons.append("aion_outcome_warn")
 
     if "hive_crowding_alert" in ext_flags:
         score += 2

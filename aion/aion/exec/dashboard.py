@@ -163,6 +163,11 @@ def _status_payload():
     if not isinstance(risk_flags, list):
         risk_flags = []
     risk_flags = [str(x).strip().lower() for x in risk_flags if str(x).strip()]
+    runtime_flags = ext_runtime.get("risk_flags", []) if isinstance(ext_runtime, dict) else []
+    if not isinstance(runtime_flags, list):
+        runtime_flags = []
+    runtime_flags = [str(x).strip().lower() for x in runtime_flags if str(x).strip()]
+    risk_flags = list(dict.fromkeys(risk_flags + runtime_flags))
     fracture_state = "none"
     if "fracture_alert" in risk_flags:
         fracture_state = "alert"

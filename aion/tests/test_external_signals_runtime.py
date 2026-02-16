@@ -67,6 +67,43 @@ def test_load_external_signal_bundle_parses_memory_feedback(tmp_path: Path):
     assert "memory_feedback_warn" in b.get("risk_flags", [])
 
 
+def test_load_external_signal_bundle_parses_aion_feedback(tmp_path: Path):
+    p = tmp_path / "overlay.json"
+    p.write_text(
+        json.dumps(
+            {
+                "signals": {"AAPL": {"bias": 0.3, "confidence": 0.8}},
+                "runtime_context": {
+                    "runtime_multiplier": 0.90,
+                    "risk_flags": ["aion_outcome_alert"],
+                    "aion_feedback": {
+                        "active": True,
+                        "status": "alert",
+                        "risk_scale": 0.74,
+                        "closed_trades": 22,
+                        "hit_rate": 0.39,
+                        "profit_factor": 0.81,
+                        "expectancy": -2.4,
+                        "drawdown_norm": 2.8,
+                        "reasons": ["negative_expectancy_alert"],
+                        "path": "/tmp/shadow_trades.csv",
+                    },
+                },
+                "quality_gate": {"ok": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    b = load_external_signal_bundle(p, min_confidence=0.55, max_bias=0.9)
+    af = b.get("aion_feedback", {})
+    assert af.get("active") is True
+    assert af.get("status") == "alert"
+    assert float(af.get("risk_scale")) < 1.0
+    assert int(af.get("closed_trades")) == 22
+    assert "aion_outcome_alert" in b.get("risk_flags", [])
+
+
 def test_runtime_overlay_scale_penalizes_flags_and_degraded():
     scale, diag = runtime_overlay_scale(
         {

@@ -140,6 +140,7 @@ def load_external_signal_bundle(
         "overlay_generated_at_utc": str|None,
         "overlay_stale": bool,
         "memory_feedback": dict,
+        "aion_feedback": dict,
       }
     """
     empty = {
@@ -162,6 +163,18 @@ def load_external_signal_bundle(
             "max_open_scale": 1.0,
             "block_new_entries": False,
             "reasons": [],
+        },
+        "aion_feedback": {
+            "active": False,
+            "status": "unknown",
+            "risk_scale": 1.0,
+            "closed_trades": 0,
+            "hit_rate": None,
+            "profit_factor": None,
+            "expectancy": None,
+            "drawdown_norm": None,
+            "reasons": [],
+            "path": "",
         },
     }
     try:
@@ -217,6 +230,20 @@ def load_external_signal_bundle(
                     "max_open_scale": _clamp(_safe_float(mf.get("max_open_scale", 1.0), 1.0), 0.20, 1.20),
                     "block_new_entries": bool(mf.get("block_new_entries", False)),
                     "reasons": _uniq_flags(mf.get("reasons", [])),
+                }
+            af = ctx.get("aion_feedback", {})
+            if isinstance(af, dict):
+                out["aion_feedback"] = {
+                    "active": bool(af.get("active", False)),
+                    "status": str(af.get("status", "unknown")).strip().lower() or "unknown",
+                    "risk_scale": _clamp(_safe_float(af.get("risk_scale", 1.0), 1.0), 0.20, 1.20),
+                    "closed_trades": max(0, int(_safe_float(af.get("closed_trades", 0), 0))),
+                    "hit_rate": _safe_float(af.get("hit_rate", None), None),
+                    "profit_factor": _safe_float(af.get("profit_factor", None), None),
+                    "expectancy": _safe_float(af.get("expectancy", None), None),
+                    "drawdown_norm": _safe_float(af.get("drawdown_norm", None), None),
+                    "reasons": _uniq_flags(af.get("reasons", [])),
+                    "path": str(af.get("path", "")).strip(),
                 }
 
         out["degraded_safe_mode"] = bool(payload.get("degraded_safe_mode", False))
@@ -371,5 +398,6 @@ def runtime_overlay_scale(
         "regime": str(bundle.get("regime", "unknown")),
         "source_mode": str(bundle.get("source_mode", "unknown")),
         "memory_feedback": bundle.get("memory_feedback", {}),
+        "aion_feedback": bundle.get("aion_feedback", {}),
     }
     return scale, diag

@@ -83,6 +83,7 @@ def test_status_payload_includes_external_overlay_fields(tmp_path: Path, monkeyp
     assert s["external_overlay_runtime"]["runtime_context_present"] is True
     assert "drift_warn" in s["external_overlay_runtime"]["risk_flags"]
     assert "fracture_alert" in s["external_overlay_risk_flags"]
+    assert "drift_warn" in s["external_overlay_risk_flags"]
     assert s["external_fracture_state"] == "alert"
     assert s["ops_guard_ok"] is True
     assert s["runtime_controls"]["max_trades_cap_runtime"] == 9
