@@ -43,6 +43,7 @@ def build_alert_payload(
     drift_watch: dict,
     thresholds: dict,
     fracture: dict | None = None,
+    overlay: dict | None = None,
 ):
     min_health = float(thresholds.get("min_health_score", 70.0))
     min_global = float(thresholds.get("min_global_governor_mean", 0.45))
@@ -67,6 +68,10 @@ def build_alert_payload(
     max_hive_crowding_mean = float(thresholds.get("max_hive_crowding_mean", 0.65))
     max_hive_entropy_strength_mean = float(thresholds.get("max_hive_entropy_strength_mean", 0.90))
     max_hive_entropy_target_mean = float(thresholds.get("max_hive_entropy_target_mean", 0.84))
+    min_aion_feedback_risk_scale = float(thresholds.get("min_aion_feedback_risk_scale", 0.80))
+    min_aion_feedback_closed_trades = int(thresholds.get("min_aion_feedback_closed_trades", 8))
+    min_aion_feedback_hit_rate = float(thresholds.get("min_aion_feedback_hit_rate", 0.38))
+    min_aion_feedback_profit_factor = float(thresholds.get("min_aion_feedback_profit_factor", 0.78))
 
     issues = []
     score = float(health.get("health_score", 0.0))
@@ -92,6 +97,12 @@ def build_alert_payload(
     hive_crowding_mean = None
     hive_entropy_strength_mean = None
     hive_entropy_target_mean = None
+    aion_feedback_active = False
+    aion_feedback_status = "unknown"
+    aion_feedback_risk_scale = None
+    aion_feedback_closed_trades = None
+    aion_feedback_hit_rate = None
+    aion_feedback_profit_factor = None
     if isinstance(health, dict):
         shape = health.get("shape", {})
         if isinstance(shape, dict):
@@ -173,6 +184,60 @@ def build_alert_payload(
         and hive_entropy_target_mean > max_hive_entropy_target_mean
     ):
         issues.append(f"hive_entropy_target_mean>{max_hive_entropy_target_mean} ({hive_entropy_target_mean:.3f})")
+
+    if isinstance(overlay, dict):
+        rt = overlay.get("runtime_context", {})
+        if isinstance(rt, dict):
+            af = rt.get("aion_feedback", {})
+            if isinstance(af, dict):
+                aion_feedback_active = bool(af.get("active", False))
+                aion_feedback_status = str(af.get("status", "unknown")).strip().lower() or "unknown"
+                try:
+                    aion_feedback_risk_scale = float(af.get("risk_scale", np.nan))
+                except Exception:
+                    aion_feedback_risk_scale = None
+                try:
+                    aion_feedback_closed_trades = int(af.get("closed_trades", 0))
+                except Exception:
+                    aion_feedback_closed_trades = None
+                try:
+                    aion_feedback_hit_rate = float(af.get("hit_rate", np.nan))
+                except Exception:
+                    aion_feedback_hit_rate = None
+                try:
+                    aion_feedback_profit_factor = float(af.get("profit_factor", np.nan))
+                except Exception:
+                    aion_feedback_profit_factor = None
+
+    if aion_feedback_active:
+        if aion_feedback_status in {"alert", "hard"}:
+            issues.append("aion_feedback_status=alert")
+        enough_closed = (
+            aion_feedback_closed_trades is not None and aion_feedback_closed_trades >= min_aion_feedback_closed_trades
+        )
+        if enough_closed:
+            if (
+                aion_feedback_risk_scale is not None
+                and np.isfinite(aion_feedback_risk_scale)
+                and aion_feedback_risk_scale < min_aion_feedback_risk_scale
+            ):
+                issues.append(
+                    f"aion_feedback_risk_scale<{min_aion_feedback_risk_scale} ({aion_feedback_risk_scale:.3f})"
+                )
+            if (
+                aion_feedback_hit_rate is not None
+                and np.isfinite(aion_feedback_hit_rate)
+                and aion_feedback_hit_rate < min_aion_feedback_hit_rate
+            ):
+                issues.append(f"aion_feedback_hit_rate<{min_aion_feedback_hit_rate} ({aion_feedback_hit_rate:.3f})")
+            if (
+                aion_feedback_profit_factor is not None
+                and np.isfinite(aion_feedback_profit_factor)
+                and aion_feedback_profit_factor < min_aion_feedback_profit_factor
+            ):
+                issues.append(
+                    f"aion_feedback_profit_factor<{min_aion_feedback_profit_factor} ({aion_feedback_profit_factor:.3f})"
+                )
 
     gg = guards.get("global_governor", {}) if isinstance(guards, dict) else {}
     gmean = gg.get("mean", None)
@@ -326,6 +391,10 @@ def build_alert_payload(
             "max_hive_crowding_mean": max_hive_crowding_mean,
             "max_hive_entropy_strength_mean": max_hive_entropy_strength_mean,
             "max_hive_entropy_target_mean": max_hive_entropy_target_mean,
+            "min_aion_feedback_risk_scale": min_aion_feedback_risk_scale,
+            "min_aion_feedback_closed_trades": min_aion_feedback_closed_trades,
+            "min_aion_feedback_hit_rate": min_aion_feedback_hit_rate,
+            "min_aion_feedback_profit_factor": min_aion_feedback_profit_factor,
         },
         "observed": {
             "health_score": score,
@@ -341,6 +410,12 @@ def build_alert_payload(
             "hive_crowding_mean": hive_crowding_mean,
             "hive_entropy_strength_mean": hive_entropy_strength_mean,
             "hive_entropy_target_mean": hive_entropy_target_mean,
+            "aion_feedback_active": aion_feedback_active,
+            "aion_feedback_status": aion_feedback_status,
+            "aion_feedback_risk_scale": aion_feedback_risk_scale,
+            "aion_feedback_closed_trades": aion_feedback_closed_trades,
+            "aion_feedback_hit_rate": aion_feedback_hit_rate,
+            "aion_feedback_profit_factor": aion_feedback_profit_factor,
             "global_governor_mean": gmean,
             "quality_governor_mean": q_mean,
             "quality_score": q_score,
@@ -397,6 +472,7 @@ if __name__ == "__main__":
     concentration = _load_json(RUNS / "concentration_governor_info.json") or {}
     drift_watch = _load_json(RUNS / "portfolio_drift_watch.json") or {}
     fracture = _load_json(RUNS / "regime_fracture_info.json") or {}
+    overlay = _load_json(RUNS / "q_signal_overlay.json") or {}
     payload = build_alert_payload(
         health=health,
         guards=guards,
@@ -408,6 +484,7 @@ if __name__ == "__main__":
         concentration=concentration,
         drift_watch=drift_watch,
         fracture=fracture,
+        overlay=overlay,
         thresholds={
             "min_health_score": min_health,
             "min_global_governor_mean": min_global,
@@ -432,6 +509,10 @@ if __name__ == "__main__":
             "max_hive_crowding_mean": max_hive_crowding_mean,
             "max_hive_entropy_strength_mean": max_hive_entropy_strength_mean,
             "max_hive_entropy_target_mean": max_hive_entropy_target_mean,
+            "min_aion_feedback_risk_scale": float(os.getenv("Q_MIN_AION_FEEDBACK_RISK_SCALE", "0.80")),
+            "min_aion_feedback_closed_trades": int(os.getenv("Q_MIN_AION_FEEDBACK_CLOSED_TRADES", "8")),
+            "min_aion_feedback_hit_rate": float(os.getenv("Q_MIN_AION_FEEDBACK_HIT_RATE", "0.38")),
+            "min_aion_feedback_profit_factor": float(os.getenv("Q_MIN_AION_FEEDBACK_PROFIT_FACTOR", "0.78")),
         },
     )
     (RUNS / "health_alerts.json").write_text(json.dumps(payload, indent=2))
