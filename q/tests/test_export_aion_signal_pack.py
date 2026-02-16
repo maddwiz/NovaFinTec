@@ -251,6 +251,7 @@ def test_runtime_context_includes_aion_outcome_feedback(tmp_path: Path, monkeypa
     assert float(afb.get("risk_scale", 1.0)) < 1.0
     assert afb.get("stale") is False
     assert afb.get("age_hours") is not None
+    assert afb.get("source") == "shadow_trades"
 
 
 def test_runtime_context_flags_stale_aion_outcome_feedback(tmp_path: Path, monkeypatch):
@@ -279,5 +280,6 @@ def test_runtime_context_flags_stale_aion_outcome_feedback(tmp_path: Path, monke
     afb = ctx.get("aion_feedback", {})
     assert afb.get("active") is True
     assert afb.get("stale") is True
+    assert afb.get("source") == "shadow_trades"
     assert "aion_outcome_stale" in ctx["risk_flags"]
     assert "aion_outcome_alert" not in ctx["risk_flags"]

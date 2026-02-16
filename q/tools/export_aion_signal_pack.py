@@ -365,7 +365,10 @@ def _aion_outcome_feedback():
     Optional closed-loop outcome signal from recent AION realized trades.
     Reads AION shadow_trades.csv and maps realized quality into a risk scalar.
     """
-    return load_outcome_feedback(root=ROOT)
+    out = load_outcome_feedback(root=ROOT)
+    if isinstance(out, dict):
+        out.setdefault("source", "shadow_trades")
+    return out
 
 
 def _runtime_context(runs_dir: Path):
