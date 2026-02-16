@@ -164,6 +164,45 @@ def _analyze_execution_constraints(info: dict | None):
     return metrics, issues
 
 
+def _analyze_cross_hive_turnover(
+    cross_info: dict | None,
+    *,
+    max_mean_turnover: float = 0.45,
+    max_step_turnover: float = 1.00,
+    max_rolling_turnover: float = 1.25,
+):
+    metrics = {}
+    issues = []
+    if not isinstance(cross_info, dict):
+        return metrics, issues
+
+    mean_turnover = _to_float(cross_info.get("mean_turnover"))
+    max_turnover = _to_float(cross_info.get("max_turnover"))
+    rolling_turnover = _to_float(cross_info.get("rolling_turnover_max"))
+    rolling_window = _to_float(cross_info.get("rolling_turnover_window"))
+    rolling_limit = _to_float(cross_info.get("rolling_turnover_limit"))
+
+    if mean_turnover is not None:
+        metrics["cross_hive_mean_turnover"] = mean_turnover
+    if max_turnover is not None:
+        metrics["cross_hive_max_turnover"] = max_turnover
+    if rolling_turnover is not None:
+        metrics["cross_hive_rolling_turnover_max"] = rolling_turnover
+    if rolling_window is not None:
+        metrics["cross_hive_rolling_turnover_window"] = float(rolling_window)
+    if rolling_limit is not None:
+        metrics["cross_hive_rolling_turnover_limit"] = float(rolling_limit)
+
+    if mean_turnover is not None and mean_turnover > float(max_mean_turnover):
+        issues.append("cross-hive mean turnover exceeds threshold")
+    if max_turnover is not None and max_turnover > float(max_step_turnover):
+        issues.append("cross-hive max turnover exceeds threshold")
+    if rolling_turnover is not None and rolling_turnover > float(max_rolling_turnover):
+        issues.append("cross-hive rolling turnover exceeds threshold")
+
+    return metrics, issues
+
+
 def _overlay_aion_feedback_metrics(overlay: dict | None):
     return _overlay_aion_feedback_metrics_with_fallback(overlay, fallback_feedback=None)
 
@@ -399,6 +438,7 @@ if __name__ == "__main__":
     gov_trace_total = _load_series(RUNS / "final_governor_trace.csv")
     hb_stress = _load_series(RUNS / "heartbeat_stress.csv")
     exec_info = _load_json(RUNS / "execution_constraints_info.json")
+    cross_info = _load_json(RUNS / "cross_hive_summary.json")
     overlay = _load_json(RUNS / "q_signal_overlay.json")
     aion_source_pref = normalize_source_preference(os.getenv("Q_AION_FEEDBACK_SOURCE", "auto"))
 
@@ -502,6 +542,14 @@ if __name__ == "__main__":
     exec_shape, exec_issues = _analyze_execution_constraints(exec_info)
     if exec_shape:
         shape.update(exec_shape)
+    cross_shape, cross_issues = _analyze_cross_hive_turnover(
+        cross_info,
+        max_mean_turnover=float(np.clip(float(os.getenv("Q_SYSTEM_HEALTH_MAX_CROSS_HIVE_MEAN_TURNOVER", "0.45")), 0.05, 2.0)),
+        max_step_turnover=float(np.clip(float(os.getenv("Q_SYSTEM_HEALTH_MAX_CROSS_HIVE_MAX_TURNOVER", "1.00")), 0.10, 3.0)),
+        max_rolling_turnover=float(np.clip(float(os.getenv("Q_SYSTEM_HEALTH_MAX_CROSS_HIVE_ROLLING_TURNOVER", "1.25")), 0.10, 5.0)),
+    )
+    if cross_shape:
+        shape.update(cross_shape)
     fallback_aion_feedback = load_outcome_feedback(root=ROOT, mark_stale_reason=False)
     aion_shape, aion_issues = _overlay_aion_feedback_metrics_with_fallback(
         overlay,
@@ -531,6 +579,7 @@ if __name__ == "__main__":
         if bad:
             issues.append("portfolio_weights_final contains NaN/Inf")
     issues.extend(exec_issues)
+    issues.extend(cross_issues)
     issues.extend(aion_issues)
     issues.extend(stale_issues)
 

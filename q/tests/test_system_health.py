@@ -47,6 +47,41 @@ def test_analyze_execution_constraints_flags_step_violation():
     assert any("exceeds configured max_step_turnover" in x for x in issues)
 
 
+def test_analyze_cross_hive_turnover_no_issues_when_stable():
+    metrics, issues = rsh._analyze_cross_hive_turnover(
+        {
+            "mean_turnover": 0.24,
+            "max_turnover": 0.72,
+            "rolling_turnover_max": 0.96,
+            "rolling_turnover_window": 5,
+            "rolling_turnover_limit": 1.0,
+        },
+        max_mean_turnover=0.45,
+        max_step_turnover=1.0,
+        max_rolling_turnover=1.25,
+    )
+    assert float(metrics["cross_hive_mean_turnover"]) == 0.24
+    assert float(metrics["cross_hive_max_turnover"]) == 0.72
+    assert float(metrics["cross_hive_rolling_turnover_max"]) == 0.96
+    assert issues == []
+
+
+def test_analyze_cross_hive_turnover_flags_threshold_breaches():
+    _metrics, issues = rsh._analyze_cross_hive_turnover(
+        {
+            "mean_turnover": 0.52,
+            "max_turnover": 1.18,
+            "rolling_turnover_max": 1.62,
+        },
+        max_mean_turnover=0.45,
+        max_step_turnover=1.0,
+        max_rolling_turnover=1.25,
+    )
+    assert any("mean turnover exceeds threshold" in x for x in issues)
+    assert any("max turnover exceeds threshold" in x for x in issues)
+    assert any("rolling turnover exceeds threshold" in x for x in issues)
+
+
 def test_staleness_issues_flags_old_required_and_optional():
     stats, issues = rsh._staleness_issues(
         [
