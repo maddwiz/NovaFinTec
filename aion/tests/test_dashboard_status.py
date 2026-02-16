@@ -92,6 +92,8 @@ def test_status_payload_includes_external_overlay_fields(tmp_path: Path, monkeyp
     assert s["runtime_decision"]["entry_blocked"] is True
     assert any("external_overlay" in x for x in s["runtime_decision"]["entry_block_reasons"])
     assert s["runtime_decision"]["throttle_state"] in {"warn", "alert"}
+    assert isinstance(s["runtime_remediation"], list)
+    assert len(s["runtime_remediation"]) >= 1
     assert s["runtime_controls_age_sec"] is not None
     assert s["runtime_controls_stale_threshold_sec"] >= 60
     assert s["runtime_controls_stale"] is False

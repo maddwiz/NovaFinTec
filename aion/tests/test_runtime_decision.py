@@ -16,6 +16,7 @@ def test_runtime_decision_summary_blocks_and_alerts():
     assert out["entry_blocked"] is True
     assert any("external_overlay" in x for x in out["entry_block_reasons"])
     assert out["throttle_state"] == "alert"
+    assert any(a.get("id") == "overlay_refresh" for a in out["recommended_actions"])
 
 
 def test_runtime_decision_summary_normal_when_clean():
@@ -33,3 +34,4 @@ def test_runtime_decision_summary_normal_when_clean():
     )
     assert out["entry_blocked"] is False
     assert out["throttle_state"] == "normal"
+    assert out["recommended_actions"][0]["id"] == "no_action"

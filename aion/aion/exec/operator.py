@@ -108,15 +108,17 @@ def _status() -> int:
     ext_ctx = ext_rt.get("runtime_context", {}) if isinstance(ext_rt, dict) else {}
     if not isinstance(ext_ctx, dict):
         ext_ctx = {}
+    decision = runtime_decision_summary(
+        runtime_controls if isinstance(runtime_controls, dict) else {},
+        ext_rt,
+        ext_rt.get("risk_flags", []) if isinstance(ext_rt, dict) else [],
+    )
     out = {
         "tasks": snap,
         "ops_guard_status": ops_status,
         "runtime_controls": runtime_controls if isinstance(runtime_controls, dict) else {},
-        "runtime_decision": runtime_decision_summary(
-            runtime_controls if isinstance(runtime_controls, dict) else {},
-            ext_rt,
-            ext_rt.get("risk_flags", []) if isinstance(ext_rt, dict) else [],
-        ),
+        "runtime_decision": decision,
+        "runtime_remediation": decision.get("recommended_actions", []),
         "runtime_controls_age_sec": runtime_controls_age_sec,
         "runtime_controls_stale_threshold_sec": runtime_controls_stale_threshold_sec,
         "runtime_controls_stale": runtime_controls_stale,

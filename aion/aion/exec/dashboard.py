@@ -183,6 +183,11 @@ def _status_payload():
     rc_age = rc_info.get("age_sec")
     rc_threshold = float(rc_info.get("threshold_sec", max(60, int(cfg.LOOP_SECONDS * 6))))
     rc_stale = bool(rc_info.get("stale", False))
+    decision = runtime_decision_summary(
+        runtime_controls if isinstance(runtime_controls, dict) else {},
+        ext_runtime,
+        risk_flags,
+    )
 
     return {
         "ib": doctor.get("ib", {}),
@@ -197,11 +202,8 @@ def _status_payload():
         "ops_guard_ok": ops_guard_ok,
         "ops_guard": ops_guard if isinstance(ops_guard, dict) else {},
         "runtime_controls": runtime_controls if isinstance(runtime_controls, dict) else {},
-        "runtime_decision": runtime_decision_summary(
-            runtime_controls if isinstance(runtime_controls, dict) else {},
-            ext_runtime,
-            risk_flags,
-        ),
+        "runtime_decision": decision,
+        "runtime_remediation": decision.get("recommended_actions", []),
         "runtime_controls_age_sec": rc_age,
         "runtime_controls_stale_threshold_sec": rc_threshold,
         "runtime_controls_stale": rc_stale,

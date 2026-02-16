@@ -35,6 +35,120 @@ def _uniq(items):
     return out
 
 
+def _action(aid: str, priority: int, title: str, why: str, steps: list[str]):
+    return {
+        "id": str(aid),
+        "priority": int(priority),
+        "title": str(title),
+        "why": str(why),
+        "steps": _uniq([str(x) for x in steps if str(x).strip()]),
+    }
+
+
+def _remediation_actions(blocked_reasons: list[str], throttle_reasons: list[str]) -> list[dict]:
+    acts = []
+    br = [str(x).strip().lower() for x in blocked_reasons if str(x).strip()]
+    tr = [str(x).strip().lower() for x in throttle_reasons if str(x).strip()]
+
+    if any(x == "killswitch" for x in br):
+        acts.append(
+            _action(
+                "killswitch_review",
+                0,
+                "Review kill switch",
+                "New entries are blocked by the kill switch.",
+                [
+                    "Inspect /Users/desmondpottle/Documents/New project/aion/logs/killswitch.json",
+                    "Check recent losses in /Users/desmondpottle/Documents/New project/aion/logs/shadow_trades.csv",
+                    "Only reset after validating drawdown root cause",
+                ],
+            )
+        )
+    if any(x == "risk_policy" for x in br):
+        acts.append(
+            _action(
+                "risk_policy_limits",
+                0,
+                "Review risk policy caps",
+                "Policy caps are actively blocking entries.",
+                [
+                    "Inspect /Users/desmondpottle/Documents/New project/aion/state/risk_policy.json",
+                    "Compare policy caps with /Users/desmondpottle/Documents/New project/aion/state/runtime_controls.json",
+                    "Adjust caps only if current market/liquidity regime supports it",
+                ],
+            )
+        )
+    if any(x.startswith("external_overlay") for x in br):
+        acts.append(
+            _action(
+                "overlay_refresh",
+                1,
+                "Refresh external overlay",
+                "External Q overlay gating is blocking entries.",
+                [
+                    "Regenerate Q overlay via q/tools/export_aion_signal_pack.py",
+                    "Validate /Users/desmondpottle/Documents/New project/q/runs_plus/q_signal_overlay.json timestamp and risk_flags",
+                    "Confirm AION EXT_SIGNAL_FILE points to the active overlay path",
+                ],
+            )
+        )
+    if any(x.startswith("memory_feedback") for x in br) or any("memory_feedback" in x for x in tr):
+        acts.append(
+            _action(
+                "novaspine_feedback",
+                1,
+                "Validate NovaSpine feedback loop",
+                "NovaSpine memory feedback indicates degraded confidence.",
+                [
+                    "Check q/runs_plus/novaspine_context.json and q/runs_plus/novaspine_hive_feedback.json",
+                    "If status is unreachable, verify NovaSpine API endpoint and token",
+                    "Rerun q/tools/run_novaspine_context.py and q/tools/run_novaspine_hive_feedback.py",
+                ],
+            )
+        )
+    if any(x == "execution_governor" for x in br) or any("execution_governor" in x for x in tr):
+        acts.append(
+            _action(
+                "execution_quality",
+                1,
+                "Reduce execution stress",
+                "Execution quality governor is in warn/alert state.",
+                [
+                    "Inspect slippage trends in /Users/desmondpottle/Documents/New project/aion/logs/runtime_monitor.json",
+                    "Reduce trade frequency and max open positions temporarily",
+                    "Recheck spread/liquidity conditions and IB route quality",
+                ],
+            )
+        )
+    if any("overlay_risk_flag_alert" == x for x in tr):
+        acts.append(
+            _action(
+                "overlay_risk_flags",
+                2,
+                "Investigate overlay alert flags",
+                "Overlay risk flags indicate stressed model regime.",
+                [
+                    "Inspect runtime risk_flags in q_signal_overlay.json runtime_context",
+                    "Review recent Q diagnostics: regime fracture, drift watch, quality snapshot",
+                    "Run recalibration pipeline before increasing risk again",
+                ],
+            )
+        )
+
+    if not acts:
+        acts.append(
+            _action(
+                "no_action",
+                9,
+                "No remediation required",
+                "Runtime controls are normal.",
+                ["Continue monitoring operator/dashboard status."],
+            )
+        )
+    acts.sort(key=lambda a: (int(a.get("priority", 9)), str(a.get("id", ""))))
+    return acts
+
+
 def runtime_decision_summary(
     runtime_controls: dict | None,
     external_overlay_runtime: dict | None = None,
@@ -112,9 +226,11 @@ def runtime_decision_summary(
 
     blocked_reasons = _uniq(blocked_reasons)
     throttle_reasons = _uniq(throttle_reasons)
+    actions = _remediation_actions(blocked_reasons, throttle_reasons)
     return {
         "entry_blocked": bool(len(blocked_reasons) > 0),
         "entry_block_reasons": blocked_reasons,
         "throttle_state": throttle_state,
         "throttle_reasons": throttle_reasons,
+        "recommended_actions": actions,
     }
