@@ -19,7 +19,15 @@ def test_check_external_overlay_ok(tmp_path: Path):
             "generated_at_utc": ts,
             "signals": {"AAPL": {"bias": 0.2, "confidence": 0.7}},
             "quality_gate": {"ok": True},
-            "runtime_context": {"runtime_multiplier": 0.9, "risk_flags": []},
+            "runtime_context": {
+                "runtime_multiplier": 0.9,
+                "risk_flags": [],
+                "aion_feedback": {
+                    "source": "shadow_trades",
+                    "source_selected": "shadow_trades",
+                    "source_preference": "auto",
+                },
+            },
             "degraded_safe_mode": False,
         },
     )
@@ -30,6 +38,9 @@ def test_check_external_overlay_ok(tmp_path: Path):
     assert details["runtime_context_present"] is True
     assert details["age_source"] == "payload"
     assert details["generated_at_utc"] == ts
+    assert details["aion_feedback_source"] == "shadow_trades"
+    assert details["aion_feedback_source_selected"] == "shadow_trades"
+    assert details["aion_feedback_source_preference"] == "auto"
 
 
 def test_check_external_overlay_flags_degraded_and_qgate(tmp_path: Path):

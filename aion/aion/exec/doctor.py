@@ -218,6 +218,14 @@ def check_external_overlay(
     qg_ok = bool(qg.get("ok", True)) if isinstance(qg, dict) else True
     rc = payload.get("runtime_context", {})
     rc_ok = isinstance(rc, dict) and len(rc) > 0
+    af = rc.get("aion_feedback", {}) if isinstance(rc, dict) else {}
+    if not isinstance(af, dict):
+        af = {}
+    af_source = str(af.get("source", af.get("source_selected", ""))).strip().lower() or "unknown"
+    af_source_selected = str(af.get("source_selected", af_source)).strip().lower() or af_source
+    af_source_preference = str(
+        af.get("source_preference", rc.get("aion_feedback_source_preference", "auto") if isinstance(rc, dict) else "auto")
+    ).strip().lower() or "auto"
     risk_flags = rc.get("risk_flags", []) if isinstance(rc, dict) else []
     if not isinstance(risk_flags, list):
         risk_flags = []
@@ -254,6 +262,9 @@ def check_external_overlay(
         "degraded_safe_mode": degraded,
         "quality_gate_ok": qg_ok,
         "runtime_context_present": rc_ok,
+        "aion_feedback_source": af_source,
+        "aion_feedback_source_selected": af_source_selected,
+        "aion_feedback_source_preference": af_source_preference,
         "risk_flags": risk_flags,
         "source_mode": payload.get("source_mode"),
     }
