@@ -238,6 +238,78 @@ def test_build_alert_payload_triggers_stale_required_alert():
     assert any("stale_required_count>" in a for a in payload["alerts"])
 
 
+def test_build_alert_payload_triggers_runtime_total_scalar_alerts():
+    payload = rha.build_alert_payload(
+        health={
+            "health_score": 95,
+            "issues": [],
+            "shape": {
+                "runtime_total_scalar_mean": 0.16,
+                "runtime_total_scalar_p10": 0.06,
+                "runtime_total_scalar_min": 0.02,
+            },
+        },
+        guards={"global_governor": {"mean": 0.85}},
+        nested={"assets": 4, "avg_oos_sharpe": 0.8},
+        quality={"quality_governor_mean": 0.88, "quality_score": 0.72},
+        immune={"ok": True, "pass": True},
+        pipeline={"failed_count": 0},
+        shock={"shock_rate": 0.05},
+        concentration={"stats": {"hhi_after": 0.12, "top1_after": 0.18}},
+        drift_watch={"drift": {"status": "ok", "latest_l1": 0.5}},
+        thresholds={
+            "min_health_score": 70,
+            "min_global_governor_mean": 0.45,
+            "min_quality_gov_mean": 0.60,
+            "min_quality_score": 0.45,
+            "require_immune_pass": False,
+            "max_health_issues": 2,
+            "min_nested_sharpe": 0.2,
+            "min_nested_assets": 3,
+            "max_shock_rate": 0.25,
+            "max_concentration_hhi_after": 0.18,
+            "max_concentration_top1_after": 0.30,
+            "max_portfolio_l1_drift": 1.2,
+            "min_runtime_total_scalar_mean": 0.22,
+            "min_runtime_total_scalar_p10": 0.10,
+            "min_runtime_total_scalar_min": 0.04,
+        },
+    )
+    assert any("runtime_total_scalar_mean<" in a for a in payload["alerts"])
+    assert any("runtime_total_scalar_p10<" in a for a in payload["alerts"])
+    assert any("runtime_total_scalar_min<" in a for a in payload["alerts"])
+
+
+def test_build_alert_payload_ignores_self_health_alert_failure_in_pipeline():
+    payload = rha.build_alert_payload(
+        health={"health_score": 95, "issues": []},
+        guards={"global_governor": {"mean": 0.85}},
+        nested={"assets": 4, "avg_oos_sharpe": 0.8},
+        quality={"quality_governor_mean": 0.88, "quality_score": 0.72},
+        immune={"ok": True, "pass": True},
+        pipeline={"failed_count": 1, "failed_steps": [{"step": "tools/run_health_alerts.py", "code": 2}]},
+        shock={"shock_rate": 0.05},
+        concentration={"stats": {"hhi_after": 0.12, "top1_after": 0.18}},
+        drift_watch={"drift": {"status": "ok", "latest_l1": 0.5}},
+        thresholds={
+            "min_health_score": 70,
+            "min_global_governor_mean": 0.45,
+            "min_quality_gov_mean": 0.60,
+            "min_quality_score": 0.45,
+            "require_immune_pass": False,
+            "max_health_issues": 2,
+            "min_nested_sharpe": 0.2,
+            "min_nested_assets": 3,
+            "max_shock_rate": 0.25,
+            "max_concentration_hhi_after": 0.18,
+            "max_concentration_top1_after": 0.30,
+            "max_portfolio_l1_drift": 1.2,
+        },
+    )
+    assert not any("pipeline_failed_steps" in a for a in payload["alerts"])
+    assert payload["ok"] is True
+
+
 def test_build_alert_payload_triggers_hive_crowding_and_entropy_alerts():
     payload = rha.build_alert_payload(
         health={

@@ -301,6 +301,43 @@ def _analyze_novaspine_replay(
     return metrics, issues
 
 
+def _analyze_runtime_total_scalar(
+    runtime_total_scalar: np.ndarray | None,
+    *,
+    min_mean: float = 0.22,
+    min_p10: float = 0.10,
+    min_min: float = 0.04,
+):
+    metrics = {}
+    issues = []
+    if runtime_total_scalar is None:
+        return metrics, issues
+    arr = np.asarray(runtime_total_scalar, float).ravel()
+    if arr.size == 0:
+        return metrics, issues
+    arr = arr[np.isfinite(arr)]
+    if arr.size == 0:
+        return metrics, issues
+
+    mean_v = float(np.mean(arr))
+    min_v = float(np.min(arr))
+    p10_v = float(np.percentile(arr, 10))
+    p25_v = float(np.percentile(arr, 25))
+
+    metrics["runtime_total_scalar_mean"] = mean_v
+    metrics["runtime_total_scalar_min"] = min_v
+    metrics["runtime_total_scalar_p10"] = p10_v
+    metrics["runtime_total_scalar_p25"] = p25_v
+
+    if mean_v < float(min_mean):
+        issues.append("runtime_total_scalar mean below threshold")
+    if p10_v < float(min_p10):
+        issues.append("runtime_total_scalar p10 below threshold")
+    if min_v < float(min_min):
+        issues.append("runtime_total_scalar min below threshold")
+    return metrics, issues
+
+
 def _overlay_aion_feedback_metrics(overlay: dict | None):
     return _overlay_aion_feedback_metrics_with_fallback(overlay, fallback_feedback=None)
 
@@ -640,6 +677,8 @@ if __name__ == "__main__":
         shape["runtime_total_scalar_mean"] = float(np.mean(gov_trace_total))
         shape["runtime_total_scalar_min"] = float(np.min(gov_trace_total))
         shape["runtime_total_scalar_max"] = float(np.max(gov_trace_total))
+        shape["runtime_total_scalar_p10"] = float(np.percentile(gov_trace_total, 10))
+        shape["runtime_total_scalar_p25"] = float(np.percentile(gov_trace_total, 25))
     exec_shape, exec_issues = _analyze_execution_constraints(exec_info)
     if exec_shape:
         shape.update(exec_shape)
@@ -667,6 +706,14 @@ if __name__ == "__main__":
     )
     if replay_shape:
         shape.update(replay_shape)
+    runtime_scale_shape, runtime_scale_issues = _analyze_runtime_total_scalar(
+        gov_trace_total,
+        min_mean=float(np.clip(float(os.getenv("Q_SYSTEM_HEALTH_MIN_RUNTIME_TOTAL_SCALAR_MEAN", "0.22")), 0.01, 1.0)),
+        min_p10=float(np.clip(float(os.getenv("Q_SYSTEM_HEALTH_MIN_RUNTIME_TOTAL_SCALAR_P10", "0.10")), 0.01, 1.0)),
+        min_min=float(np.clip(float(os.getenv("Q_SYSTEM_HEALTH_MIN_RUNTIME_TOTAL_SCALAR_MIN", "0.04")), 0.0, 1.0)),
+    )
+    if runtime_scale_shape:
+        shape.update(runtime_scale_shape)
     fallback_aion_feedback = load_outcome_feedback(root=ROOT, mark_stale_reason=False)
     aion_shape, aion_issues = _overlay_aion_feedback_metrics_with_fallback(
         overlay,
@@ -699,6 +746,7 @@ if __name__ == "__main__":
     issues.extend(cross_issues)
     issues.extend(nsp_issues)
     issues.extend(replay_issues)
+    issues.extend(runtime_scale_issues)
     issues.extend(aion_issues)
     issues.extend(stale_issues)
 

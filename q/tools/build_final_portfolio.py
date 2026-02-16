@@ -40,7 +40,27 @@ TRACE_STEPS = [
     "novaspine_context_boost",
     "novaspine_hive_boost",
     "shock_mask_guard",
+    "runtime_floor",
 ]
+
+
+def _disabled_governors() -> set[str]:
+    raw = str(os.getenv("Q_DISABLE_GOVERNORS", "")).strip()
+    if not raw:
+        return set()
+    out = set()
+    for token in raw.split(","):
+        t = str(token).strip().lower()
+        if t:
+            out.add(t)
+    return out
+
+
+_DISABLED_GOVS = _disabled_governors()
+
+
+def _gov_enabled(name: str) -> bool:
+    return str(name).strip().lower() not in _DISABLED_GOVS
 
 
 def _auto_turnover_govern(w: np.ndarray):
@@ -189,24 +209,25 @@ if __name__ == "__main__":
         W = Wdd; steps.append("drawdown_floor")
 
     # 5) Turnover governor (guardrails)
-    Wtg, wtg_source = first_mat([
-        "runs_plus/weights_turnover_budget_governed.csv",
-        "runs_plus/weights_turnover_governed.csv",
-    ])
-    if Wtg is not None and Wtg.shape[:2] == W.shape:
-        W = Wtg; steps.append("turnover_governor")
-        steps.append(f"turnover_source={wtg_source}")
-    else:
-        Wauto, auto_tag, auto_scale = _auto_turnover_govern(W)
-        if Wauto is not None and Wauto.shape[:2] == W.shape:
-            W = Wauto
-            steps.append("turnover_governor")
-            steps.append(f"turnover_source={auto_tag}")
-            _trace_put("turnover_governor", auto_scale)
+    if _gov_enabled("turnover_governor"):
+        Wtg, wtg_source = first_mat([
+            "runs_plus/weights_turnover_budget_governed.csv",
+            "runs_plus/weights_turnover_governed.csv",
+        ])
+        if Wtg is not None and Wtg.shape[:2] == W.shape:
+            W = Wtg; steps.append("turnover_governor")
+            steps.append(f"turnover_source={wtg_source}")
+        else:
+            Wauto, auto_tag, auto_scale = _auto_turnover_govern(W)
+            if Wauto is not None and Wauto.shape[:2] == W.shape:
+                W = Wauto
+                steps.append("turnover_governor")
+                steps.append(f"turnover_source={auto_tag}")
+                _trace_put("turnover_governor", auto_scale)
 
     # 6) Council disagreement gate (scalar per t) → scale exposure
     gate = load_series("runs_plus/disagreement_gate.csv")
-    if gate is not None:
+    if _gov_enabled("council_gate") and gate is not None:
         L = min(len(gate), W.shape[0])
         g = gate[:L].reshape(-1,1)
         W[:L] = W[:L] * g
@@ -219,7 +240,7 @@ if __name__ == "__main__":
         mix = load_series("runs_plus/meta_mix.csv")
         if mix is not None:
             lev = np.clip(1.0 + 0.20 * np.abs(mix), 0.80, 1.30)
-    if lev is not None:
+    if _gov_enabled("meta_mix_leverage") and lev is not None:
         L = min(len(lev), W.shape[0])
         lv = np.clip(lev[:L], 0.70, 1.40).reshape(-1, 1)
         W[:L] = W[:L] * lv
@@ -228,7 +249,7 @@ if __name__ == "__main__":
 
     # 8) Meta/council reliability governor from confidence calibration.
     mrg = load_series("runs_plus/meta_mix_reliability_governor.csv")
-    if mrg is not None:
+    if _gov_enabled("meta_mix_reliability") and mrg is not None:
         L = min(len(mrg), W.shape[0])
         mr = np.clip(mrg[:L], 0.70, 1.20).reshape(-1, 1)
         W[:L] = W[:L] * mr
@@ -237,7 +258,7 @@ if __name__ == "__main__":
 
     # 9) Heartbeat exposure scaler (risk metabolism)
     hb = load_series("runs_plus/heartbeat_exposure_scaler.csv")
-    if hb is not None:
+    if _gov_enabled("heartbeat_scaler") and hb is not None:
         L = min(len(hb), W.shape[0])
         hs = np.clip(hb[:L], 0.40, 1.20).reshape(-1, 1)
         W[:L] = W[:L] * hs
@@ -246,7 +267,7 @@ if __name__ == "__main__":
 
     # 10) Legacy blended scaler from DNA/Heartbeat/Symbolic/Reflex tuner.
     lex = load_series("runs_plus/legacy_exposure.csv")
-    if lex is not None:
+    if _gov_enabled("legacy_scaler") and lex is not None:
         L = min(len(lex), W.shape[0])
         ls = np.clip(lex[:L], 0.40, 1.30).reshape(-1, 1)
         W[:L] = W[:L] * ls
@@ -255,7 +276,7 @@ if __name__ == "__main__":
 
     # 11) DNA stress governor from drift/velocity regime diagnostics.
     dsg = load_series("runs_plus/dna_stress_governor.csv")
-    if dsg is not None:
+    if _gov_enabled("dna_stress_governor") and dsg is not None:
         L = min(len(dsg), W.shape[0])
         ds = np.clip(dsg[:L], 0.70, 1.15).reshape(-1, 1)
         W[:L] = W[:L] * ds
@@ -264,7 +285,7 @@ if __name__ == "__main__":
 
     # 12) Symbolic affective governor.
     sgg = load_series("runs_plus/symbolic_governor.csv")
-    if sgg is not None:
+    if _gov_enabled("symbolic_governor") and sgg is not None:
         L = min(len(sgg), W.shape[0])
         sg = np.clip(sgg[:L], 0.70, 1.15).reshape(-1, 1)
         W[:L] = W[:L] * sg
@@ -273,7 +294,7 @@ if __name__ == "__main__":
 
     # 13) Dream/reflex/symbolic coherence governor.
     dcg = load_series("runs_plus/dream_coherence_governor.csv")
-    if dcg is not None:
+    if _gov_enabled("dream_coherence") and dcg is not None:
         L = min(len(dcg), W.shape[0])
         ds = np.clip(dcg[:L], 0.70, 1.20).reshape(-1, 1)
         W[:L] = W[:L] * ds
@@ -282,7 +303,7 @@ if __name__ == "__main__":
 
     # 14) Reflex health governor from reflexive feedback diagnostics.
     rhg = load_series("runs_plus/reflex_health_governor.csv")
-    if rhg is not None:
+    if _gov_enabled("reflex_health_governor") and rhg is not None:
         L = min(len(rhg), W.shape[0])
         rs = np.clip(rhg[:L], 0.70, 1.15).reshape(-1, 1)
         W[:L] = W[:L] * rs
@@ -291,7 +312,7 @@ if __name__ == "__main__":
 
     # 15) Hive diversification governor from ecosystem layer.
     hg = load_series("runs_plus/hive_diversification_governor.csv")
-    if hg is not None:
+    if _gov_enabled("hive_diversification") and hg is not None:
         L = min(len(hg), W.shape[0])
         hs = np.clip(hg[:L], 0.75, 1.08).reshape(-1, 1)
         W[:L] = W[:L] * hs
@@ -300,7 +321,7 @@ if __name__ == "__main__":
 
     # 16) Hive persistence governor from ecosystem action pressure.
     hpg = load_series("runs_plus/hive_persistence_governor.csv")
-    if hpg is not None:
+    if _gov_enabled("hive_persistence") and hpg is not None:
         L = min(len(hpg), W.shape[0])
         hp = np.clip(hpg[:L], 0.75, 1.06).reshape(-1, 1)
         W[:L] = W[:L] * hp
@@ -319,7 +340,7 @@ if __name__ == "__main__":
             gg = np.clip(rg, 0.45, 1.10)
         elif sg is not None:
             gg = np.clip(sg, 0.45, 1.10)
-    if gg is not None:
+    if _gov_enabled("global_governor") and gg is not None:
         L = min(len(gg), W.shape[0])
         g = np.clip(gg[:L], 0.30, 1.15).reshape(-1, 1)
         W[:L] = W[:L] * g
@@ -328,7 +349,7 @@ if __name__ == "__main__":
 
     # 18) Reliability quality governor from nested/hive/council diagnostics.
     qg = load_series("runs_plus/quality_governor.csv")
-    if qg is not None:
+    if _gov_enabled("quality_governor") and qg is not None:
         L = min(len(qg), W.shape[0])
         qs = np.clip(qg[:L], 0.45, 1.20).reshape(-1, 1)
         W[:L] = W[:L] * qs
@@ -337,7 +358,7 @@ if __name__ == "__main__":
 
     # 19) NovaSpine recall-context boost (if available).
     rfg = load_series("runs_plus/regime_fracture_governor.csv")
-    if rfg is not None:
+    if _gov_enabled("regime_fracture_governor") and rfg is not None:
         L = min(len(rfg), W.shape[0])
         rf = np.clip(rfg[:L], 0.70, 1.06).reshape(-1, 1)
         W[:L] = W[:L] * rf
@@ -346,7 +367,7 @@ if __name__ == "__main__":
 
     # 20) NovaSpine recall-context boost (if available).
     ncb = load_series("runs_plus/novaspine_context_boost.csv")
-    if ncb is not None:
+    if _gov_enabled("novaspine_context_boost") and ncb is not None:
         L = min(len(ncb), W.shape[0])
         nb = np.clip(ncb[:L], 0.85, 1.15).reshape(-1, 1)
         W[:L] = W[:L] * nb
@@ -355,7 +376,7 @@ if __name__ == "__main__":
 
     # 21) NovaSpine per-hive alignment boost (global projection).
     nhb = load_series("runs_plus/novaspine_hive_boost.csv")
-    if nhb is not None:
+    if _gov_enabled("novaspine_hive_boost") and nhb is not None:
         L = min(len(nhb), W.shape[0])
         hb = np.clip(nhb[:L], 0.85, 1.15).reshape(-1, 1)
         W[:L] = W[:L] * hb
@@ -364,7 +385,7 @@ if __name__ == "__main__":
 
     # 22) Shock/news mask exposure cut.
     sm = load_series("runs_plus/shock_mask.csv")
-    if sm is not None:
+    if _gov_enabled("shock_mask_guard") and sm is not None:
         L = min(len(sm), W.shape[0])
         alpha = float(np.clip(float(os.getenv("Q_SHOCK_ALPHA", "0.35")), 0.0, 1.0))
         sc = (1.0 - alpha * np.clip(sm[:L], 0.0, 1.0)).reshape(-1, 1)
@@ -372,7 +393,22 @@ if __name__ == "__main__":
         steps.append("shock_mask_guard")
         _trace_put("shock_mask_guard", sc.ravel())
 
-    # 23) Concentration governor (top1/top3 + HHI caps).
+    # 23) Runtime floor guard: avoid excessive exposure collapse from stacked governors.
+    runtime_floor = float(np.clip(float(os.getenv("Q_RUNTIME_TOTAL_FLOOR", "0.25")), 0.0, 1.0))
+    if _gov_enabled("runtime_floor") and runtime_floor > 0.0:
+        active_keys = [k for k in TRACE_STEPS if (k in trace and k != "runtime_floor")]
+        if active_keys:
+            trace_mat_pre = np.column_stack([trace[k] for k in active_keys])
+            trace_total_pre = np.prod(trace_mat_pre, axis=1)
+            adj = np.ones(T, dtype=float)
+            mask = trace_total_pre < runtime_floor
+            if np.any(mask):
+                adj[mask] = runtime_floor / np.maximum(trace_total_pre[mask], 1e-9)
+                W = W * adj.reshape(-1, 1)
+                steps.append("runtime_floor")
+            _trace_put("runtime_floor", adj)
+
+    # 24) Concentration governor (top1/top3 + HHI caps).
     use_conc = str(os.getenv("Q_USE_CONCENTRATION_GOV", "1")).strip().lower() in {"1", "true", "yes", "on"}
     if use_conc:
         top1 = float(np.clip(float(os.getenv("Q_CONCENTRATION_TOP1_CAP", "0.18")), 0.01, 1.0))
@@ -420,6 +456,8 @@ if __name__ == "__main__":
                 "steps": steps,
                 "T": int(T),
                 "N": int(N),
+                "disabled_governors": sorted(list(_DISABLED_GOVS)),
+                "runtime_total_floor_target": float(np.clip(float(os.getenv("Q_RUNTIME_TOTAL_FLOOR", "0.25")), 0.0, 1.0)),
                 "governor_trace_file": str(RUNS / "final_governor_trace.csv"),
                 "runtime_total_scalar_mean": float(np.mean(trace_total)),
                 "runtime_total_scalar_min": float(np.min(trace_total)),

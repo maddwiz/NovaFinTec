@@ -97,6 +97,9 @@ def build_alert_payload(
     min_aion_feedback_hit_rate = float(thresholds.get("min_aion_feedback_hit_rate", 0.38))
     min_aion_feedback_profit_factor = float(thresholds.get("min_aion_feedback_profit_factor", 0.78))
     max_aion_feedback_age_hours = float(thresholds.get("max_aion_feedback_age_hours", 72.0))
+    min_runtime_total_scalar_mean = float(thresholds.get("min_runtime_total_scalar_mean", 0.22))
+    min_runtime_total_scalar_p10 = float(thresholds.get("min_runtime_total_scalar_p10", 0.10))
+    min_runtime_total_scalar_min = float(thresholds.get("min_runtime_total_scalar_min", 0.04))
 
     issues = []
     score = float(health.get("health_score", 0.0))
@@ -130,6 +133,9 @@ def build_alert_payload(
     memory_replay_enabled = False
     memory_replay_queued_files = None
     memory_replay_failed_events = None
+    runtime_total_scalar_mean = None
+    runtime_total_scalar_p10 = None
+    runtime_total_scalar_min = None
     novaspine_turnover_quality = None
     aion_feedback_active = False
     aion_feedback_status = "unknown"
@@ -171,6 +177,18 @@ def build_alert_payload(
                 stale_required_count = int(shape.get("stale_required_count"))
             except Exception:
                 stale_required_count = None
+            try:
+                runtime_total_scalar_mean = float(shape.get("runtime_total_scalar_mean", np.nan))
+            except Exception:
+                runtime_total_scalar_mean = None
+            try:
+                runtime_total_scalar_p10 = float(shape.get("runtime_total_scalar_p10", np.nan))
+            except Exception:
+                runtime_total_scalar_p10 = None
+            try:
+                runtime_total_scalar_min = float(shape.get("runtime_total_scalar_min", np.nan))
+            except Exception:
+                runtime_total_scalar_min = None
             try:
                 hive_crowding_mean = float(shape.get("hive_crowding_mean", np.nan))
             except Exception:
@@ -229,6 +247,26 @@ def build_alert_payload(
             issues.append(f"exec_turnover_retention>{max_exec_turnover_retention} ({exec_turn_ret:.3f})")
     if stale_required_count is not None and stale_required_count > max_stale_required:
         issues.append(f"stale_required_count>{max_stale_required} ({stale_required_count})")
+    if (
+        runtime_total_scalar_mean is not None
+        and np.isfinite(runtime_total_scalar_mean)
+        and runtime_total_scalar_mean < min_runtime_total_scalar_mean
+    ):
+        issues.append(
+            f"runtime_total_scalar_mean<{min_runtime_total_scalar_mean} ({runtime_total_scalar_mean:.3f})"
+        )
+    if (
+        runtime_total_scalar_p10 is not None
+        and np.isfinite(runtime_total_scalar_p10)
+        and runtime_total_scalar_p10 < min_runtime_total_scalar_p10
+    ):
+        issues.append(f"runtime_total_scalar_p10<{min_runtime_total_scalar_p10} ({runtime_total_scalar_p10:.3f})")
+    if (
+        runtime_total_scalar_min is not None
+        and np.isfinite(runtime_total_scalar_min)
+        and runtime_total_scalar_min < min_runtime_total_scalar_min
+    ):
+        issues.append(f"runtime_total_scalar_min<{min_runtime_total_scalar_min} ({runtime_total_scalar_min:.3f})")
     if hive_crowding_mean is not None and np.isfinite(hive_crowding_mean) and hive_crowding_mean > max_hive_crowding_mean:
         issues.append(f"hive_crowding_mean>{max_hive_crowding_mean} ({hive_crowding_mean:.3f})")
     if (
@@ -596,6 +634,21 @@ def build_alert_payload(
             issues.append("immune_drill_failed")
 
     failed_steps = int(pipeline.get("failed_count", 0)) if isinstance(pipeline, dict) else 0
+    if isinstance(pipeline, dict):
+        raw_failed = pipeline.get("failed_steps", [])
+        if isinstance(raw_failed, list) and len(raw_failed) > 0:
+            non_self = 0
+            for rec in raw_failed:
+                if not isinstance(rec, dict):
+                    continue
+                step_name = str(rec.get("step", "")).strip().lower()
+                if step_name in {"tools/run_health_alerts.py", "run_health_alerts.py"}:
+                    continue
+                non_self += 1
+            if failed_steps <= 0 and non_self > 0:
+                failed_steps = non_self
+            elif failed_steps > 0:
+                failed_steps = min(failed_steps, non_self) if non_self >= 0 else failed_steps
     if failed_steps > 0:
         issues.append(f"pipeline_failed_steps={failed_steps}")
 
@@ -639,6 +692,9 @@ def build_alert_payload(
             "min_aion_feedback_hit_rate": min_aion_feedback_hit_rate,
             "min_aion_feedback_profit_factor": min_aion_feedback_profit_factor,
             "max_aion_feedback_age_hours": max_aion_feedback_age_hours,
+            "min_runtime_total_scalar_mean": min_runtime_total_scalar_mean,
+            "min_runtime_total_scalar_p10": min_runtime_total_scalar_p10,
+            "min_runtime_total_scalar_min": min_runtime_total_scalar_min,
         },
         "observed": {
             "health_score": score,
@@ -663,6 +719,9 @@ def build_alert_payload(
             "memory_replay_enabled": memory_replay_enabled,
             "memory_replay_queued_files": memory_replay_queued_files,
             "memory_replay_failed_events": memory_replay_failed_events,
+            "runtime_total_scalar_mean": runtime_total_scalar_mean,
+            "runtime_total_scalar_p10": runtime_total_scalar_p10,
+            "runtime_total_scalar_min": runtime_total_scalar_min,
             "aion_feedback_active": aion_feedback_active,
             "aion_feedback_source": aion_feedback_source,
             "aion_feedback_source_selected": aion_feedback_source_selected,
@@ -729,6 +788,9 @@ if __name__ == "__main__":
     max_memory_replay_failed_events = int(os.getenv("Q_MAX_MEMORY_REPLAY_FAILED_EVENTS", "0"))
     max_memory_replay_backlog_warn = int(os.getenv("Q_MAX_MEMORY_REPLAY_BACKLOG_WARN", "5"))
     max_memory_replay_backlog_alert = int(os.getenv("Q_MAX_MEMORY_REPLAY_BACKLOG_ALERT", "20"))
+    min_runtime_total_scalar_mean = float(os.getenv("Q_MIN_RUNTIME_TOTAL_SCALAR_MEAN", "0.22"))
+    min_runtime_total_scalar_p10 = float(os.getenv("Q_MIN_RUNTIME_TOTAL_SCALAR_P10", "0.10"))
+    min_runtime_total_scalar_min = float(os.getenv("Q_MIN_RUNTIME_TOTAL_SCALAR_MIN", "0.04"))
     aion_feedback_source_pref = normalize_source_preference(os.getenv("Q_AION_FEEDBACK_SOURCE", "auto"))
     max_aion_feedback_age_hours = float(
         os.getenv("Q_MAX_AION_FEEDBACK_AGE_HOURS", os.getenv("Q_AION_FEEDBACK_MAX_AGE_HOURS", "72"))
@@ -795,6 +857,9 @@ if __name__ == "__main__":
             "max_memory_replay_failed_events": max_memory_replay_failed_events,
             "max_memory_replay_backlog_warn": max_memory_replay_backlog_warn,
             "max_memory_replay_backlog_alert": max_memory_replay_backlog_alert,
+            "min_runtime_total_scalar_mean": min_runtime_total_scalar_mean,
+            "min_runtime_total_scalar_p10": min_runtime_total_scalar_p10,
+            "min_runtime_total_scalar_min": min_runtime_total_scalar_min,
             "min_aion_feedback_risk_scale": float(os.getenv("Q_MIN_AION_FEEDBACK_RISK_SCALE", "0.80")),
             "min_aion_feedback_closed_trades": int(os.getenv("Q_MIN_AION_FEEDBACK_CLOSED_TRADES", "8")),
             "min_aion_feedback_hit_rate": float(os.getenv("Q_MIN_AION_FEEDBACK_HIT_RATE", "0.38")),

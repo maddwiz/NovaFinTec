@@ -142,6 +142,31 @@ def test_analyze_novaspine_replay_flags_failed_and_backlog():
     assert any("backlog exceeds alert threshold" in x for x in issues)
 
 
+def test_analyze_runtime_total_scalar_no_issues_when_above_thresholds():
+    metrics, issues = rsh._analyze_runtime_total_scalar(
+        [0.28, 0.32, 0.24, 0.30, 0.22, 0.35],
+        min_mean=0.22,
+        min_p10=0.10,
+        min_min=0.04,
+    )
+    assert float(metrics["runtime_total_scalar_mean"]) > 0.22
+    assert float(metrics["runtime_total_scalar_p10"]) > 0.10
+    assert float(metrics["runtime_total_scalar_min"]) > 0.04
+    assert issues == []
+
+
+def test_analyze_runtime_total_scalar_flags_over_throttle():
+    _metrics, issues = rsh._analyze_runtime_total_scalar(
+        [0.03, 0.08, 0.11, 0.09, 0.07, 0.05],
+        min_mean=0.22,
+        min_p10=0.10,
+        min_min=0.04,
+    )
+    assert any("mean below threshold" in x for x in issues)
+    assert any("p10 below threshold" in x for x in issues)
+    assert any("min below threshold" in x for x in issues)
+
+
 def test_staleness_issues_flags_old_required_and_optional():
     stats, issues = rsh._staleness_issues(
         [
