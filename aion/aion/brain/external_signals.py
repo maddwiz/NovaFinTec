@@ -43,6 +43,7 @@ def _canonicalize_flags(flags) -> list[str]:
         ("hive_stress_alert", "hive_stress_warn"),
         ("heartbeat_alert", "heartbeat_warn"),
         ("council_divergence_alert", "council_divergence_warn"),
+        ("memory_feedback_alert", "memory_feedback_warn"),
     ]
     s = set(out)
     for strong, weak in stronger_to_weaker:
@@ -135,6 +136,7 @@ def load_external_signal_bundle(
         "overlay_age_source": str,
         "overlay_generated_at_utc": str|None,
         "overlay_stale": bool,
+        "memory_feedback": dict,
       }
     """
     empty = {
@@ -149,6 +151,15 @@ def load_external_signal_bundle(
         "overlay_age_source": "unknown",
         "overlay_generated_at_utc": None,
         "overlay_stale": False,
+        "memory_feedback": {
+            "active": False,
+            "status": "unknown",
+            "risk_scale": 1.0,
+            "max_trades_scale": 1.0,
+            "max_open_scale": 1.0,
+            "block_new_entries": False,
+            "reasons": [],
+        },
     }
     try:
         p = Path(path)
@@ -193,6 +204,17 @@ def load_external_signal_bundle(
             out["regime"] = regime or "unknown"
             flags = ctx.get("risk_flags", [])
             out["risk_flags"] = _canonicalize_flags(flags)
+            mf = ctx.get("memory_feedback", {})
+            if isinstance(mf, dict):
+                out["memory_feedback"] = {
+                    "active": bool(mf.get("active", False)),
+                    "status": str(mf.get("status", "unknown")).strip().lower() or "unknown",
+                    "risk_scale": _clamp(_safe_float(mf.get("risk_scale", 1.0), 1.0), 0.20, 1.20),
+                    "max_trades_scale": _clamp(_safe_float(mf.get("max_trades_scale", 1.0), 1.0), 0.20, 1.20),
+                    "max_open_scale": _clamp(_safe_float(mf.get("max_open_scale", 1.0), 1.0), 0.20, 1.20),
+                    "block_new_entries": bool(mf.get("block_new_entries", False)),
+                    "reasons": _uniq_flags(mf.get("reasons", [])),
+                }
 
         out["degraded_safe_mode"] = bool(payload.get("degraded_safe_mode", False))
         out["source_mode"] = str(payload.get("source_mode", "unknown")).strip() or "unknown"
@@ -331,5 +353,6 @@ def runtime_overlay_scale(
         "runtime_multiplier": _safe_float(bundle.get("runtime_multiplier", 1.0), 1.0),
         "regime": str(bundle.get("regime", "unknown")),
         "source_mode": str(bundle.get("source_mode", "unknown")),
+        "memory_feedback": bundle.get("memory_feedback", {}),
     }
     return scale, diag

@@ -34,6 +34,39 @@ def test_load_external_signal_bundle_reads_runtime_context(tmp_path: Path):
     assert b["overlay_age_source"] in {"payload", "mtime", "unknown"}
 
 
+def test_load_external_signal_bundle_parses_memory_feedback(tmp_path: Path):
+    p = tmp_path / "overlay.json"
+    p.write_text(
+        json.dumps(
+            {
+                "signals": {"AAPL": {"bias": 0.3, "confidence": 0.8}},
+                "runtime_context": {
+                    "runtime_multiplier": 0.92,
+                    "risk_flags": ["memory_feedback_warn"],
+                    "memory_feedback": {
+                        "active": True,
+                        "status": "warn",
+                        "risk_scale": 0.90,
+                        "max_trades_scale": 0.88,
+                        "max_open_scale": 0.90,
+                        "block_new_entries": False,
+                        "reasons": ["memory_partial_or_disabled"],
+                    },
+                },
+                "quality_gate": {"ok": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    b = load_external_signal_bundle(p, min_confidence=0.55, max_bias=0.9)
+    mf = b.get("memory_feedback", {})
+    assert mf.get("active") is True
+    assert mf.get("status") == "warn"
+    assert float(mf.get("risk_scale")) < 1.0
+    assert "memory_feedback_warn" in b.get("risk_flags", [])
+
+
 def test_runtime_overlay_scale_penalizes_flags_and_degraded():
     scale, diag = runtime_overlay_scale(
         {

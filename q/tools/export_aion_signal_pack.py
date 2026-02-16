@@ -58,6 +58,7 @@ def _canonicalize_risk_flags(flags) -> list[str]:
         ("hive_stress_alert", "hive_stress_warn"),
         ("heartbeat_alert", "heartbeat_warn"),
         ("council_divergence_alert", "council_divergence_warn"),
+        ("memory_feedback_alert", "memory_feedback_warn"),
     ]
     s = set(out)
     for strong, weak in stronger_to_weaker:
@@ -266,6 +267,87 @@ def _latest_series_value(path: Path, lo: float, hi: float, default: float = 1.0)
         return float(default), False
     v = _safe_float(s[-1], default=default)
     return _clamp(v, lo, hi), True
+
+
+def _memory_feedback(runs_dir: Path):
+    """
+    Build closed-loop runtime feedback from NovaSpine recall artifacts.
+    """
+    nctx = _load_json(runs_dir / "novaspine_context.json") or {}
+    nhive = _load_json(runs_dir / "novaspine_hive_feedback.json") or {}
+    if not isinstance(nctx, dict):
+        nctx = {}
+    if not isinstance(nhive, dict):
+        nhive = {}
+
+    ctx_status = str(nctx.get("status", "unknown")).strip().lower()
+    hive_status = str(nhive.get("status", "unknown")).strip().lower()
+    enabled = bool(nctx.get("enabled", False) or nhive.get("enabled", False))
+    ctx_res = _safe_float(nctx.get("context_resonance", np.nan), default=np.nan)
+    ctx_boost = _safe_float(nctx.get("context_boost", np.nan), default=np.nan)
+    hive_boost = _safe_float(nhive.get("global_boost", np.nan), default=np.nan)
+
+    reasons = []
+    base = 1.0
+    have_memory = False
+    if math.isfinite(ctx_boost):
+        base *= _clamp(ctx_boost, 0.85, 1.15)
+        have_memory = True
+    if math.isfinite(hive_boost):
+        base *= _clamp(hive_boost, 0.85, 1.15)
+        have_memory = True
+    if math.isfinite(ctx_res):
+        base *= _clamp(0.92 + 0.20 * ctx_res, 0.88, 1.08)
+        have_memory = True
+        if ctx_res < 0.08:
+            reasons.append("low_context_resonance")
+        elif ctx_res > 0.72:
+            reasons.append("high_context_resonance")
+
+    status_tokens = {ctx_status, hive_status}
+    if any(s in {"unreachable", "error", "failed"} or s.startswith("http_") for s in status_tokens):
+        base *= 0.96
+        reasons.append("memory_unreachable")
+    elif any(s in {"skipped", "disabled", "unknown"} for s in status_tokens):
+        reasons.append("memory_partial_or_disabled")
+
+    risk_scale = _clamp(base, 0.78, 1.10)
+    trades_scale = _clamp(1.0 + 0.85 * (risk_scale - 1.0), 0.80, 1.08)
+    open_scale = _clamp(1.0 + 0.75 * (risk_scale - 1.0), 0.82, 1.06)
+
+    if risk_scale <= 0.84:
+        status = "alert"
+    elif risk_scale <= 0.95:
+        status = "warn"
+    elif have_memory:
+        status = "ok"
+    else:
+        status = "neutral"
+
+    block_new = bool(
+        have_memory
+        and status == "alert"
+        and math.isfinite(ctx_res)
+        and ctx_res < 0.05
+        and (math.isfinite(ctx_boost) and ctx_boost < 0.95)
+        and (math.isfinite(hive_boost) and hive_boost < 0.95)
+    )
+
+    return {
+        "active": bool(have_memory or enabled),
+        "enabled": bool(enabled),
+        "status": status,
+        "context_status": ctx_status or "unknown",
+        "hive_status": hive_status or "unknown",
+        "context_resonance": (float(ctx_res) if math.isfinite(ctx_res) else None),
+        "context_boost": (float(ctx_boost) if math.isfinite(ctx_boost) else None),
+        "hive_global_boost": (float(hive_boost) if math.isfinite(hive_boost) else None),
+        "risk_scale": float(risk_scale),
+        "max_trades_scale": float(trades_scale),
+        "max_open_scale": float(open_scale),
+        "block_new_entries": bool(block_new),
+        "reasons": _uniq_str_flags(reasons),
+    }
 
 
 def _runtime_context(runs_dir: Path):
@@ -497,12 +579,24 @@ def _runtime_context(runs_dir: Path):
         elif (pressure > 0.16) or (vmin < 0.42):
             risk_flags.append("hive_stress_warn")
 
+    mem_fb = _memory_feedback(runs_dir)
+    if bool(mem_fb.get("active", False)):
+        mscale = _safe_float(mem_fb.get("risk_scale", np.nan), default=np.nan)
+        if math.isfinite(mscale):
+            comps["novaspine_memory_feedback_modifier"] = {"value": float(_clamp(mscale, 0.70, 1.10)), "found": True}
+            active_vals.append(float(_clamp(mscale, 0.70, 1.10)))
+            if mscale <= 0.84:
+                risk_flags.append("memory_feedback_alert")
+            elif mscale <= 0.95:
+                risk_flags.append("memory_feedback_warn")
+
     return {
         "runtime_multiplier": mult,
         "regime": regime,
         "components": comps,
         "active_component_count": int(len(active_vals)),
         "risk_flags": _canonicalize_risk_flags(risk_flags),
+        "memory_feedback": mem_fb,
     }
 
 

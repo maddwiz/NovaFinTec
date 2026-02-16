@@ -307,6 +307,86 @@ def _overlay_entry_gate(ext_runtime_diag: dict | None, overlay_age_hours: float 
     return bool(reasons), reasons
 
 
+def _memory_feedback_controls(
+    *,
+    max_trades_cap_runtime: int,
+    max_open_positions_runtime: int,
+    risk_per_trade_runtime: float,
+    max_position_notional_pct_runtime: float,
+    max_gross_leverage_runtime: float,
+    memory_feedback: dict | None,
+):
+    out = {
+        "active": False,
+        "status": "unknown",
+        "reasons": [],
+        "risk_scale": 1.0,
+        "trades_scale": 1.0,
+        "open_scale": 1.0,
+        "block_new_entries": False,
+        "max_trades_cap_runtime": int(max(1, int(max_trades_cap_runtime))),
+        "max_open_positions_runtime": int(max(1, int(max_open_positions_runtime))),
+        "risk_per_trade_runtime": float(max(1e-5, float(risk_per_trade_runtime))),
+        "max_position_notional_pct_runtime": float(max(1e-5, float(max_position_notional_pct_runtime))),
+        "max_gross_leverage_runtime": float(max(0.05, float(max_gross_leverage_runtime))),
+    }
+    if not bool(getattr(cfg, "EXT_SIGNAL_MEMORY_FEEDBACK_ENABLED", True)):
+        return out
+    if not isinstance(memory_feedback, dict):
+        return out
+
+    active = bool(memory_feedback.get("active", False))
+    if not active:
+        return out
+
+    mn = _safe_float(getattr(cfg, "EXT_SIGNAL_MEMORY_FEEDBACK_MIN_SCALE", 0.70), 0.70)
+    mx = _safe_float(getattr(cfg, "EXT_SIGNAL_MEMORY_FEEDBACK_MAX_SCALE", 1.12), 1.12)
+    lo = max(0.20, min(mn, mx))
+    hi = max(lo, max(mn, mx))
+    risk_scale = max(lo, min(hi, _safe_float(memory_feedback.get("risk_scale", 1.0), 1.0)))
+    trades_scale = max(0.50, min(1.25, _safe_float(memory_feedback.get("max_trades_scale", 1.0), 1.0)))
+    open_scale = max(0.50, min(1.25, _safe_float(memory_feedback.get("max_open_scale", 1.0), 1.0)))
+    status = str(memory_feedback.get("status", "unknown")).strip().lower() or "unknown"
+    reasons = [str(x).strip().lower() for x in memory_feedback.get("reasons", []) if str(x).strip()]
+    reasons = list(dict.fromkeys(reasons))
+
+    out["active"] = True
+    out["status"] = status
+    out["reasons"] = reasons
+    out["risk_scale"] = float(risk_scale)
+    out["trades_scale"] = float(trades_scale)
+    out["open_scale"] = float(open_scale)
+
+    out["max_trades_cap_runtime"] = max(
+        1,
+        min(
+            int(max_trades_cap_runtime),
+            int(round(int(max_trades_cap_runtime) * trades_scale)),
+        ),
+    )
+    out["max_open_positions_runtime"] = max(
+        1,
+        min(
+            int(max_open_positions_runtime),
+            int(round(int(max_open_positions_runtime) * open_scale)),
+        ),
+    )
+    out["risk_per_trade_runtime"] = max(1e-5, float(risk_per_trade_runtime) * float(risk_scale))
+    out["max_position_notional_pct_runtime"] = max(
+        1e-5, float(max_position_notional_pct_runtime) * max(0.55, float(risk_scale))
+    )
+    out["max_gross_leverage_runtime"] = max(
+        0.05, float(max_gross_leverage_runtime) * max(0.60, float(risk_scale))
+    )
+
+    explicit_block = bool(memory_feedback.get("block_new_entries", False))
+    alert_th = _safe_float(getattr(cfg, "EXT_SIGNAL_MEMORY_FEEDBACK_ALERT_THRESHOLD", 0.84), 0.84)
+    block_on_alert = bool(getattr(cfg, "EXT_SIGNAL_MEMORY_FEEDBACK_BLOCK_ON_ALERT", False))
+    alert_state = bool(status in {"alert", "hard"} or float(risk_scale) <= float(alert_th))
+    out["block_new_entries"] = bool(explicit_block or (block_on_alert and alert_state))
+    return out
+
+
 def _execution_quality_governor(
     *,
     max_trades_per_day: int,
@@ -768,6 +848,7 @@ def main() -> int:
     last_policy_loss_hit = False
     last_overlay_gate_sig = None
     last_exec_governor_sig = None
+    last_memory_feedback_sig = None
 
     if cfg.META_LABEL_ENABLED:
         samples = meta_model.fit_from_trades(cfg.LOG_DIR / "shadow_trades.csv")
@@ -868,6 +949,13 @@ def main() -> int:
             exec_governor_exec_rate_per_min = 0.0
             exec_governor_avg_slippage_bps = None
             exec_governor_p90_slippage_bps = None
+            memory_feedback_active = False
+            memory_feedback_status = "unknown"
+            memory_feedback_reasons = []
+            memory_feedback_risk_scale = 1.0
+            memory_feedback_trades_scale = 1.0
+            memory_feedback_open_scale = 1.0
+            memory_feedback_block_new_entries = False
             if cfg.EXT_SIGNAL_ENABLED:
                 ext_bundle = load_external_signal_bundle(
                     path=cfg.EXT_SIGNAL_FILE,
@@ -938,6 +1026,27 @@ def main() -> int:
                     0.30,
                     float(max_gross_leverage_runtime) * max(0.55, ext_position_risk_scale),
                 )
+                mem_feedback = ext_bundle.get("memory_feedback", {}) if isinstance(ext_bundle, dict) else {}
+                mem_ctl = _memory_feedback_controls(
+                    max_trades_cap_runtime=max_trades_cap_runtime,
+                    max_open_positions_runtime=max_open_positions_runtime,
+                    risk_per_trade_runtime=risk_per_trade_runtime,
+                    max_position_notional_pct_runtime=max_position_notional_pct_runtime,
+                    max_gross_leverage_runtime=max_gross_leverage_runtime,
+                    memory_feedback=mem_feedback if isinstance(mem_feedback, dict) else {},
+                )
+                max_trades_cap_runtime = int(mem_ctl["max_trades_cap_runtime"])
+                max_open_positions_runtime = int(mem_ctl["max_open_positions_runtime"])
+                risk_per_trade_runtime = float(mem_ctl["risk_per_trade_runtime"])
+                max_position_notional_pct_runtime = float(mem_ctl["max_position_notional_pct_runtime"])
+                max_gross_leverage_runtime = float(mem_ctl["max_gross_leverage_runtime"])
+                memory_feedback_active = bool(mem_ctl.get("active", False))
+                memory_feedback_status = str(mem_ctl.get("status", "unknown"))
+                memory_feedback_reasons = [str(x) for x in mem_ctl.get("reasons", []) if str(x)]
+                memory_feedback_risk_scale = _safe_float(mem_ctl.get("risk_scale"), 1.0)
+                memory_feedback_trades_scale = _safe_float(mem_ctl.get("trades_scale"), 1.0)
+                memory_feedback_open_scale = _safe_float(mem_ctl.get("open_scale"), 1.0)
+                memory_feedback_block_new_entries = bool(mem_ctl.get("block_new_entries", False))
                 sig = (
                     round(float(ext_runtime_scale), 4),
                     round(float(ext_position_risk_scale), 4),
@@ -977,6 +1086,28 @@ def main() -> int:
                             f"max_open={sig[12]}/{max_open_positions_cap} risk_per_trade={sig[13]:.4f}",
                         )
                     last_ext_runtime_sig = sig
+                mem_sig = (
+                    bool(memory_feedback_active),
+                    str(memory_feedback_status),
+                    tuple(sorted(memory_feedback_reasons)),
+                    bool(memory_feedback_block_new_entries),
+                    round(float(memory_feedback_risk_scale), 4),
+                    round(float(memory_feedback_trades_scale), 4),
+                    round(float(memory_feedback_open_scale), 4),
+                )
+                if mem_sig != last_memory_feedback_sig and mem_sig[0]:
+                    reason_txt = ",".join(mem_sig[2]) if mem_sig[2] else "none"
+                    log_run(
+                        "NovaSpine memory feedback "
+                        f"status={mem_sig[1]} reasons={reason_txt} block_new={mem_sig[3]} "
+                        f"risk_scale={mem_sig[4]:.3f} trades_scale={mem_sig[5]:.3f} open_scale={mem_sig[6]:.3f}"
+                    )
+                    if cfg.MONITORING_ENABLED and (mem_sig[1] in {"warn", "alert"} or mem_sig[3]):
+                        monitor.record_system_event(
+                            "novaspine_memory_feedback",
+                            f"status={mem_sig[1]} reasons={reason_txt} block_new={mem_sig[3]} risk_scale={mem_sig[4]:.3f}",
+                        )
+                last_memory_feedback_sig = mem_sig
                 gate_sig = (bool(overlay_block_new_entries), tuple(sorted(str(x) for x in overlay_block_reasons)))
                 if gate_sig != last_overlay_gate_sig:
                     reason_txt = ",".join(gate_sig[1]) if gate_sig[1] else "none"
@@ -1022,16 +1153,20 @@ def main() -> int:
                     policy_caps.get("daily_loss_limit_pct"),
                     bool(overlay_block_new_entries),
                     tuple(sorted(str(x) for x in overlay_block_reasons if str(x))),
+                    bool(memory_feedback_block_new_entries),
+                    tuple(sorted(str(x) for x in memory_feedback_reasons if str(x))),
                 )
                 if policy_sig != last_policy_sig:
                     reason_txt = ",".join(policy_sig[11]) if policy_sig[11] else "none"
+                    mem_reason_txt = ",".join(policy_sig[13]) if policy_sig[13] else "none"
                     log_run(
                         "Risk policy active "
                         f"block_new={policy_sig[0]} max_trades={policy_sig[1]} max_open={policy_sig[2]} "
                         f"risk_per_trade={policy_sig[3]:.4f} max_notional_pct={policy_sig[4]:.4f} "
                         f"max_gross_lev={policy_sig[5]:.3f} blocked={policy_sig[6]} allowed={policy_sig[7]} "
                         f"daily_loss_abs={policy_sig[8]} daily_loss_pct={policy_sig[9]} "
-                        f"overlay_block={policy_sig[10]} overlay_reasons={reason_txt}"
+                        f"overlay_block={policy_sig[10]} overlay_reasons={reason_txt} "
+                        f"memory_block={policy_sig[12]} memory_reasons={mem_reason_txt}"
                     )
                     last_policy_sig = policy_sig
 
@@ -1096,6 +1231,7 @@ def main() -> int:
                 policy_caps.get("block_new_entries", False)
                 or policy_loss_hit
                 or overlay_block_new_entries
+                or memory_feedback_block_new_entries
                 or exec_governor_block_new_entries
             )
             if policy_loss_hit and (not last_policy_loss_hit):
@@ -1134,6 +1270,13 @@ def main() -> int:
                     "external_overlay_generated_at_utc": ext_overlay_generated_at_utc,
                     "overlay_block_new_entries": bool(overlay_block_new_entries),
                     "overlay_block_reasons": list(overlay_block_reasons),
+                    "memory_feedback_active": bool(memory_feedback_active),
+                    "memory_feedback_status": str(memory_feedback_status),
+                    "memory_feedback_reasons": list(memory_feedback_reasons),
+                    "memory_feedback_risk_scale": float(memory_feedback_risk_scale),
+                    "memory_feedback_trades_scale": float(memory_feedback_trades_scale),
+                    "memory_feedback_open_scale": float(memory_feedback_open_scale),
+                    "memory_feedback_block_new_entries": bool(memory_feedback_block_new_entries),
                     "exec_governor_state": str(exec_governor_state),
                     "exec_governor_reasons": list(exec_governor_reasons),
                     "exec_governor_recent_executions": int(exec_governor_recent_executions),

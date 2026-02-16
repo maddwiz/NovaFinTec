@@ -170,3 +170,27 @@ def test_runtime_context_includes_heartbeat_stress_flags(tmp_path: Path):
     assert ctx["components"]["heartbeat_stress_modifier"]["found"] is True
     assert "heartbeat_alert" in ctx["risk_flags"]
     assert "heartbeat_warn" not in ctx["risk_flags"]
+
+
+def test_runtime_context_includes_novaspine_memory_feedback(tmp_path: Path):
+    (tmp_path / "novaspine_context.json").write_text(
+        (
+            '{"enabled": true, "status": "ok", '
+            '"context_resonance": 0.04, "context_boost": 0.92}'
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "novaspine_hive_feedback.json").write_text(
+        (
+            '{"enabled": true, "status": "ok", "global_boost": 0.93}'
+        ),
+        encoding="utf-8",
+    )
+
+    ctx = ex._runtime_context(tmp_path)
+    mf = ctx.get("memory_feedback", {})
+    assert mf.get("active") is True
+    assert mf.get("status") in {"warn", "alert"}
+    assert float(mf.get("risk_scale")) < 1.0
+    assert ctx["components"]["novaspine_memory_feedback_modifier"]["found"] is True
+    assert any(f in ctx["risk_flags"] for f in ["memory_feedback_warn", "memory_feedback_alert"])

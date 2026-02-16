@@ -370,3 +370,49 @@ def test_execution_quality_governor_alert_can_block_entries(monkeypatch):
     assert out["block_new_entries"] is True
     assert out["max_trades_per_day"] <= 9
     assert out["max_open_positions"] <= 4
+
+
+def test_memory_feedback_controls_scale_runtime_and_block(monkeypatch):
+    monkeypatch.setattr(pl.cfg, "EXT_SIGNAL_MEMORY_FEEDBACK_ENABLED", True)
+    monkeypatch.setattr(pl.cfg, "EXT_SIGNAL_MEMORY_FEEDBACK_MIN_SCALE", 0.70)
+    monkeypatch.setattr(pl.cfg, "EXT_SIGNAL_MEMORY_FEEDBACK_MAX_SCALE", 1.12)
+    monkeypatch.setattr(pl.cfg, "EXT_SIGNAL_MEMORY_FEEDBACK_ALERT_THRESHOLD", 0.84)
+    monkeypatch.setattr(pl.cfg, "EXT_SIGNAL_MEMORY_FEEDBACK_BLOCK_ON_ALERT", True)
+
+    out = pl._memory_feedback_controls(
+        max_trades_cap_runtime=15,
+        max_open_positions_runtime=6,
+        risk_per_trade_runtime=0.02,
+        max_position_notional_pct_runtime=0.20,
+        max_gross_leverage_runtime=1.6,
+        memory_feedback={
+            "active": True,
+            "status": "alert",
+            "risk_scale": 0.80,
+            "max_trades_scale": 0.76,
+            "max_open_scale": 0.82,
+            "block_new_entries": False,
+            "reasons": ["low_context_resonance"],
+        },
+    )
+    assert out["active"] is True
+    assert out["block_new_entries"] is True
+    assert out["max_trades_cap_runtime"] < 15
+    assert out["max_open_positions_runtime"] < 6
+    assert out["risk_per_trade_runtime"] < 0.02
+
+
+def test_memory_feedback_controls_disabled_noop(monkeypatch):
+    monkeypatch.setattr(pl.cfg, "EXT_SIGNAL_MEMORY_FEEDBACK_ENABLED", False)
+    out = pl._memory_feedback_controls(
+        max_trades_cap_runtime=12,
+        max_open_positions_runtime=5,
+        risk_per_trade_runtime=0.02,
+        max_position_notional_pct_runtime=0.20,
+        max_gross_leverage_runtime=1.6,
+        memory_feedback={"active": True, "risk_scale": 0.70, "max_trades_scale": 0.70, "max_open_scale": 0.70},
+    )
+    assert out["active"] is False
+    assert out["max_trades_cap_runtime"] == 12
+    assert out["max_open_positions_runtime"] == 5
+    assert out["risk_per_trade_runtime"] == 0.02
