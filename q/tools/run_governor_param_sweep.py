@@ -2,7 +2,7 @@
 """
 Governor parameter sweep.
 
-Tunes key governor knobs (floor, shock alpha, concentration caps) and writes:
+Tunes key governor knobs (floor, shock alpha, concentration caps, core governor strengths) and writes:
   - runs_plus/governor_param_sweep.csv
   - runs_plus/governor_params_profile.json
 
@@ -113,6 +113,10 @@ def _profile_from_row(row: dict) -> dict:
     return {
         "runtime_total_floor": float(row["runtime_total_floor"]),
         "shock_alpha": float(row["shock_alpha"]),
+        "council_gate_strength": float(row.get("council_gate_strength", 1.0)),
+        "meta_reliability_strength": float(row.get("meta_reliability_strength", 1.0)),
+        "global_governor_strength": float(row.get("global_governor_strength", 1.0)),
+        "quality_governor_strength": float(row.get("quality_governor_strength", 1.0)),
         "use_concentration_governor": bool(int(row["use_concentration_governor"])),
         "concentration_top1_cap": float(row["concentration_top1_cap"]),
         "concentration_top3_cap": float(row["concentration_top3_cap"]),
@@ -129,8 +133,13 @@ def _row_from_params(params: dict, metrics: dict, score: float, score_detail: di
 
 def _csv_write(rows: list[dict], outp: Path) -> None:
     cols = [
+        "stage",
         "runtime_total_floor",
         "shock_alpha",
+        "council_gate_strength",
+        "meta_reliability_strength",
+        "global_governor_strength",
+        "quality_governor_strength",
         "use_concentration_governor",
         "concentration_top1_cap",
         "concentration_top3_cap",
@@ -154,21 +163,38 @@ def _csv_write(rows: list[dict], outp: Path) -> None:
             w.writerow({k: r.get(k, "") for k in cols})
 
 
+def _env_from_params(params: dict) -> dict[str, str]:
+    return {
+        "Q_RUNTIME_TOTAL_FLOOR": str(params["runtime_total_floor"]),
+        "Q_SHOCK_ALPHA": str(params["shock_alpha"]),
+        "Q_COUNCIL_GATE_STRENGTH": str(params.get("council_gate_strength", 1.0)),
+        "Q_META_RELIABILITY_STRENGTH": str(params.get("meta_reliability_strength", 1.0)),
+        "Q_GLOBAL_GOVERNOR_STRENGTH": str(params.get("global_governor_strength", 1.0)),
+        "Q_QUALITY_GOVERNOR_STRENGTH": str(params.get("quality_governor_strength", 1.0)),
+        "Q_USE_CONCENTRATION_GOV": str(params["use_concentration_governor"]),
+        "Q_CONCENTRATION_TOP1_CAP": str(params["concentration_top1_cap"]),
+        "Q_CONCENTRATION_TOP3_CAP": str(params["concentration_top3_cap"]),
+        "Q_CONCENTRATION_MAX_HHI": str(params["concentration_max_hhi"]),
+    }
+
+
 def main() -> int:
     if not (RUNS / "asset_returns.csv").exists():
         print("(!) Missing runs_plus/asset_returns.csv. Run tools/rebuild_asset_matrix.py first.")
         return 0
 
-    # Compact grid: enough breadth for improvement without huge runtime.
+    # Compact staged grid: first coarse core knobs, then governor strengths.
     floors = [0.00, 0.05, 0.10, 0.15]
-    shocks = [0.20, 0.35, 0.50]
+    shocks = [0.20, 0.35, 0.50, 0.65]
     conc_presets = [
         {"use_concentration_governor": 1, "concentration_top1_cap": 0.16, "concentration_top3_cap": 0.38, "concentration_max_hhi": 0.12},
         {"use_concentration_governor": 1, "concentration_top1_cap": 0.18, "concentration_top3_cap": 0.42, "concentration_max_hhi": 0.14},
-        {"use_concentration_governor": 1, "concentration_top1_cap": 0.20, "concentration_top3_cap": 0.46, "concentration_max_hhi": 0.16},
-        {"use_concentration_governor": 1, "concentration_top1_cap": 0.22, "concentration_top3_cap": 0.50, "concentration_max_hhi": 0.18},
         {"use_concentration_governor": 0, "concentration_top1_cap": 0.18, "concentration_top3_cap": 0.42, "concentration_max_hhi": 0.14},
     ]
+    council_gate_strengths = [0.80, 1.00, 1.20]
+    meta_reliability_strengths = [0.90, 1.00, 1.10]
+    global_governor_strengths = [0.85, 1.00, 1.15]
+    quality_governor_strengths = [0.80, 1.00, 1.20]
 
     rows: list[dict] = []
     try:
@@ -178,24 +204,22 @@ def main() -> int:
 
         best_score = -1e9
         best_row = None
+        # Stage 1: coarse search on base controls.
         for floor, shock, conc in itertools.product(floors, shocks, conc_presets):
             params = {
+                "stage": "core",
                 "runtime_total_floor": float(floor),
                 "shock_alpha": float(shock),
+                "council_gate_strength": 1.0,
+                "meta_reliability_strength": 1.0,
+                "global_governor_strength": 1.0,
+                "quality_governor_strength": 1.0,
                 "use_concentration_governor": int(conc["use_concentration_governor"]),
                 "concentration_top1_cap": float(conc["concentration_top1_cap"]),
                 "concentration_top3_cap": float(conc["concentration_top3_cap"]),
                 "concentration_max_hhi": float(conc["concentration_max_hhi"]),
             }
-            env = {
-                "Q_RUNTIME_TOTAL_FLOOR": params["runtime_total_floor"],
-                "Q_SHOCK_ALPHA": params["shock_alpha"],
-                "Q_USE_CONCENTRATION_GOV": params["use_concentration_governor"],
-                "Q_CONCENTRATION_TOP1_CAP": params["concentration_top1_cap"],
-                "Q_CONCENTRATION_TOP3_CAP": params["concentration_top3_cap"],
-                "Q_CONCENTRATION_MAX_HHI": params["concentration_max_hhi"],
-            }
-            _build_make_daily(env)
+            _build_make_daily(_env_from_params(params))
             m = _metrics()
             score, detail = _objective(m, base)
             row = _row_from_params(params, m, score, detail)
@@ -207,6 +231,36 @@ def main() -> int:
         if best_row is None:
             print("(!) No sweep candidates evaluated.")
             return 1
+
+        # Stage 2: local governor-strength search around the best core config.
+        core_params = dict(best_row)
+        for cg, mr, gg, qg in itertools.product(
+            council_gate_strengths,
+            meta_reliability_strengths,
+            global_governor_strengths,
+            quality_governor_strengths,
+        ):
+            params = {
+                "stage": "strengths",
+                "runtime_total_floor": float(core_params["runtime_total_floor"]),
+                "shock_alpha": float(core_params["shock_alpha"]),
+                "council_gate_strength": float(cg),
+                "meta_reliability_strength": float(mr),
+                "global_governor_strength": float(gg),
+                "quality_governor_strength": float(qg),
+                "use_concentration_governor": int(core_params["use_concentration_governor"]),
+                "concentration_top1_cap": float(core_params["concentration_top1_cap"]),
+                "concentration_top3_cap": float(core_params["concentration_top3_cap"]),
+                "concentration_max_hhi": float(core_params["concentration_max_hhi"]),
+            }
+            _build_make_daily(_env_from_params(params))
+            m = _metrics()
+            score, detail = _objective(m, base)
+            row = _row_from_params(params, m, score, detail)
+            rows.append(row)
+            if score > best_score:
+                best_score = score
+                best_row = row
 
         sweep_csv = RUNS / "governor_param_sweep.csv"
         _csv_write(rows, sweep_csv)
@@ -220,6 +274,10 @@ def main() -> int:
                 "runtime_total_floor": floors,
                 "shock_alpha": shocks,
                 "concentration_presets": conc_presets,
+                "council_gate_strength": council_gate_strengths,
+                "meta_reliability_strength": meta_reliability_strengths,
+                "global_governor_strength": global_governor_strengths,
+                "quality_governor_strength": quality_governor_strengths,
                 "num_candidates": len(rows),
             },
         }

@@ -123,6 +123,18 @@ def _env_or_profile_bool(env_key: str, profile_key: str, default: bool) -> bool:
     return bool(default)
 
 
+def _apply_governor_strength(vec: np.ndarray, strength: float, lo: float = 0.0, hi: float = 2.0) -> np.ndarray:
+    """Blend a governor scalar with identity (1.0) by strength.
+
+    strength=0 -> no effect (all ones)
+    strength=1 -> full effect (original vec)
+    """
+    v = np.asarray(vec, float)
+    s = float(np.clip(float(strength), 0.0, 2.0))
+    out = 1.0 + s * (v - 1.0)
+    return np.clip(out, lo, hi)
+
+
 def _disabled_governors() -> set[str]:
     raw = str(os.getenv("Q_DISABLE_GOVERNORS", "")).strip()
     out = set()
@@ -295,6 +307,35 @@ if __name__ == "__main__":
                 x[:L] = v[:L]
         trace[name] = x
 
+    council_gate_strength = _env_or_profile_float(
+        "Q_COUNCIL_GATE_STRENGTH",
+        "council_gate_strength",
+        1.0,
+        0.0,
+        2.0,
+    )
+    meta_reliability_strength = _env_or_profile_float(
+        "Q_META_RELIABILITY_STRENGTH",
+        "meta_reliability_strength",
+        1.0,
+        0.0,
+        2.0,
+    )
+    global_governor_strength = _env_or_profile_float(
+        "Q_GLOBAL_GOVERNOR_STRENGTH",
+        "global_governor_strength",
+        1.0,
+        0.0,
+        2.0,
+    )
+    quality_governor_strength = _env_or_profile_float(
+        "Q_QUALITY_GOVERNOR_STRENGTH",
+        "quality_governor_strength",
+        1.0,
+        0.0,
+        2.0,
+    )
+
     # 2) Cluster caps
     Wc = load_mat("runs_plus/weights_cluster_capped.csv")
     if Wc is not None and Wc.shape[:2] == W.shape:
@@ -330,10 +371,11 @@ if __name__ == "__main__":
     gate = load_series("runs_plus/disagreement_gate.csv")
     if _gov_enabled("council_gate") and gate is not None:
         L = min(len(gate), W.shape[0])
-        g = gate[:L].reshape(-1,1)
+        g_raw = np.clip(gate[:L], 0.0, 1.0)
+        g = _apply_governor_strength(g_raw, council_gate_strength, lo=0.0, hi=2.0).reshape(-1, 1)
         W[:L] = W[:L] * g
         steps.append("council_gate")
-        _trace_put("council_gate", np.clip(gate[:L], 0.0, 1.0))
+        _trace_put("council_gate", g.ravel())
 
     # 7) Council/meta leverage (scalar per t) from mix confidence
     lev = load_series("runs_plus/meta_mix_leverage.csv")
@@ -352,7 +394,8 @@ if __name__ == "__main__":
     mrg = load_series("runs_plus/meta_mix_reliability_governor.csv")
     if _gov_enabled("meta_mix_reliability") and mrg is not None:
         L = min(len(mrg), W.shape[0])
-        mr = np.clip(mrg[:L], 0.70, 1.20).reshape(-1, 1)
+        mr_raw = np.clip(mrg[:L], 0.70, 1.20)
+        mr = _apply_governor_strength(mr_raw, meta_reliability_strength, lo=0.0, hi=2.0).reshape(-1, 1)
         W[:L] = W[:L] * mr
         steps.append("meta_mix_reliability")
         _trace_put("meta_mix_reliability", mr.ravel())
@@ -443,7 +486,8 @@ if __name__ == "__main__":
             gg = np.clip(sg, 0.45, 1.10)
     if _gov_enabled("global_governor") and gg is not None:
         L = min(len(gg), W.shape[0])
-        g = np.clip(gg[:L], 0.30, 1.15).reshape(-1, 1)
+        g_raw = np.clip(gg[:L], 0.30, 1.15)
+        g = _apply_governor_strength(g_raw, global_governor_strength, lo=0.0, hi=2.0).reshape(-1, 1)
         W[:L] = W[:L] * g
         steps.append("global_governor")
         _trace_put("global_governor", g.ravel())
@@ -452,7 +496,8 @@ if __name__ == "__main__":
     qg = load_series("runs_plus/quality_governor.csv")
     if _gov_enabled("quality_governor") and qg is not None:
         L = min(len(qg), W.shape[0])
-        qs = np.clip(qg[:L], 0.45, 1.20).reshape(-1, 1)
+        qs_raw = np.clip(qg[:L], 0.45, 1.20)
+        qs = _apply_governor_strength(qs_raw, quality_governor_strength, lo=0.0, hi=2.0).reshape(-1, 1)
         W[:L] = W[:L] * qs
         steps.append("quality_governor")
         _trace_put("quality_governor", qs.ravel())
@@ -566,6 +611,10 @@ if __name__ == "__main__":
                 "governor_params_applied": {
                     "runtime_total_floor": _runtime_total_floor_default(),
                     "shock_alpha": shock_alpha,
+                    "council_gate_strength": council_gate_strength,
+                    "meta_reliability_strength": meta_reliability_strength,
+                    "global_governor_strength": global_governor_strength,
+                    "quality_governor_strength": quality_governor_strength,
                     "use_concentration_governor": bool(use_conc),
                     "concentration_top1_cap": conc_top1,
                     "concentration_top3_cap": conc_top3,

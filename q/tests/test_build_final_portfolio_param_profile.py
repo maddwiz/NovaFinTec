@@ -54,3 +54,14 @@ def test_env_or_profile_helpers_parse_profile_values(monkeypatch):
     assert abs(float(fv) - 0.42) < 1e-9
     assert int(iv) == 8
     assert bv is True
+
+
+def test_apply_governor_strength_blends_with_identity():
+    vec = [0.7, 1.0, 1.2]
+    no_effect = bfp._apply_governor_strength(vec, 0.0)
+    full_effect = bfp._apply_governor_strength(vec, 1.0)
+    stronger = bfp._apply_governor_strength(vec, 1.5)
+    assert list(no_effect) == [1.0, 1.0, 1.0]
+    assert list(full_effect) == [0.7, 1.0, 1.2]
+    assert stronger[0] < full_effect[0]
+    assert stronger[2] > full_effect[2]
