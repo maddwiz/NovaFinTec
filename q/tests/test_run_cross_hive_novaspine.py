@@ -169,3 +169,32 @@ def test_dynamic_downside_penalties_penalize_weaker_hive(tmp_path):
     assert float(pen["FX"].mean()) > float(pen["EQ"].mean())
     assert float(pen.min().min()) >= 0.0 - 1e-9
     assert float(pen.max().max()) <= 1.0 + 1e-9
+
+
+def test_dynamic_crowding_penalties_penalize_more_correlated_hive(tmp_path):
+    idx = pd.date_range("2025-01-01", periods=150, freq="D")
+    x = np.linspace(0, 10, len(idx))
+    a = np.sin(x)
+    b = a + 0.01 * np.cos(3.0 * x)  # Highly correlated with A.
+    c = np.sin(2.7 * x + 0.8)       # Less correlated with A/B.
+
+    rows = []
+    for d, va, vb, vc in zip(idx, a, b, c):
+        rows.append({"DATE": d.strftime("%Y-%m-%d"), "HIVE": "A", "hive_signal": float(va)})
+        rows.append({"DATE": d.strftime("%Y-%m-%d"), "HIVE": "B", "hive_signal": float(vb)})
+        rows.append({"DATE": d.strftime("%Y-%m-%d"), "HIVE": "C", "hive_signal": float(vc)})
+    pd.DataFrame(rows).to_csv(tmp_path / "hive_signals.csv", index=False)
+
+    old_runs = rch.RUNS
+    try:
+        rch.RUNS = tmp_path
+        pen = rch.dynamic_crowding_penalties(idx, ["A", "B", "C"])
+    finally:
+        rch.RUNS = old_runs
+
+    assert set(pen.columns) == {"A", "B", "C"}
+    assert len(pen) == len(idx)
+    assert float(pen["A"].mean()) > float(pen["C"].mean())
+    assert float(pen["B"].mean()) > float(pen["C"].mean())
+    assert float(pen.min().min()) >= 0.0 - 1e-9
+    assert float(pen.max().max()) <= 1.0 + 1e-9

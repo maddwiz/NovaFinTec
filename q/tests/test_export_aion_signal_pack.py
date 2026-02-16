@@ -142,7 +142,8 @@ def test_runtime_context_includes_hive_ecosystem_stress(tmp_path: Path):
             '{"adaptive_diagnostics":{'
             '"mean_disagreement":0.82,'
             '"mean_stability_dispersion":0.81,'
-            '"mean_regime_fracture":0.34}}'
+            '"mean_regime_fracture":0.34},'
+            '"crowding_penalty_mean":{"EQ":0.66,"FX":0.60,"RATES":0.58}}'
         ),
         encoding="utf-8",
     )
@@ -156,8 +157,10 @@ def test_runtime_context_includes_hive_ecosystem_stress(tmp_path: Path):
 
     ctx = ex._runtime_context(tmp_path)
     assert ctx["components"]["hive_ecosystem_stability_modifier"]["found"] is True
+    assert ctx["components"]["hive_crowding_modifier"]["found"] is True
     assert ctx["components"]["hive_evolution_modifier"]["found"] is True
     assert "hive_stress_alert" in ctx["risk_flags"]
+    assert "hive_crowding_alert" in ctx["risk_flags"]
     assert ctx["risk_flags"].count("hive_stress_alert") == 1
     assert "hive_stress_warn" not in ctx["risk_flags"]
 

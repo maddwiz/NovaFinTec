@@ -476,6 +476,18 @@ def _runtime_context(runs_dir: Path):
     ch_dis = _safe_float(ch_ad.get("mean_disagreement", np.nan), default=np.nan)
     ch_disp = _safe_float(ch_ad.get("mean_stability_dispersion", np.nan), default=np.nan)
     ch_frac = _safe_float(ch_ad.get("mean_regime_fracture", np.nan), default=np.nan)
+    ch_crowd = np.nan
+    ch_crowd_obj = cross_hive.get("crowding_penalty_mean", {})
+    if isinstance(ch_crowd_obj, dict):
+        cvals = []
+        for v in ch_crowd_obj.values():
+            xv = _safe_float(v, np.nan)
+            if math.isfinite(xv):
+                cvals.append(float(xv))
+        if cvals:
+            ch_crowd = float(np.mean(cvals))
+    else:
+        ch_crowd = _safe_float(ch_crowd_obj, default=np.nan)
     if math.isfinite(ch_dis) or math.isfinite(ch_disp) or math.isfinite(ch_frac):
         dis_mod = _clamp(1.04 - 0.28 * (ch_dis if math.isfinite(ch_dis) else 0.60), 0.72, 1.04)
         disp_mod = _clamp(1.04 - 0.24 * (ch_disp if math.isfinite(ch_disp) else 0.60), 0.72, 1.04)
@@ -483,6 +495,10 @@ def _runtime_context(runs_dir: Path):
         hive_mod = _clamp(dis_mod * disp_mod * frac_mod, 0.65, 1.08)
         comps["hive_ecosystem_stability_modifier"] = {"value": float(hive_mod), "found": True}
         active_vals.append(float(hive_mod))
+    if math.isfinite(ch_crowd):
+        crowd_mod = _clamp(1.02 - 0.45 * max(0.0, ch_crowd), 0.68, 1.02)
+        comps["hive_crowding_modifier"] = {"value": float(crowd_mod), "found": True}
+        active_vals.append(float(crowd_mod))
 
     hive_evo = _load_json(runs_dir / "hive_evolution.json") or {}
     he_pressure = _safe_float(hive_evo.get("action_pressure_mean", np.nan), default=np.nan)
@@ -570,6 +586,11 @@ def _runtime_context(runs_dir: Path):
             risk_flags.append("hive_stress_alert")
         elif (dis > 0.62) or (disp > 0.66) or (frac > 0.22):
             risk_flags.append("hive_stress_warn")
+    if math.isfinite(ch_crowd):
+        if ch_crowd > 0.58:
+            risk_flags.append("hive_crowding_alert")
+        elif ch_crowd > 0.42:
+            risk_flags.append("hive_crowding_warn")
 
     if math.isfinite(he_pressure) or math.isfinite(vit_min):
         pressure = he_pressure if math.isfinite(he_pressure) else 0.0

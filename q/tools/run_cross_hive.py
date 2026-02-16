@@ -258,6 +258,69 @@ def dynamic_downside_penalties(index_dates, hives):
     return out
 
 
+def dynamic_crowding_penalties(index_dates, hives):
+    """
+    Build DATE x HIVE crowding penalties from rolling absolute cross-hive correlations.
+    Output values are in [0,1], where 1 means high crowding risk.
+    """
+    p = RUNS / "hive_signals.csv"
+    idx = pd.DatetimeIndex(index_dates)
+    out = pd.DataFrame(index=idx, columns=list(hives), data=0.0, dtype=float)
+    if not p.exists():
+        return out
+    try:
+        df = pd.read_csv(p)
+    except Exception:
+        return out
+    need = {"DATE", "HIVE", "hive_signal"}
+    if not need.issubset(df.columns):
+        return out
+    df["DATE"] = pd.to_datetime(df["DATE"], errors="coerce")
+    df = df.dropna(subset=["DATE"]).sort_values(["DATE", "HIVE"])
+    if df.empty:
+        return out
+
+    sig = df.pivot(index="DATE", columns="HIVE", values="hive_signal")
+    sig = sig.reindex(columns=list(hives))
+    sig = sig.reindex(idx).ffill().fillna(0.0)
+    if sig.shape[1] <= 1:
+        return out
+
+    lookback = 63
+    min_points = 20
+    vals = np.zeros((len(sig), sig.shape[1]), float)
+    x = sig.values.astype(float)
+    n_h = x.shape[1]
+    for t in range(len(sig)):
+        lo = max(0, t - lookback + 1)
+        win = x[lo : t + 1, :]
+        if win.shape[0] < min_points:
+            continue
+        corr = np.corrcoef(win, rowvar=False)
+        corr = np.asarray(corr, float)
+        if corr.ndim != 2 or corr.shape[0] != n_h:
+            continue
+        corr = np.nan_to_num(corr, nan=0.0, posinf=0.0, neginf=0.0)
+        np.fill_diagonal(corr, 0.0)
+        vals[t, :] = np.mean(np.abs(corr), axis=1)
+
+    # Map mean abs corr into penalty.
+    # corr <= 0.25 : near-zero crowding, corr >= 0.80 : full crowding penalty.
+    pen = np.clip((vals - 0.25) / 0.55, 0.0, 1.0)
+
+    # Optional shock amplification to reduce crowded books in stress windows.
+    smp = RUNS / "shock_mask.csv"
+    if smp.exists():
+        sm = _load_series(smp)
+        if sm is not None and len(sm):
+            L = min(len(pen), len(sm))
+            amp = np.clip(1.0 + 0.25 * np.clip(sm[:L], 0.0, 1.0), 1.0, 1.25)
+            pen[:L, :] = np.clip(pen[:L, :] * amp.reshape(-1, 1), 0.0, 1.0)
+
+    out.loc[:, :] = pen
+    return out
+
+
 def _entropy_norm(w: np.ndarray) -> float:
     a = np.asarray(w, float).ravel()
     if len(a) <= 1:
@@ -375,6 +438,7 @@ if __name__ == "__main__":
     dd_pen = {}
     dg_pen = {}
     dn_pen = {}
+    cr_pen = {}
     for hive in pivot_sig.columns:
         score = 0.55 * pivot_health[hive].values + 0.35 * pivot_sig[hive].rolling(5, min_periods=2).mean().values + 0.10 * pivot_stab[hive].values
         scores[str(hive)] = np.nan_to_num(score, nan=0.0)
@@ -439,6 +503,16 @@ if __name__ == "__main__":
                 downside_means[hive] = float(np.mean(pvec))
         downside_tbl.reset_index().rename(columns={"index": "DATE"}).to_csv(RUNS / "hive_downside_penalty.csv", index=False)
 
+    crowd_tbl = dynamic_crowding_penalties(pivot_sig.index, pivot_sig.columns.tolist())
+    crowd_means = {}
+    if len(crowd_tbl):
+        for hive in list(scores.keys()):
+            if hive in crowd_tbl.columns:
+                cvec = np.asarray(crowd_tbl[hive].values, float)
+                cr_pen[hive] = np.nan_to_num(cvec, nan=0.0, posinf=0.0, neginf=0.0)
+                crowd_means[hive] = float(np.mean(cvec))
+        crowd_tbl.reset_index().rename(columns={"index": "DATE"}).to_csv(RUNS / "hive_crowding_penalty.csv", index=False)
+
     alpha = float(np.clip(float(os.getenv("CROSS_HIVE_ALPHA", "2.2")), 0.2, 10.0))
     inertia = float(np.clip(float(os.getenv("CROSS_HIVE_INERTIA", "0.80")), 0.0, 0.98))
     max_w = float(np.clip(float(os.getenv("CROSS_HIVE_MAX_W", "0.65")), 0.10, 1.0))
@@ -459,6 +533,7 @@ if __name__ == "__main__":
         drawdown_penalty=dd_pen,
         disagreement_penalty=dg_pen,
         downside_penalty=dn_pen if dn_pen else None,
+        crowding_penalty=cr_pen if cr_pen else None,
         inertia=inertia_sched,
         max_weight=max_w,
         min_weight=min_w,
@@ -496,6 +571,8 @@ if __name__ == "__main__":
         "dynamic_quality_file": str(RUNS / "hive_dynamic_quality.csv") if dyn_table is not None else None,
         "downside_penalty_mean": downside_means,
         "downside_penalty_file": str(RUNS / "hive_downside_penalty.csv") if len(downside_tbl) else None,
+        "crowding_penalty_mean": crowd_means,
+        "crowding_penalty_file": str(RUNS / "hive_crowding_penalty.csv") if len(crowd_tbl) else None,
         "novaspine_hive_boosts": {k: float(v) for k, v in ns_mult.items()},
         "ecosystem_prior_enabled": bool(eco_enabled),
         "ecosystem_hive_boosts": {k: float(v) for k, v in eco_mult.items()},

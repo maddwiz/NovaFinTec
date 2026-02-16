@@ -213,7 +213,12 @@ def runtime_decision_summary(
         score += 1
         throttle_reasons.append("memory_feedback_warn")
 
-    if "fracture_alert" in ext_flags or "drift_alert" in ext_flags:
+    if (
+        "fracture_alert" in ext_flags
+        or "drift_alert" in ext_flags
+        or "hive_stress_alert" in ext_flags
+        or "hive_crowding_alert" in ext_flags
+    ):
         score += 1
         throttle_reasons.append("overlay_risk_flag_alert")
 

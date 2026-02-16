@@ -96,3 +96,21 @@ def test_arb_weights_downside_penalty_reduces_weight():
     a0 = float(np.mean(w0[:, 0]))
     a1 = float(np.mean(w1[:, 0]))
     assert a1 < a0
+
+
+def test_arb_weights_crowding_penalty_reduces_weight():
+    T = 120
+    scores = {
+        "A": np.full(T, 0.30, dtype=float),
+        "B": np.full(T, 0.30, dtype=float),
+        "C": np.full(T, 0.30, dtype=float),
+    }
+    base_pen = {"A": np.zeros(T), "B": np.zeros(T), "C": np.zeros(T)}
+    high_cr = {"A": np.ones(T) * 0.95, "B": np.zeros(T), "C": np.zeros(T)}
+
+    _, w0 = arb_weights(scores, alpha=2.0, inertia=0.0, crowding_penalty=base_pen)
+    _, w1 = arb_weights(scores, alpha=2.0, inertia=0.0, crowding_penalty=high_cr)
+
+    a0 = float(np.mean(w0[:, 0]))
+    a1 = float(np.mean(w1[:, 0]))
+    assert a1 < a0

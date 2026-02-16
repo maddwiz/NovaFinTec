@@ -123,6 +123,7 @@ export Q_MAX_HEARTBEAT_STRESS=0.85
 - `runs_plus/regime_fracture_info.json`
 - `runs_plus/hive_transparency.json`
 - `runs_plus/hive_dynamic_quality.csv`
+- `runs_plus/hive_crowding_penalty.csv`
 - `runs_plus/final_governor_trace.csv`
 - `runs_plus/execution_constraints_info.json`
 - `runs_plus/novaspine_sync_status.json`
@@ -213,6 +214,8 @@ python tools/run_novaspine_hive_feedback.py
 Risk-controls payload also includes portfolio drift watchdog metrics.
 `q_signal_overlay.json` runtime context now also carries drift/step stability
 modifiers and `risk_flags` for AION-side risk scaling.
+Cross-hive summary/runtime now includes crowding diagnostics from rolling
+hive-correlation penalties (`hive_crowding_penalty.csv`).
 
 ### Advanced hive controls (optional env)
 Cross-hive adaptive arbitration:
