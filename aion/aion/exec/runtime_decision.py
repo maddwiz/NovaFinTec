@@ -162,6 +162,20 @@ def _remediation_actions(blocked_reasons: list[str], throttle_reasons: list[str]
                 ],
             )
         )
+    if any(x in {"aion_outcome_alert", "aion_outcome_warn"} for x in tr):
+        acts.append(
+            _action(
+                "aion_outcome_recalibration",
+                1,
+                "Recalibrate outcome feedback loop",
+                "Recent realized AION outcomes are degrading runtime confidence.",
+                [
+                    "Inspect /Users/desmondpottle/Documents/New project/aion/logs/shadow_trades.csv outcome quality",
+                    "Validate Q_AION_SHADOW_TRADES path and lookback/min-trade settings in q/tools/export_aion_signal_pack.py",
+                    "Regenerate q/runs_plus/q_signal_overlay.json after confirming closed-trade quality inputs",
+                ],
+            )
+        )
 
     if not acts:
         acts.append(
@@ -253,6 +267,12 @@ def runtime_decision_summary(
     elif "hive_entropy_warn" in ext_flags:
         score += 1
         throttle_reasons.append("hive_entropy_warn")
+    if "aion_outcome_alert" in ext_flags:
+        score += 2
+        throttle_reasons.append("aion_outcome_alert")
+    elif "aion_outcome_warn" in ext_flags:
+        score += 1
+        throttle_reasons.append("aion_outcome_warn")
 
     if (
         "fracture_alert" in ext_flags
@@ -260,6 +280,7 @@ def runtime_decision_summary(
         or "hive_stress_alert" in ext_flags
         or "hive_crowding_alert" in ext_flags
         or "hive_entropy_alert" in ext_flags
+        or "aion_outcome_alert" in ext_flags
     ):
         score += 1
         throttle_reasons.append("overlay_risk_flag_alert")

@@ -43,6 +43,7 @@ def _canonicalize_flags(flags) -> list[str]:
         ("hive_stress_alert", "hive_stress_warn"),
         ("hive_crowding_alert", "hive_crowding_warn"),
         ("hive_entropy_alert", "hive_entropy_warn"),
+        ("aion_outcome_alert", "aion_outcome_warn"),
         ("heartbeat_alert", "heartbeat_warn"),
         ("council_divergence_alert", "council_divergence_warn"),
         ("memory_feedback_alert", "memory_feedback_warn"),
@@ -286,6 +287,8 @@ def runtime_overlay_scale(
     heartbeat_alert_scale: float = 0.72,
     council_divergence_warn_scale: float = 0.90,
     council_divergence_alert_scale: float = 0.74,
+    aion_outcome_warn_scale: float = 0.90,
+    aion_outcome_alert_scale: float = 0.74,
     overlay_stale_scale: float = 0.82,
 ):
     """
@@ -350,6 +353,10 @@ def runtime_overlay_scale(
             scale *= float(_clamp(council_divergence_alert_scale, 0.20, 1.20))
         elif "council_divergence_warn" in flags:
             scale *= float(_clamp(council_divergence_warn_scale, 0.20, 1.20))
+        if "aion_outcome_alert" in flags:
+            scale *= float(_clamp(aion_outcome_alert_scale, 0.20, 1.20))
+        elif "aion_outcome_warn" in flags:
+            scale *= float(_clamp(aion_outcome_warn_scale, 0.20, 1.20))
     scale = _clamp(scale, float(min_scale), float(max_scale))
     diag = {
         "active": bool((degraded or (not q_ok) or bool(flags) or abs(scale - 1.0) > 1e-6)),

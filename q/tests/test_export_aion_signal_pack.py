@@ -1,10 +1,21 @@
 from pathlib import Path
 
+import pytest
+
 import tools.export_aion_signal_pack as ex
 
 
 def _write_series(path: Path, vals):
     path.write_text("\n".join(str(v) for v in vals), encoding="utf-8")
+
+
+@pytest.fixture(autouse=True)
+def _isolate_aion_feedback_env(monkeypatch, tmp_path: Path):
+    # Keep runtime-context tests deterministic regardless of local AION logs.
+    monkeypatch.setenv("Q_AION_SHADOW_TRADES", str(tmp_path / "_missing_shadow_trades.csv"))
+    monkeypatch.delenv("Q_AION_HOME", raising=False)
+    monkeypatch.delenv("Q_AION_FEEDBACK_LOOKBACK", raising=False)
+    monkeypatch.delenv("Q_AION_FEEDBACK_MIN_TRADES", raising=False)
 
 
 def test_runtime_context_uses_governor_components(tmp_path: Path):
@@ -204,3 +215,36 @@ def test_runtime_context_includes_novaspine_memory_feedback(tmp_path: Path):
     assert float(mf.get("risk_scale")) < 1.0
     assert ctx["components"]["novaspine_memory_feedback_modifier"]["found"] is True
     assert any(f in ctx["risk_flags"] for f in ["memory_feedback_warn", "memory_feedback_alert"])
+
+
+def test_runtime_context_includes_aion_outcome_feedback(tmp_path: Path, monkeypatch):
+    shadow = tmp_path / "shadow_trades.csv"
+    shadow.write_text(
+        "\n".join(
+            [
+                "timestamp,symbol,side,pnl",
+                "2026-02-01 10:00:00,AAPL,EXIT_SELL,-12.0",
+                "2026-02-01 10:05:00,MSFT,EXIT_BUY,-8.0",
+                "2026-02-01 10:10:00,NVDA,EXIT_SELL,-11.0",
+                "2026-02-01 10:15:00,TSLA,EXIT_BUY,-9.0",
+                "2026-02-01 10:20:00,AMZN,EXIT_SELL,-10.0",
+                "2026-02-01 10:25:00,META,EXIT_BUY,-7.0",
+                "2026-02-01 10:30:00,GOOG,EXIT_SELL,-9.5",
+                "2026-02-01 10:35:00,AMD,EXIT_BUY,-8.5",
+                "2026-02-01 10:40:00,NFLX,EXIT_SELL,-10.5",
+                "2026-02-01 10:45:00,IBM,EXIT_BUY,-6.0",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("Q_AION_SHADOW_TRADES", str(shadow))
+    monkeypatch.setenv("Q_AION_FEEDBACK_LOOKBACK", "30")
+    monkeypatch.setenv("Q_AION_FEEDBACK_MIN_TRADES", "8")
+
+    ctx = ex._runtime_context(tmp_path)
+    assert ctx["components"]["aion_outcome_modifier"]["found"] is True
+    assert "aion_outcome_alert" in ctx["risk_flags"]
+    afb = ctx.get("aion_feedback", {})
+    assert afb.get("active") is True
+    assert afb.get("status") == "alert"
+    assert float(afb.get("risk_scale", 1.0)) < 1.0
