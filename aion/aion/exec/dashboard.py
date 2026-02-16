@@ -321,6 +321,7 @@ def _html_template():
         ops_guard_ok: s.ops_guard_ok,
         ops_guard: s.ops_guard,
         runtime_controls: s.runtime_controls,
+        runtime_decision: s.runtime_decision,
         runtime_controls_age_sec: s.runtime_controls_age_sec,
         runtime_controls_stale_threshold_sec: s.runtime_controls_stale_threshold_sec,
         runtime_controls_stale: s.runtime_controls_stale,
