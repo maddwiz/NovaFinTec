@@ -74,6 +74,7 @@ def _canonicalize_risk_flags(flags) -> list[str]:
         ("heartbeat_alert", "heartbeat_warn"),
         ("council_divergence_alert", "council_divergence_warn"),
         ("memory_feedback_alert", "memory_feedback_warn"),
+        ("memory_turnover_alert", "memory_turnover_warn"),
     ]
     s = set(out)
     for strong, weak in stronger_to_weaker:
@@ -301,6 +302,10 @@ def _memory_feedback(runs_dir: Path):
     ctx_res = _safe_float(nctx.get("context_resonance", np.nan), default=np.nan)
     ctx_boost = _safe_float(nctx.get("context_boost", np.nan), default=np.nan)
     hive_boost = _safe_float(nhive.get("global_boost", np.nan), default=np.nan)
+    ctx_pressure = _safe_float(nctx.get("turnover_pressure", np.nan), default=np.nan)
+    hive_pressure = _safe_float(nhive.get("turnover_pressure", np.nan), default=np.nan)
+    ctx_damp = _safe_float(nctx.get("turnover_dampener", np.nan), default=np.nan)
+    hive_damp = _safe_float(nhive.get("turnover_dampener", np.nan), default=np.nan)
 
     reasons = []
     base = 1.0
@@ -318,6 +323,23 @@ def _memory_feedback(runs_dir: Path):
             reasons.append("low_context_resonance")
         elif ctx_res > 0.72:
             reasons.append("high_context_resonance")
+
+    pressure_vals = [v for v in [ctx_pressure, hive_pressure] if math.isfinite(v)]
+    damp_vals = [v for v in [ctx_damp, hive_damp] if math.isfinite(v)]
+    turnover_pressure = float(np.max(pressure_vals)) if pressure_vals else np.nan
+    turnover_dampener = float(np.mean(damp_vals)) if damp_vals else np.nan
+    if math.isfinite(turnover_pressure):
+        pressure_mod = _clamp(1.02 - 0.22 * max(0.0, turnover_pressure), 0.80, 1.02)
+        base *= pressure_mod
+        have_memory = True
+        if turnover_pressure >= 0.72:
+            reasons.append("memory_turnover_pressure_high")
+        elif turnover_pressure >= 0.45:
+            reasons.append("memory_turnover_pressure_warn")
+    if math.isfinite(turnover_dampener):
+        damp_mod = _clamp(1.01 - 1.40 * max(0.0, turnover_dampener), 0.82, 1.01)
+        base *= damp_mod
+        have_memory = True
 
     status_tokens = {ctx_status, hive_status}
     if any(s in {"unreachable", "error", "failed"} or s.startswith("http_") for s in status_tokens):
@@ -357,6 +379,8 @@ def _memory_feedback(runs_dir: Path):
         "context_resonance": (float(ctx_res) if math.isfinite(ctx_res) else None),
         "context_boost": (float(ctx_boost) if math.isfinite(ctx_boost) else None),
         "hive_global_boost": (float(hive_boost) if math.isfinite(hive_boost) else None),
+        "turnover_pressure": (float(turnover_pressure) if math.isfinite(turnover_pressure) else None),
+        "turnover_dampener": (float(turnover_dampener) if math.isfinite(turnover_dampener) else None),
         "risk_scale": float(risk_scale),
         "max_trades_scale": float(trades_scale),
         "max_open_scale": float(open_scale),
@@ -688,6 +712,12 @@ def _runtime_context(runs_dir: Path):
                 risk_flags.append("memory_feedback_alert")
             elif mscale <= 0.95:
                 risk_flags.append("memory_feedback_warn")
+        mpress = _safe_float(mem_fb.get("turnover_pressure", np.nan), default=np.nan)
+        if math.isfinite(mpress):
+            if mpress >= 0.72:
+                risk_flags.append("memory_turnover_alert")
+            elif mpress >= 0.45:
+                risk_flags.append("memory_turnover_warn")
 
     aion_fb = _aion_outcome_feedback()
     if bool(aion_fb.get("active", False)):
