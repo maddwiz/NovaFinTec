@@ -71,6 +71,52 @@ def feedback_lineage(
     }
 
 
+def lineage_quality(lineage: dict | None) -> tuple[float | None, dict]:
+    if not isinstance(lineage, dict):
+        return None, {
+            "available": False,
+            "source": "unknown",
+            "source_selected": "unknown",
+            "source_preference": "auto",
+            "issues": [],
+        }
+
+    source = normalize_source_tag(lineage.get("source"), default="unknown")
+    selected = normalize_source_tag(lineage.get("source_selected", source), default=source)
+    pref = normalize_source_preference(lineage.get("source_preference", "auto"))
+
+    score = 1.0
+    issues: list[str] = []
+    if source in {"unknown", "none"}:
+        score *= 0.82
+        issues.append("reported_source_missing")
+    if selected in {"unknown", "none"}:
+        score *= 0.78
+        issues.append("selected_source_missing")
+
+    if source not in {"unknown", "none"} and selected not in {"unknown", "none"} and source != selected:
+        score *= 0.86
+        issues.append("reported_selected_mismatch")
+
+    expected_selected = None
+    if pref == "overlay":
+        expected_selected = "overlay"
+    elif pref == "shadow":
+        expected_selected = "shadow_trades"
+    if expected_selected and selected != expected_selected:
+        score *= 0.92
+        issues.append("preference_fallback")
+
+    score = float(np.clip(score, 0.45, 1.0))
+    return score, {
+        "available": True,
+        "source": source,
+        "source_selected": selected,
+        "source_preference": pref,
+        "issues": issues,
+    }
+
+
 def resolve_shadow_trades_path(root: Path | None = None) -> Path:
     env_path = str(os.getenv("Q_AION_SHADOW_TRADES", "")).strip()
     if env_path:

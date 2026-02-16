@@ -154,3 +154,31 @@ def test_feedback_lineage_preserves_reported_source_and_normalizes_aliases():
     assert out["source"] == "overlay"
     assert out["source_selected"] == "shadow_trades"
     assert out["source_preference"] == "overlay"
+
+
+def test_lineage_quality_full_score_when_lineage_is_consistent():
+    score, detail = af.lineage_quality(
+        {
+            "source": "shadow_trades",
+            "source_selected": "shadow",
+            "source_preference": "auto",
+        }
+    )
+    assert score is not None
+    assert float(score) == 1.0
+    assert detail["issues"] == []
+    assert detail["source_selected"] == "shadow_trades"
+
+
+def test_lineage_quality_penalizes_mismatch_and_preference_fallback():
+    score, detail = af.lineage_quality(
+        {
+            "source": "overlay",
+            "source_selected": "shadow",
+            "source_preference": "overlay",
+        }
+    )
+    assert score is not None
+    assert float(score) < 0.9
+    assert "reported_selected_mismatch" in detail["issues"]
+    assert "preference_fallback" in detail["issues"]

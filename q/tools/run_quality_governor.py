@@ -30,6 +30,7 @@ from qmods.quality_governor import (  # noqa: E402
 from qmods.aion_feedback import (  # noqa: E402
     choose_feedback_source,
     feedback_lineage,
+    lineage_quality,
     load_outcome_feedback,
     normalize_source_preference,
 )
@@ -425,6 +426,7 @@ if __name__ == "__main__":
     aion_feedback, aion_feedback_source = _load_aion_feedback()
     aion_min_closed = int(np.clip(float(os.getenv("Q_AION_QUALITY_MIN_CLOSED_TRADES", "8")), 3, 100))
     aion_q, aion_q_detail = _aion_outcome_quality(aion_feedback, min_closed_trades=aion_min_closed)
+    aion_lineage_q, aion_lineage_detail = lineage_quality(aion_feedback_source)
 
     hive_sh = None
     hive_hit = None
@@ -664,6 +666,7 @@ if __name__ == "__main__":
             "system_health": (health_q, 0.13),
             "execution_constraints": (exec_q, 0.12),
             "aion_outcomes": (aion_q, 0.14),
+            "aion_lineage": (aion_lineage_q, 0.06),
             "ecosystem": (eco_q, 0.07),
             "ecosystem_persistence": (persistence_q, 0.06),
             "shock_env": (shock_q, 0.05),
@@ -812,6 +815,8 @@ if __name__ == "__main__":
         runtime_mod *= float(np.clip(0.82 + 0.35 * exec_q, 0.70, 1.10))
     if aion_q is not None:
         runtime_mod *= float(np.clip(0.78 + 0.42 * aion_q, 0.70, 1.10))
+    if aion_lineage_q is not None:
+        runtime_mod *= float(np.clip(0.88 + 0.22 * aion_lineage_q, 0.75, 1.08))
 
     q_lo = float(np.clip(float(os.getenv("Q_QUALITY_GOV_LO", "0.58")), 0.30, 1.20))
     q_hi = float(np.clip(float(os.getenv("Q_QUALITY_GOV_HI", "1.15")), 0.50, 1.30))
@@ -837,7 +842,9 @@ if __name__ == "__main__":
         "quality_governor_max_abs_step": step_abs_max,
         "quality_governor_mean_abs_step": step_abs_mean,
         "quality_governor_max_step_cfg": max_step,
-        "aion_feedback_source_preference": normalize_source_preference(os.getenv("Q_AION_FEEDBACK_SOURCE", "auto")),
+        "aion_feedback_source": str(aion_feedback_source.get("source", "unknown")),
+        "aion_feedback_source_selected": str(aion_feedback_source.get("source_selected", "unknown")),
+        "aion_feedback_source_preference": str(aion_feedback_source.get("source_preference", "auto")),
         "aion_feedback_selected_source": dict(aion_feedback_source),
         "length": int(T),
         "components": {
@@ -865,6 +872,7 @@ if __name__ == "__main__":
                 "detail": aion_q_detail,
                 "source": aion_feedback_source,
             },
+            "aion_lineage": {"score": float(aion_lineage_q) if aion_lineage_q is not None else None, "detail": aion_lineage_detail},
             "novaspine_context": {"score": float(nctx_q) if nctx_q is not None else None},
         },
         "blend_detail": quality_detail,
