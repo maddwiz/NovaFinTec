@@ -334,6 +334,33 @@ def _entropy_norm(w: np.ndarray) -> float:
     return float(np.clip(h / np.log(len(p)), 0.0, 1.0))
 
 
+def turnover_stats(weights: np.ndarray, rolling_window: int | None = None, rolling_limit: float | None = None):
+    w = np.asarray(weights, float)
+    if w.ndim != 2 or w.shape[0] <= 1:
+        return {
+            "mean_turnover": 0.0,
+            "max_turnover": 0.0,
+            "rolling_turnover_mean": None,
+            "rolling_turnover_max": None,
+        }
+    turns = np.sum(np.abs(np.diff(w, axis=0)), axis=1).astype(float)
+    out = {
+        "mean_turnover": float(np.mean(turns)),
+        "max_turnover": float(np.max(turns)),
+        "rolling_turnover_mean": None,
+        "rolling_turnover_max": None,
+    }
+    if rolling_limit is not None and float(rolling_limit) > 0.0:
+        win = int(max(1, rolling_window if rolling_window is not None else 1))
+        roll = np.zeros_like(turns, dtype=float)
+        for i in range(len(turns)):
+            j0 = max(0, i - (win - 1))
+            roll[i] = float(np.sum(turns[j0 : i + 1]))
+        out["rolling_turnover_mean"] = float(np.mean(roll))
+        out["rolling_turnover_max"] = float(np.max(roll))
+    return out
+
+
 def adaptive_arb_schedules(base_alpha, base_inertia, pivot_stab):
     """
     Build adaptive alpha/inertia schedules from hive disagreement + council divergence.
@@ -623,25 +650,11 @@ if __name__ == "__main__":
     out = out.reset_index().rename(columns={"index": "DATE"})
     out.to_csv(RUNS / "cross_hive_weights.csv", index=False)
 
-    if len(out) > 1 and len(names) > 0:
-        turns = np.sum(np.abs(np.diff(W, axis=0)), axis=1)
-        turn = float(np.mean(turns))
-        turn_max = float(np.max(turns))
-        if turnover_limit > 0.0:
-            roll = np.zeros_like(turns)
-            for i in range(len(turns)):
-                j0 = max(0, i - (turnover_window - 1))
-                roll[i] = float(np.sum(turns[j0 : i + 1]))
-            turn_roll_mean = float(np.mean(roll))
-            turn_roll_max = float(np.max(roll))
-        else:
-            turn_roll_mean = None
-            turn_roll_max = None
-    else:
-        turn = 0.0
-        turn_max = 0.0
-        turn_roll_mean = None
-        turn_roll_max = None
+    turn_stats = turnover_stats(W, rolling_window=turnover_window, rolling_limit=turnover_limit if turnover_limit > 0.0 else None)
+    turn = float(turn_stats["mean_turnover"])
+    turn_max = float(turn_stats["max_turnover"])
+    turn_roll_mean = turn_stats["rolling_turnover_mean"]
+    turn_roll_max = turn_stats["rolling_turnover_max"]
     ent = float(np.mean([_entropy_norm(r) for r in W])) if len(W) else None
 
     summary = {

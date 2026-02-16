@@ -217,3 +217,37 @@ def test_adaptive_entropy_schedules_raise_targets_with_crowding(tmp_path):
     assert target_t[-1] > target_t[0]
     assert strength_t[-1] > strength_t[0]
     assert diag["crowding_mean"] > 0.0
+
+
+def test_turnover_stats_reports_mean_and_max_without_rolling_budget():
+    w = np.array(
+        [
+            [0.50, 0.50],
+            [0.40, 0.60],
+            [0.55, 0.45],
+            [0.50, 0.50],
+        ],
+        dtype=float,
+    )
+    out = rch.turnover_stats(w)
+    assert out["mean_turnover"] is not None
+    assert out["max_turnover"] is not None
+    assert out["rolling_turnover_mean"] is None
+    assert out["rolling_turnover_max"] is None
+    assert float(out["max_turnover"]) >= float(out["mean_turnover"])
+
+
+def test_turnover_stats_reports_rolling_metrics_with_budget():
+    w = np.array(
+        [
+            [0.50, 0.50],
+            [0.20, 0.80],
+            [0.80, 0.20],
+            [0.35, 0.65],
+        ],
+        dtype=float,
+    )
+    out = rch.turnover_stats(w, rolling_window=2, rolling_limit=0.9)
+    assert out["rolling_turnover_mean"] is not None
+    assert out["rolling_turnover_max"] is not None
+    assert float(out["rolling_turnover_max"]) >= float(out["rolling_turnover_mean"])
