@@ -178,6 +178,22 @@ def build_events():
     latest_weights = cross.get("latest_weights", {}) if isinstance(cross, dict) else {}
     eco_events = eco.get("events", []) if isinstance(eco, dict) else []
     runtime_ctx = overlay.get("runtime_context", {}) if isinstance(overlay, dict) else {}
+    aion_feedback = runtime_ctx.get("aion_feedback", {}) if isinstance(runtime_ctx, dict) else {}
+    if not isinstance(aion_feedback, dict):
+        aion_feedback = {}
+    aion_feedback_summary = {
+        "active": bool(aion_feedback.get("active", False)),
+        "status": str(aion_feedback.get("status", "unknown")).strip().lower() or "unknown",
+        "risk_scale": _safe_float(aion_feedback.get("risk_scale", 1.0), 1.0),
+        "closed_trades": int(max(0, _safe_float(aion_feedback.get("closed_trades", 0), 0))),
+        "hit_rate": _safe_float(aion_feedback.get("hit_rate", np.nan), np.nan),
+        "profit_factor": _safe_float(aion_feedback.get("profit_factor", np.nan), np.nan),
+        "expectancy": _safe_float(aion_feedback.get("expectancy", np.nan), np.nan),
+        "drawdown_norm": _safe_float(aion_feedback.get("drawdown_norm", np.nan), np.nan),
+        "reasons": list(aion_feedback.get("reasons", []) or []) if isinstance(aion_feedback.get("reasons", []), list) else [],
+    }
+    if aion_feedback.get("path"):
+        aion_feedback_summary["path"] = str(aion_feedback.get("path"))
     cross_ad = cross.get("adaptive_diagnostics", {}) if isinstance(cross, dict) and isinstance(cross.get("adaptive_diagnostics"), dict) else {}
     cross_dis = _safe_float(cross_ad.get("mean_disagreement", 0.0))
     cross_disp = _safe_float(cross_ad.get("mean_stability_dispersion", 0.0))
@@ -364,6 +380,7 @@ def build_events():
                     "mean_l1": _safe_float((drift_watch.get("drift", {}) if isinstance(drift_watch, dict) else {}).get("mean_l1", 0.0)),
                     "p95_l1": _safe_float((drift_watch.get("drift", {}) if isinstance(drift_watch, dict) else {}).get("p95_l1", 0.0)),
                 },
+                "aion_feedback": aion_feedback_summary,
                 "heartbeat_stress": {
                     "latest": float(hb_stress[-1]) if hb_stress is not None and len(hb_stress) else None,
                     "mean": float(np.mean(hb_stress)) if hb_stress is not None and len(hb_stress) else None,
@@ -433,6 +450,7 @@ def build_events():
                     "global_boost": _safe_float((nhive or {}).get("global_boost", 1.0), 1.0),
                     "hives": int(len((nhive or {}).get("per_hive", {}) or {})) if isinstance(nhive, dict) else 0,
                 },
+                "aion_feedback": aion_feedback_summary,
             },
             "trust": float(
                 np.clip(

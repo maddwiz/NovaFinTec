@@ -17,7 +17,22 @@ def test_build_events_includes_governance_audit_events(tmp_path, monkeypatch):
         {
             "global": {"confidence": 0.7, "bias": 0.2},
             "coverage": {"symbols": 5},
-            "runtime_context": {"runtime_multiplier": 0.9, "regime": "balanced"},
+            "runtime_context": {
+                "runtime_multiplier": 0.9,
+                "regime": "balanced",
+                "aion_feedback": {
+                    "active": True,
+                    "status": "warn",
+                    "risk_scale": 0.88,
+                    "closed_trades": 16,
+                    "hit_rate": 0.43,
+                    "profit_factor": 0.91,
+                    "expectancy": -0.8,
+                    "drawdown_norm": 1.9,
+                    "reasons": ["low_profit_factor_warn"],
+                    "path": "/tmp/shadow_trades.csv",
+                },
+            },
         },
     )
     _write_json(tmp_path / "system_health.json", {"health_score": 88})
@@ -97,6 +112,11 @@ def test_build_events_includes_governance_audit_events(tmp_path, monkeypatch):
     pdw = rc.get("payload", {}).get("portfolio_drift_watch", {})
     assert pdw.get("status") == "ok"
     assert float(pdw.get("latest_l1")) > 0.0
+    af = rc.get("payload", {}).get("aion_feedback", {})
+    assert af.get("active") is True
+    assert af.get("status") == "warn"
+    assert int(af.get("closed_trades")) == 16
+    assert float(af.get("risk_scale")) > 0.0
     dream = rc.get("payload", {}).get("dream_coherence", {})
     assert dream.get("status") == "ok"
     assert float(dream.get("mean_coherence")) > 0.0
@@ -138,6 +158,10 @@ def test_build_events_includes_governance_audit_events(tmp_path, monkeypatch):
     assert dch.get("crowding", {}).get("top_hive") == "EQ"
     assert float(dch.get("entropy", {}).get("entropy_strength_mean")) > 0.0
     assert float(dch.get("stability", {}).get("mean_turnover")) > 0.0
+    mfb = [e for e in events if e.get("event_type") == "memory.feedback_state"][0]
+    af2 = mfb.get("payload", {}).get("aion_feedback", {})
+    assert af2.get("status") == "warn"
+    assert int(af2.get("closed_trades")) == 16
     trusts = [float(e.get("trust", 0.0)) for e in events]
     assert all(0.0 <= t <= 1.0 for t in trusts)
 
