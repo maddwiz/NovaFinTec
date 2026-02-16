@@ -66,6 +66,8 @@ def arb_weights(
     entropy_target: float | np.ndarray | None = None,
     entropy_strength: float | np.ndarray = 0.0,
     max_step_turnover: float | np.ndarray | None = None,
+    rolling_turnover_window: int | None = None,
+    rolling_turnover_limit: float | np.ndarray | None = None,
 ):
     """
     Softmax allocation over hives based on standardized health scores with penalties,
@@ -73,6 +75,7 @@ def arb_weights(
       - inertia smoothing over time
       - optional min/max per-hive weight clamps
       - optional time-varying alpha/inertia schedules
+      - optional rolling turnover budget (window + limit)
     hive_scores: {name: [T]} base score (higher=better)
     drawdown_penalty: {name: [T]} penalty in [0,1], where 1 is worst
     disagreement_penalty: {name: [T]} penalty in [0,1], where 1 is worst
@@ -106,8 +109,13 @@ def arb_weights(
     max_step_turnover_t = (
         _as_time_array(max_step_turnover, T, lo=0.0, hi=2.0, default=0.0) if max_step_turnover is not None else None
     )
+    rolling_turnover_limit_t = (
+        _as_time_array(rolling_turnover_limit, T, lo=0.0, hi=5.0, default=0.0) if rolling_turnover_limit is not None else None
+    )
+    rolling_turnover_window = int(max(1, rolling_turnover_window)) if rolling_turnover_window is not None else 1
 
     W = np.zeros_like(Z, dtype=float)
+    turnover_hist = np.zeros(max(0, T - 1), dtype=float)
     for t in range(T):
         z = Z[t]
         z = z - np.max(z)
@@ -149,5 +157,18 @@ def arb_weights(
         if t > 0 and max_step_turnover_t is not None and max_step_turnover_t[t] > 0.0:
             wrow = _cap_step_turnover(W[t - 1], wrow, float(max_step_turnover_t[t]))
 
+        # Optional rolling turnover budget to avoid churn bursts.
+        if t > 0 and rolling_turnover_limit_t is not None and rolling_turnover_limit_t[t] > 0.0:
+            i = t - 1
+            j0 = max(0, i - (rolling_turnover_window - 1))
+            used = float(np.sum(turnover_hist[j0:i])) if i > j0 else 0.0
+            avail = max(0.0, float(rolling_turnover_limit_t[t]) - used)
+            if avail <= 0.0:
+                wrow = W[t - 1].copy()
+            else:
+                wrow = _cap_step_turnover(W[t - 1], wrow, avail)
+
+        if t > 0:
+            turnover_hist[t - 1] = _step_turnover(W[t - 1], wrow)
         W[t] = wrow
     return names, W

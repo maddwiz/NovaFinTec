@@ -153,3 +153,29 @@ def test_arb_weights_step_turnover_cap_limits_adjacent_moves():
 
     assert float(np.max(capped_turn)) <= 0.30 + 1e-6
     assert float(np.mean(capped_turn)) <= float(np.mean(uncapped_turn))
+
+
+def test_arb_weights_rolling_turnover_budget_limits_window_sum():
+    T = 200
+    rng = np.random.default_rng(21)
+    scores = {
+        "A": rng.normal(0.0, 1.6, T),
+        "B": rng.normal(0.0, 1.6, T),
+        "C": rng.normal(0.0, 1.6, T),
+    }
+    _, w_unbudgeted = arb_weights(scores, alpha=3.2, inertia=0.0, max_step_turnover=2.0)
+    _, w_budgeted = arb_weights(
+        scores,
+        alpha=3.2,
+        inertia=0.0,
+        max_step_turnover=2.0,
+        rolling_turnover_window=5,
+        rolling_turnover_limit=0.75,
+    )
+
+    t_unbudgeted = np.sum(np.abs(np.diff(w_unbudgeted, axis=0)), axis=1)
+    t_budgeted = np.sum(np.abs(np.diff(w_budgeted, axis=0)), axis=1)
+    roll = np.array([np.sum(t_budgeted[max(0, i - 4) : i + 1]) for i in range(len(t_budgeted))], dtype=float)
+
+    assert float(np.max(roll)) <= 0.75 + 1e-6
+    assert float(np.mean(t_budgeted)) <= float(np.mean(t_unbudgeted))

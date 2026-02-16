@@ -573,6 +573,8 @@ if __name__ == "__main__":
     max_w = float(np.clip(float(os.getenv("CROSS_HIVE_MAX_W", "0.65")), 0.10, 1.0))
     min_w = float(np.clip(float(os.getenv("CROSS_HIVE_MIN_W", "0.02")), 0.0, 0.30))
     max_step_turnover = float(np.clip(float(os.getenv("CROSS_HIVE_MAX_STEP_TURNOVER", "0.0")), 0.0, 2.0))
+    turnover_window = int(np.clip(float(os.getenv("CROSS_HIVE_TURNOVER_WINDOW", "5")), 1, 126))
+    turnover_limit = float(np.clip(float(os.getenv("CROSS_HIVE_TURNOVER_LIMIT", "0.0")), 0.0, 5.0))
     entropy_target = float(np.clip(float(os.getenv("CROSS_HIVE_ENTROPY_TARGET", "0.60")), 0.0, 1.0))
     entropy_strength = float(np.clip(float(os.getenv("CROSS_HIVE_ENTROPY_STRENGTH", "0.25")), 0.0, 1.0))
     adaptive = str(os.getenv("CROSS_HIVE_ADAPTIVE", "1")).strip().lower() in {"1", "true", "yes", "on"}
@@ -611,6 +613,8 @@ if __name__ == "__main__":
         entropy_target=ent_target_sched,
         entropy_strength=ent_strength_sched,
         max_step_turnover=max_step_turnover if max_step_turnover > 0.0 else None,
+        rolling_turnover_window=turnover_window if turnover_limit > 0.0 else None,
+        rolling_turnover_limit=turnover_limit if turnover_limit > 0.0 else None,
     )
     out = pd.DataFrame(W, index=pivot_sig.index, columns=names)
     if adaptive and len(out) == len(alpha_sched):
@@ -623,9 +627,21 @@ if __name__ == "__main__":
         turns = np.sum(np.abs(np.diff(W, axis=0)), axis=1)
         turn = float(np.mean(turns))
         turn_max = float(np.max(turns))
+        if turnover_limit > 0.0:
+            roll = np.zeros_like(turns)
+            for i in range(len(turns)):
+                j0 = max(0, i - (turnover_window - 1))
+                roll[i] = float(np.sum(turns[j0 : i + 1]))
+            turn_roll_mean = float(np.mean(roll))
+            turn_roll_max = float(np.max(roll))
+        else:
+            turn_roll_mean = None
+            turn_roll_max = None
     else:
         turn = 0.0
         turn_max = 0.0
+        turn_roll_mean = None
+        turn_roll_max = None
     ent = float(np.mean([_entropy_norm(r) for r in W])) if len(W) else None
 
     summary = {
@@ -641,10 +657,14 @@ if __name__ == "__main__":
         "entropy_target": entropy_target,
         "entropy_strength": entropy_strength,
         "max_step_turnover": max_step_turnover,
+        "rolling_turnover_window": turnover_window if turnover_limit > 0.0 else None,
+        "rolling_turnover_limit": turnover_limit if turnover_limit > 0.0 else None,
         "entropy_schedule_file": str(RUNS / "hive_entropy_schedule.csv") if adaptive else None,
         "mean_entropy_norm": ent,
         "mean_turnover": turn,
         "max_turnover": turn_max,
+        "rolling_turnover_mean": turn_roll_mean,
+        "rolling_turnover_max": turn_roll_max,
         "quality_priors": {k: float(v) for k, v in priors.items()},
         "dynamic_quality_multiplier_mean": dyn_means,
         "dynamic_quality_file": str(RUNS / "hive_dynamic_quality.csv") if dyn_table is not None else None,
@@ -666,7 +686,9 @@ if __name__ == "__main__":
         f"<p>Cross-hive weights over {len(names)} hives saved to cross_hive_weights.csv</p>"
         f"<p>Latest: {summary['latest_weights']}</p>"
         f"<p>alpha_base={alpha:.2f}, inertia_base={inertia:.2f}, "
-        f"turnover(mean/max)={turn:.4f}/{turn_max:.4f}, step_cap={max_step_turnover:.3f}, adaptive={bool(adaptive)}</p>"
+        f"turnover(mean/max)={turn:.4f}/{turn_max:.4f}, "
+        f"step_cap={max_step_turnover:.3f}, "
+        f"roll_budget={turnover_limit:.3f}@{turnover_window}, adaptive={bool(adaptive)}</p>"
     )
     append_card("Cross-Hive Arbitration ✔", html)
     print(f"✅ Wrote {RUNS/'cross_hive_weights.csv'}")
