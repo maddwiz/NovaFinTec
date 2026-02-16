@@ -119,6 +119,7 @@ def test_build_events_includes_governance_audit_events(tmp_path, monkeypatch):
     af = rc.get("payload", {}).get("aion_feedback", {})
     assert af.get("active") is True
     assert af.get("status") == "warn"
+    assert af.get("source") == "overlay"
     assert int(af.get("closed_trades")) == 16
     assert float(af.get("risk_scale")) > 0.0
     assert float(af.get("age_hours")) >= 0.0
@@ -168,6 +169,7 @@ def test_build_events_includes_governance_audit_events(tmp_path, monkeypatch):
     mfb = [e for e in events if e.get("event_type") == "memory.feedback_state"][0]
     af2 = mfb.get("payload", {}).get("aion_feedback", {})
     assert af2.get("status") == "warn"
+    assert af2.get("source") == "overlay"
     assert int(af2.get("closed_trades")) == 16
     assert float(af2.get("age_hours")) >= 0.0
     assert af2.get("last_closed_ts") == "2026-02-16T15:35:00Z"
@@ -180,3 +182,31 @@ def test_build_events_works_with_missing_artifacts(tmp_path, monkeypatch):
     events = sm.build_events()
     assert len(events) >= 4
     assert any(e.get("event_type") == "governance.health_gate" for e in events)
+
+
+def test_build_events_falls_back_to_shadow_trades_aion_feedback(tmp_path, monkeypatch):
+    monkeypatch.setattr(sm, "RUNS", tmp_path)
+    shadow = tmp_path / "shadow_trades.csv"
+    shadow.write_text(
+        "\n".join(
+            [
+                "timestamp,symbol,side,pnl",
+                "2026-02-16 10:00:00,AAPL,EXIT_BUY,-6.0",
+                "2026-02-16 10:05:00,MSFT,EXIT_SELL,-5.0",
+                "2026-02-16 10:10:00,NVDA,PARTIAL_BUY,-4.0",
+                "2026-02-16 10:15:00,TSLA,EXIT_SELL,-3.0",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("Q_AION_SHADOW_TRADES", str(shadow))
+    monkeypatch.setenv("Q_AION_FEEDBACK_MIN_TRADES", "3")
+    _write_json(tmp_path / "q_signal_overlay.json", {"global": {"confidence": 0.55, "bias": 0.1}})
+
+    events = sm.build_events()
+    rc = [e for e in events if e.get("event_type") == "governance.risk_controls"][0]
+    af = rc.get("payload", {}).get("aion_feedback", {})
+    assert af.get("source") == "shadow_trades"
+    assert af.get("active") is True
+    assert int(af.get("closed_trades")) == 4
+    assert float(af.get("risk_scale")) < 1.0

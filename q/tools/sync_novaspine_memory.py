@@ -25,6 +25,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from qmods.novaspine_adapter import publish_events  # noqa: E402
+from qmods.aion_feedback import load_outcome_feedback  # noqa: E402
 
 RUNS = ROOT / "runs_plus"
 RUNS.mkdir(exist_ok=True)
@@ -109,6 +110,42 @@ def _safe_float(x, default: float = 0.0) -> float:
         return float(default)
 
 
+def _summarize_aion_feedback(payload: dict | None) -> dict:
+    aion_feedback = payload if isinstance(payload, dict) else {}
+    out = {
+        "active": bool(aion_feedback.get("active", False)),
+        "status": str(aion_feedback.get("status", "unknown")).strip().lower() or "unknown",
+        "risk_scale": _safe_float(aion_feedback.get("risk_scale", 1.0), 1.0),
+        "closed_trades": int(max(0, _safe_float(aion_feedback.get("closed_trades", 0), 0))),
+        "hit_rate": _safe_float(aion_feedback.get("hit_rate", np.nan), np.nan),
+        "profit_factor": _safe_float(aion_feedback.get("profit_factor", np.nan), np.nan),
+        "expectancy": _safe_float(aion_feedback.get("expectancy", np.nan), np.nan),
+        "drawdown_norm": _safe_float(aion_feedback.get("drawdown_norm", np.nan), np.nan),
+        "age_hours": _safe_float(aion_feedback.get("age_hours", np.nan), np.nan),
+        "max_age_hours": _safe_float(aion_feedback.get("max_age_hours", np.nan), np.nan),
+        "stale": bool(aion_feedback.get("stale", False)),
+        "last_closed_ts": str(aion_feedback.get("last_closed_ts", "")).strip() or None,
+        "reasons": list(aion_feedback.get("reasons", []) or []) if isinstance(aion_feedback.get("reasons", []), list) else [],
+    }
+    if aion_feedback.get("path"):
+        out["path"] = str(aion_feedback.get("path"))
+    return out
+
+
+def _aion_feedback_has_metrics(payload: dict | None) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    if bool(payload.get("active", False)):
+        return True
+    for key in ("risk_scale", "closed_trades", "hit_rate", "profit_factor", "expectancy", "drawdown_norm", "age_hours"):
+        if key not in payload:
+            continue
+        val = payload.get(key)
+        if isinstance(val, (int, float)) and np.isfinite(float(val)):
+            return True
+    return False
+
+
 def build_events():
     ts = _now_iso()
     overlay = _load_json(RUNS / "q_signal_overlay.json") or {}
@@ -178,26 +215,15 @@ def build_events():
     latest_weights = cross.get("latest_weights", {}) if isinstance(cross, dict) else {}
     eco_events = eco.get("events", []) if isinstance(eco, dict) else []
     runtime_ctx = overlay.get("runtime_context", {}) if isinstance(overlay, dict) else {}
-    aion_feedback = runtime_ctx.get("aion_feedback", {}) if isinstance(runtime_ctx, dict) else {}
-    if not isinstance(aion_feedback, dict):
-        aion_feedback = {}
-    aion_feedback_summary = {
-        "active": bool(aion_feedback.get("active", False)),
-        "status": str(aion_feedback.get("status", "unknown")).strip().lower() or "unknown",
-        "risk_scale": _safe_float(aion_feedback.get("risk_scale", 1.0), 1.0),
-        "closed_trades": int(max(0, _safe_float(aion_feedback.get("closed_trades", 0), 0))),
-        "hit_rate": _safe_float(aion_feedback.get("hit_rate", np.nan), np.nan),
-        "profit_factor": _safe_float(aion_feedback.get("profit_factor", np.nan), np.nan),
-        "expectancy": _safe_float(aion_feedback.get("expectancy", np.nan), np.nan),
-        "drawdown_norm": _safe_float(aion_feedback.get("drawdown_norm", np.nan), np.nan),
-        "age_hours": _safe_float(aion_feedback.get("age_hours", np.nan), np.nan),
-        "max_age_hours": _safe_float(aion_feedback.get("max_age_hours", np.nan), np.nan),
-        "stale": bool(aion_feedback.get("stale", False)),
-        "last_closed_ts": str(aion_feedback.get("last_closed_ts", "")).strip() or None,
-        "reasons": list(aion_feedback.get("reasons", []) or []) if isinstance(aion_feedback.get("reasons", []), list) else [],
-    }
-    if aion_feedback.get("path"):
-        aion_feedback_summary["path"] = str(aion_feedback.get("path"))
+    overlay_feedback = runtime_ctx.get("aion_feedback", {}) if isinstance(runtime_ctx, dict) else {}
+    overlay_summary = _summarize_aion_feedback(overlay_feedback)
+    if _aion_feedback_has_metrics(overlay_feedback):
+        aion_feedback_summary = overlay_summary
+        aion_feedback_summary["source"] = "overlay"
+    else:
+        shadow_feedback = load_outcome_feedback(root=ROOT, mark_stale_reason=False)
+        aion_feedback_summary = _summarize_aion_feedback(shadow_feedback)
+        aion_feedback_summary["source"] = "shadow_trades"
     cross_ad = cross.get("adaptive_diagnostics", {}) if isinstance(cross, dict) and isinstance(cross.get("adaptive_diagnostics"), dict) else {}
     cross_dis = _safe_float(cross_ad.get("mean_disagreement", 0.0))
     cross_disp = _safe_float(cross_ad.get("mean_stability_dispersion", 0.0))
