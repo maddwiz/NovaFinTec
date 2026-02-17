@@ -168,6 +168,7 @@ def apply_profile_env_defaults():
         "vol_target_max_scalar": "Q_VOL_TARGET_MAX_SCALAR",
         "vol_target_smooth_alpha": "Q_VOL_TARGET_SMOOTH_ALPHA",
         "credit_leadlag_strength": "Q_CREDIT_LEADLAG_STRENGTH",
+        "cross_sectional_momentum_strength": "Q_CROSS_SECTIONAL_MOMENTUM_STRENGTH",
         "microstructure_strength": "Q_MICROSTRUCTURE_STRENGTH",
         "calendar_event_strength": "Q_CALENDAR_EVENT_STRENGTH",
         "cash_yield_annual": "Q_CASH_YIELD_ANNUAL",
@@ -233,6 +234,7 @@ def apply_performance_defaults():
     sel_asset_class = bool(selected.get("enable_asset_class_diversification", False))
     sel_macro = selected.get("macro_proxy_strength", None)
     sel_credit = selected.get("credit_leadlag_strength", None)
+    sel_cross = selected.get("cross_sectional_momentum_strength", None)
     sel_micro = selected.get("microstructure_strength", None)
     sel_calendar = selected.get("calendar_event_strength", None)
     sel_capacity = selected.get("capacity_impact_strength", None)
@@ -275,6 +277,11 @@ def apply_performance_defaults():
     if (sel_credit is not None) and ("Q_CREDIT_LEADLAG_STRENGTH" not in os.environ):
         try:
             os.environ["Q_CREDIT_LEADLAG_STRENGTH"] = str(float(sel_credit))
+        except Exception:
+            pass
+    if (sel_cross is not None) and ("Q_CROSS_SECTIONAL_MOMENTUM_STRENGTH" not in os.environ):
+        try:
+            os.environ["Q_CROSS_SECTIONAL_MOMENTUM_STRENGTH"] = str(float(sel_cross))
         except Exception:
             pass
     if (sel_micro is not None) and ("Q_MICROSTRUCTURE_STRENGTH" not in os.environ):
@@ -545,6 +552,9 @@ if __name__ == "__main__":
     # Credit-equity lead/lag alpha overlay.
     ok, rc = run_script("tools/run_credit_leadlag_signal.py")
     if not ok and rc is not None: failures.append({"step": "tools/run_credit_leadlag_signal.py", "code": rc})
+    # Cross-sectional relative momentum overlay.
+    ok, rc = run_script("tools/run_cross_sectional_momentum_overlay.py")
+    if not ok and rc is not None: failures.append({"step": "tools/run_cross_sectional_momentum_overlay.py", "code": rc})
     # Microstructure proxy overlay (illiquidity + close-location pressure).
     ok, rc = run_script("tools/run_microstructure_proxy_signal.py")
     if not ok and rc is not None: failures.append({"step": "tools/run_microstructure_proxy_signal.py", "code": rc})

@@ -165,6 +165,7 @@ def test_apply_performance_defaults_applies_selected_runtime_knobs(monkeypatch, 
             '"enable_asset_class_diversification":true,'
             '"macro_proxy_strength":0.25,'
             '"credit_leadlag_strength":0.35,'
+            '"cross_sectional_momentum_strength":0.24,'
             '"microstructure_strength":0.22,'
             '"calendar_event_strength":0.14,'
             '"capacity_impact_strength":0.15,'
@@ -180,6 +181,7 @@ def test_apply_performance_defaults_applies_selected_runtime_knobs(monkeypatch, 
     monkeypatch.delenv("Q_ENABLE_ASSET_CLASS_DIVERSIFICATION", raising=False)
     monkeypatch.delenv("Q_MACRO_PROXY_STRENGTH", raising=False)
     monkeypatch.delenv("Q_CREDIT_LEADLAG_STRENGTH", raising=False)
+    monkeypatch.delenv("Q_CROSS_SECTIONAL_MOMENTUM_STRENGTH", raising=False)
     monkeypatch.delenv("Q_MICROSTRUCTURE_STRENGTH", raising=False)
     monkeypatch.delenv("Q_CALENDAR_EVENT_STRENGTH", raising=False)
     monkeypatch.delenv("Q_CAPACITY_IMPACT_STRENGTH", raising=False)
@@ -188,6 +190,7 @@ def test_apply_performance_defaults_applies_selected_runtime_knobs(monkeypatch, 
     assert os.environ.get("Q_ENABLE_ASSET_CLASS_DIVERSIFICATION") == "1"
     assert os.environ.get("Q_MACRO_PROXY_STRENGTH") == "0.25"
     assert os.environ.get("Q_CREDIT_LEADLAG_STRENGTH") == "0.35"
+    assert os.environ.get("Q_CROSS_SECTIONAL_MOMENTUM_STRENGTH") == "0.24"
     assert os.environ.get("Q_MICROSTRUCTURE_STRENGTH") == "0.22"
     assert os.environ.get("Q_CALENDAR_EVENT_STRENGTH") == "0.14"
     assert os.environ.get("Q_CAPACITY_IMPACT_STRENGTH") == "0.15"

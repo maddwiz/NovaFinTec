@@ -98,6 +98,27 @@ def test_microstructure_strength_uses_profile_value(monkeypatch):
     assert abs(float(out) - 0.27) < 1e-9
 
 
+def test_cross_sectional_momentum_strength_uses_profile_value(monkeypatch):
+    monkeypatch.delenv("Q_CROSS_SECTIONAL_MOMENTUM_STRENGTH", raising=False)
+    monkeypatch.setattr(
+        bfp,
+        "_GOV_PARAM_PROFILE",
+        {
+            "parameters": {
+                "cross_sectional_momentum_strength": 0.31,
+            }
+        },
+    )
+    out = bfp._env_or_profile_float(
+        "Q_CROSS_SECTIONAL_MOMENTUM_STRENGTH",
+        "cross_sectional_momentum_strength",
+        0.16,
+        0.0,
+        2.0,
+    )
+    assert abs(float(out) - 0.31) < 1e-9
+
+
 def test_calendar_event_strength_uses_profile_value(monkeypatch):
     monkeypatch.delenv("Q_CALENDAR_EVENT_STRENGTH", raising=False)
     monkeypatch.setattr(

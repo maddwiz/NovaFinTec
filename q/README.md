@@ -68,6 +68,7 @@ This now includes:
 - adaptive cross-hive arbitration (time-varying alpha/inertia from disagreement/divergence)
 - reliability-aware quality governor (nested WF + hive WF + council diagnostics)
 - credit-equity lead/lag overlay (HYG/LQD divergence vs SPY/QQQ)
+- cross-sectional momentum overlay (breadth + top/bottom spread across the universe)
 - microstructure proxy overlay (Amihud illiquidity + close-location pressure)
 - calendar/event overlay (turn-of-month + weekday drift + optional event file)
 - NovaSpine recall feedback loop (augment -> context boost -> final risk scaling)
@@ -139,6 +140,9 @@ export Q_MAX_HEARTBEAT_STRESS=0.85
 - `runs_plus/credit_leadlag_signal.csv`
 - `runs_plus/credit_leadlag_overlay.csv`
 - `runs_plus/credit_leadlag_info.json`
+- `runs_plus/cross_sectional_momentum_signal.csv`
+- `runs_plus/cross_sectional_momentum_overlay.csv`
+- `runs_plus/cross_sectional_momentum_info.json`
 - `runs_plus/microstructure_signal.csv`
 - `runs_plus/microstructure_overlay.csv`
 - `runs_plus/microstructure_info.json`
