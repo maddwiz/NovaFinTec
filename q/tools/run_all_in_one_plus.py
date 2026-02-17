@@ -328,6 +328,9 @@ if __name__ == "__main__":
     # Strict holdout OOS validation from costed returns.
     ok, rc = run_script("tools/run_strict_oos_validation.py")
     if not ok and rc is not None: failures.append({"step": "tools/run_strict_oos_validation.py", "code": rc})
+    # Cost sensitivity stress on strict OOS at higher friction assumptions.
+    ok, rc = run_script("tools/run_cost_stress_validation.py")
+    if not ok and rc is not None: failures.append({"step": "tools/run_cost_stress_validation.py", "code": rc})
     # Promotion gate artifact for AION overlay safety.
     ok, rc = run_script("tools/run_q_promotion_gate.py")
     if not ok and rc is not None: failures.append({"step": "tools/run_q_promotion_gate.py", "code": rc})

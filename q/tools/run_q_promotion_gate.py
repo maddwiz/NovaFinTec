@@ -84,6 +84,12 @@ def main() -> int:
     min_hit = float(np.clip(float(os.getenv("Q_PROMOTION_MIN_OOS_HIT", "0.49")), 0.0, 1.0))
     max_abs_mdd = float(np.clip(float(os.getenv("Q_PROMOTION_MAX_ABS_MDD", "0.10")), 0.001, 2.0))
     min_n = int(np.clip(int(float(os.getenv("Q_PROMOTION_MIN_OOS_SAMPLES", "252"))), 1, 1000000))
+    require_cost_stress = str(os.getenv("Q_PROMOTION_REQUIRE_COST_STRESS", "0")).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
     reasons = []
     if n < min_n:
@@ -94,6 +100,28 @@ def main() -> int:
         reasons.append(f"oos_hit<{min_hit:.2f} ({hit:.3f})")
     if abs(mdd) > max_abs_mdd:
         reasons.append(f"oos_abs_mdd>{max_abs_mdd:.3f} ({abs(mdd):.3f})")
+
+    cost_stress_path = RUNS / "cost_stress_validation.json"
+    cost_stress = _load_json(cost_stress_path)
+    cost_stress_summary = None
+    if isinstance(cost_stress, dict) and cost_stress:
+        worst = cost_stress.get("worst_case_robust", {})
+        cost_stress_summary = {
+            "ok": bool(cost_stress.get("ok", False)),
+            "path": str(cost_stress_path),
+            "worst_case_robust": {
+                "sharpe": float((worst or {}).get("sharpe", 0.0)),
+                "hit_rate": float((worst or {}).get("hit_rate", 0.0)),
+                "max_drawdown": float((worst or {}).get("max_drawdown", 0.0)),
+            },
+            "thresholds": cost_stress.get("thresholds", {}),
+            "reasons": list(cost_stress.get("reasons", [])),
+        }
+    if require_cost_stress:
+        if not isinstance(cost_stress, dict) or not cost_stress:
+            reasons.append("cost_stress_missing")
+        elif not bool(cost_stress.get("ok", False)):
+            reasons.append("cost_stress_fail")
 
     ok = len(reasons) == 0
     out = {
@@ -113,6 +141,8 @@ def main() -> int:
             "max_drawdown": float(mdd),
             "n": int(n),
         },
+        "require_cost_stress": bool(require_cost_stress),
+        "cost_stress": cost_stress_summary,
         "reasons": reasons,
     }
     (RUNS / "q_promotion_gate.json").write_text(json.dumps(out, indent=2), encoding="utf-8")
@@ -124,6 +154,14 @@ def main() -> int:
         f"(OOS Sharpe={sharpe:.3f}, Hit={hit:.3f}, MaxDD={mdd:.3f}, N={n}, "
         f"source={metric_source}).</p>"
     )
+    if cost_stress_summary:
+        wc = cost_stress_summary["worst_case_robust"]
+        html += (
+            f"<p>Cost stress: ok={bool(cost_stress_summary.get('ok', False))}, "
+            f"worst robust Sharpe={float(wc.get('sharpe', 0.0)):.3f}, "
+            f"Hit={float(wc.get('hit_rate', 0.0)):.3f}, "
+            f"MaxDD={float(wc.get('max_drawdown', 0.0)):.3f}.</p>"
+        )
     if reasons:
         html += f"<p>Reasons: {', '.join(reasons)}</p>"
     _append_card("Q Promotion Gate ✔", html)

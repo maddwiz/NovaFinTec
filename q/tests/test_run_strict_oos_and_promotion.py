@@ -84,6 +84,62 @@ def test_q_promotion_gate_fail(tmp_path: Path, monkeypatch):
     assert len(out["reasons"]) >= 1
 
 
+def test_q_promotion_gate_cost_stress_required_pass(tmp_path: Path, monkeypatch):
+    runs = tmp_path / "runs_plus"
+    runs.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "metrics_oos_net": {
+            "sharpe": 1.2,
+            "hit_rate": 0.51,
+            "max_drawdown": -0.04,
+            "n": 300,
+        }
+    }
+    stress = {
+        "ok": True,
+        "worst_case_robust": {"sharpe": 1.0, "hit_rate": 0.49, "max_drawdown": -0.05},
+        "thresholds": {"min_robust_sharpe": 0.9},
+        "reasons": [],
+    }
+    (runs / "strict_oos_validation.json").write_text(json.dumps(payload), encoding="utf-8")
+    (runs / "cost_stress_validation.json").write_text(json.dumps(stress), encoding="utf-8")
+    monkeypatch.setattr(pg, "ROOT", tmp_path)
+    monkeypatch.setattr(pg, "RUNS", runs)
+    monkeypatch.setenv("Q_PROMOTION_REQUIRE_COST_STRESS", "1")
+    rc = pg.main()
+    assert rc == 0
+    out = json.loads((runs / "q_promotion_gate.json").read_text(encoding="utf-8"))
+    assert out["ok"] is True
+
+
+def test_q_promotion_gate_cost_stress_required_fail(tmp_path: Path, monkeypatch):
+    runs = tmp_path / "runs_plus"
+    runs.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "metrics_oos_net": {
+            "sharpe": 1.2,
+            "hit_rate": 0.51,
+            "max_drawdown": -0.04,
+            "n": 300,
+        }
+    }
+    stress = {
+        "ok": False,
+        "worst_case_robust": {"sharpe": 0.6, "hit_rate": 0.45, "max_drawdown": -0.20},
+        "reasons": ["cost_stress_robust_sharpe<0.90 (0.600)"],
+    }
+    (runs / "strict_oos_validation.json").write_text(json.dumps(payload), encoding="utf-8")
+    (runs / "cost_stress_validation.json").write_text(json.dumps(stress), encoding="utf-8")
+    monkeypatch.setattr(pg, "ROOT", tmp_path)
+    monkeypatch.setattr(pg, "RUNS", runs)
+    monkeypatch.setenv("Q_PROMOTION_REQUIRE_COST_STRESS", "1")
+    rc = pg.main()
+    assert rc == 0
+    out = json.loads((runs / "q_promotion_gate.json").read_text(encoding="utf-8"))
+    assert out["ok"] is False
+    assert "cost_stress_fail" in out["reasons"]
+
+
 def test_robust_oos_aggregate_shapes():
     ms = [
         {"sharpe": 1.0, "hit_rate": 0.49, "max_drawdown": -0.05, "n": 300},
