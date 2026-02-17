@@ -69,6 +69,7 @@ This now includes:
 - reliability-aware quality governor (nested WF + hive WF + council diagnostics)
 - credit-equity lead/lag overlay (HYG/LQD divergence vs SPY/QQQ)
 - microstructure proxy overlay (Amihud illiquidity + close-location pressure)
+- calendar/event overlay (turn-of-month + weekday drift + optional event file)
 - NovaSpine recall feedback loop (augment -> context boost -> final risk scaling)
 - immune drill governance check (synthetic stress scenarios)
 - final portfolio assembly + system health + alert gate
@@ -141,6 +142,9 @@ export Q_MAX_HEARTBEAT_STRESS=0.85
 - `runs_plus/microstructure_signal.csv`
 - `runs_plus/microstructure_overlay.csv`
 - `runs_plus/microstructure_info.json`
+- `runs_plus/calendar_event_signal.csv`
+- `runs_plus/calendar_event_overlay.csv`
+- `runs_plus/calendar_event_info.json`
 - `runs_plus/hive_transparency.json`
 - `runs_plus/hive_dynamic_quality.csv`
 - `runs_plus/hive_crowding_penalty.csv`

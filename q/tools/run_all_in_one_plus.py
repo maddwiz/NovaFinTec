@@ -169,6 +169,7 @@ def apply_profile_env_defaults():
         "vol_target_smooth_alpha": "Q_VOL_TARGET_SMOOTH_ALPHA",
         "credit_leadlag_strength": "Q_CREDIT_LEADLAG_STRENGTH",
         "microstructure_strength": "Q_MICROSTRUCTURE_STRENGTH",
+        "calendar_event_strength": "Q_CALENDAR_EVENT_STRENGTH",
         "cash_yield_annual": "Q_CASH_YIELD_ANNUAL",
         "cash_exposure_target": "Q_CASH_EXPOSURE_TARGET",
     }
@@ -233,6 +234,7 @@ def apply_performance_defaults():
     sel_macro = selected.get("macro_proxy_strength", None)
     sel_credit = selected.get("credit_leadlag_strength", None)
     sel_micro = selected.get("microstructure_strength", None)
+    sel_calendar = selected.get("calendar_event_strength", None)
     sel_capacity = selected.get("capacity_impact_strength", None)
     sel_macro_blend = selected.get("uncertainty_macro_shock_blend", None)
     if not isinstance(sel_disable, list):
@@ -278,6 +280,11 @@ def apply_performance_defaults():
     if (sel_micro is not None) and ("Q_MICROSTRUCTURE_STRENGTH" not in os.environ):
         try:
             os.environ["Q_MICROSTRUCTURE_STRENGTH"] = str(float(sel_micro))
+        except Exception:
+            pass
+    if (sel_calendar is not None) and ("Q_CALENDAR_EVENT_STRENGTH" not in os.environ):
+        try:
+            os.environ["Q_CALENDAR_EVENT_STRENGTH"] = str(float(sel_calendar))
         except Exception:
             pass
     if (sel_capacity is not None) and ("Q_CAPACITY_IMPACT_STRENGTH" not in os.environ):
@@ -541,6 +548,9 @@ if __name__ == "__main__":
     # Microstructure proxy overlay (illiquidity + close-location pressure).
     ok, rc = run_script("tools/run_microstructure_proxy_signal.py")
     if not ok and rc is not None: failures.append({"step": "tools/run_microstructure_proxy_signal.py", "code": rc})
+    # Calendar/event seasonality overlay (turn-of-month + optional event impulses).
+    ok, rc = run_script("tools/run_calendar_event_overlay.py")
+    if not ok and rc is not None: failures.append({"step": "tools/run_calendar_event_overlay.py", "code": rc})
     # Uncertainty-aware sizing scalar (confidence/disagreement/meta-exec/shock).
     ok, rc = run_script("tools/run_uncertainty_sizing.py")
     if not ok and rc is not None: failures.append({"step": "tools/run_uncertainty_sizing.py", "code": rc})

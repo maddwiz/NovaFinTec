@@ -47,6 +47,7 @@ TRACE_STEPS = [
     "capacity_impact_guard",
     "credit_leadlag_overlay",
     "microstructure_overlay",
+    "calendar_event_overlay",
     "macro_proxy_guard",
     "novaspine_context_boost",
     "novaspine_hive_boost",
@@ -611,6 +612,13 @@ if __name__ == "__main__":
         0.0,
         2.0,
     )
+    calendar_event_strength = _env_or_profile_float(
+        "Q_CALENDAR_EVENT_STRENGTH",
+        "calendar_event_strength",
+        0.12,
+        0.0,
+        2.0,
+    )
     vol_target_strength = _env_or_profile_float(
         "Q_VOL_TARGET_STRENGTH",
         "vol_target_strength",
@@ -933,7 +941,17 @@ if __name__ == "__main__":
         steps.append("microstructure_overlay")
         _trace_put("microstructure_overlay", ms.ravel())
 
-    # 25) Macro proxy guard (forward-looking stress proxies).
+    # 25) Calendar/event overlay.
+    ceo = load_series("runs_plus/calendar_event_overlay.csv")
+    if _gov_enabled("calendar_event_overlay") and ceo is not None:
+        L = min(len(ceo), W.shape[0])
+        ce_raw = np.clip(ceo[:L], 0.70, 1.30)
+        ce = _apply_governor_strength(ce_raw, calendar_event_strength, lo=0.0, hi=2.0).reshape(-1, 1)
+        W[:L] = W[:L] * ce
+        steps.append("calendar_event_overlay")
+        _trace_put("calendar_event_overlay", ce.ravel())
+
+    # 26) Macro proxy guard (forward-looking stress proxies).
     mps = load_series("runs_plus/macro_risk_scalar.csv")
     if _gov_enabled("macro_proxy_guard") and mps is not None:
         L = min(len(mps), W.shape[0])
@@ -943,7 +961,7 @@ if __name__ == "__main__":
         steps.append("macro_proxy_guard")
         _trace_put("macro_proxy_guard", mp.ravel())
 
-    # 26) NovaSpine recall-context boost (if available).
+    # 27) NovaSpine recall-context boost (if available).
     ncb = load_series("runs_plus/novaspine_context_boost.csv")
     if _gov_enabled("novaspine_context_boost") and ncb is not None:
         L = min(len(ncb), W.shape[0])
@@ -952,7 +970,7 @@ if __name__ == "__main__":
         steps.append("novaspine_context_boost")
         _trace_put("novaspine_context_boost", nb.ravel())
 
-    # 27) NovaSpine per-hive alignment boost (global projection).
+    # 28) NovaSpine per-hive alignment boost (global projection).
     nhb = load_series("runs_plus/novaspine_hive_boost.csv")
     if _gov_enabled("novaspine_hive_boost") and nhb is not None:
         L = min(len(nhb), W.shape[0])
@@ -961,7 +979,7 @@ if __name__ == "__main__":
         steps.append("novaspine_hive_boost")
         _trace_put("novaspine_hive_boost", hb.ravel())
 
-    # 28) Shock/news mask exposure cut.
+    # 29) Shock/news mask exposure cut.
     shock_alpha = _env_or_profile_float("Q_SHOCK_ALPHA", "shock_alpha", 0.35, 0.0, 1.0)
     sm = load_series("runs_plus/shock_mask.csv")
     if _gov_enabled("shock_mask_guard") and sm is not None:
@@ -971,7 +989,7 @@ if __name__ == "__main__":
         steps.append("shock_mask_guard")
         _trace_put("shock_mask_guard", sc.ravel())
 
-    # 29) Explicit portfolio volatility targeting (global scalar).
+    # 30) Explicit portfolio volatility targeting (global scalar).
     if _gov_enabled("vol_target") and vol_target_strength > 0.0:
         Aret = load_mat("runs_plus/asset_returns.csv")
         if Aret is not None and Aret.shape[1] == W.shape[1]:
@@ -1007,7 +1025,7 @@ if __name__ == "__main__":
                 )
             )
 
-    # 30) Runtime floor guard: avoid excessive exposure collapse from stacked governors.
+    # 31) Runtime floor guard: avoid excessive exposure collapse from stacked governors.
     runtime_floor = _runtime_total_floor_default()
     if _gov_enabled("runtime_floor") and runtime_floor > 0.0:
         active_keys = [k for k in TRACE_STEPS if (k in trace and k != "runtime_floor")]
@@ -1022,7 +1040,7 @@ if __name__ == "__main__":
                 steps.append("runtime_floor")
             _trace_put("runtime_floor", adj)
 
-    # 31) Concentration governor (top1/top3 + HHI caps).
+    # 32) Concentration governor (top1/top3 + HHI caps).
     use_conc = _env_or_profile_bool("Q_USE_CONCENTRATION_GOV", "use_concentration_governor", True)
     conc_top1 = _env_or_profile_float("Q_CONCENTRATION_TOP1_CAP", "concentration_top1_cap", 0.18, 0.01, 1.0)
     conc_top3 = _env_or_profile_float("Q_CONCENTRATION_TOP3_CAP", "concentration_top3_cap", 0.42, 0.01, 1.0)
@@ -1046,7 +1064,7 @@ if __name__ == "__main__":
             )
         )
 
-    # 32) Signal deadzone filter to drop micro-positions/noise.
+    # 33) Signal deadzone filter to drop micro-positions/noise.
     deadzone_info = {
         "enabled": False,
         "base_deadzone": float(signal_deadzone),
@@ -1081,11 +1099,11 @@ if __name__ == "__main__":
         comments="",
     )
 
-    # 33) Save final
+    # 34) Save final
     outp = RUNS/"portfolio_weights_final.csv"
     np.savetxt(outp, W, delimiter=",")
 
-    # 34) Small JSON breadcrumb
+    # 35) Small JSON breadcrumb
     (RUNS/"final_portfolio_info.json").write_text(
         json.dumps(
             {
@@ -1119,6 +1137,7 @@ if __name__ == "__main__":
                     "capacity_impact_strength": capacity_impact_strength,
                     "credit_leadlag_strength": credit_leadlag_strength,
                     "microstructure_strength": microstructure_strength,
+                    "calendar_event_strength": calendar_event_strength,
                     "macro_proxy_strength": macro_proxy_strength,
                     "vol_target_strength": vol_target_strength,
                     "vol_target_annual": vol_target_annual,
@@ -1162,7 +1181,7 @@ if __name__ == "__main__":
         )
     )
 
-    # 35) Report card
+    # 36) Report card
     html = f"<p>Built <b>portfolio_weights_final.csv</b> (T={T}, N={N}). Steps: {', '.join(steps)}.</p>"
     append_card("Final Portfolio ✔", html)
 
