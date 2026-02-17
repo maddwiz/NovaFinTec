@@ -46,6 +46,7 @@ def pick_returns_series(runs_dir: Path, source_pref: str = "auto"):
         return arr, "daily_returns"
 
     loaded = []
+    tie_pref = {"wf_oos_returns": 0, "daily_returns": 1}
     for label in ["wf_oos_returns", "daily_returns"]:
         arr, path = _load(label)
         if arr is not None and path is not None:
@@ -53,11 +54,11 @@ def pick_returns_series(runs_dir: Path, source_pref: str = "auto"):
                 mtime = float(path.stat().st_mtime)
             except Exception:
                 mtime = -1.0
-            loaded.append((mtime, label, arr))
+            loaded.append((mtime, int(tie_pref.get(label, 0)), label, arr))
     if not loaded:
         return None, None
-    loaded.sort(key=lambda x: x[0], reverse=True)
-    _, label, arr = loaded[0]
+    loaded.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    _, _, label, arr = loaded[0]
     return arr, label
 
 def maybe_load_matrix(path: Path):
