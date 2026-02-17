@@ -5,12 +5,25 @@
 # Also writes duplicates under runs_plus/ for convenience.
 
 import csv
+import json
+import os
 from pathlib import Path
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "data"
 RUNS = ROOT / "runs_plus"; RUNS.mkdir(exist_ok=True)
+
+
+def sanitize_returns(r: np.ndarray, clip_abs: float) -> tuple[np.ndarray, int]:
+    arr = np.asarray(r, float).ravel()
+    arr = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
+    # Do not allow <= -100% and clip extreme positive spikes (bad ticks/splits).
+    lo = -0.95
+    hi = float(max(0.01, clip_abs))
+    clipped = np.clip(arr, lo, hi)
+    n_clipped = int(np.sum(np.abs(clipped - arr) > 1e-12))
+    return clipped, n_clipped
 
 def read_close_series(fp):
     dates, close = [], []
@@ -48,11 +61,17 @@ if __name__ == "__main__":
 
     # Load all assets, align to shortest length
     series = []
+    names = []
+    clip_abs = float(np.clip(float(os.getenv("Q_ASSET_RET_CLIP", "0.35")), 0.01, 5.0))
+    clip_events = 0
     for fp in files:
         try:
             d,c = read_close_series(fp)
             r = np.diff(c) / (c[:-1] + 1e-12)
+            r, n_clip = sanitize_returns(r, clip_abs)
+            clip_events += int(n_clip)
             series.append(r)
+            names.append(fp.stem)
         except Exception as e:
             print(f"skip {fp.name}: {e}")
     if not series:
@@ -61,6 +80,22 @@ if __name__ == "__main__":
     T = min(len(s) for s in series)
     series = [s[-T:] for s in series]  # align tails
     R = np.stack(series, axis=1)       # [T, N]
+    np.savetxt(RUNS/"asset_returns.csv", R, delimiter=",")
+    (RUNS/"asset_names.csv").write_text("\n".join(names), encoding="utf-8")
+    (RUNS/"asset_returns_info.json").write_text(
+        json.dumps(
+            {
+                "rows": int(R.shape[0]),
+                "assets": int(R.shape[1]),
+                "asset_return_clip_abs": float(clip_abs),
+                "clip_events": int(clip_events),
+                "asset_return_min": float(np.min(R)),
+                "asset_return_max": float(np.max(R)),
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
     # Equal-weight portfolio daily returns:
     N = R.shape[1]
     port = np.mean(R, axis=1)          # simple average

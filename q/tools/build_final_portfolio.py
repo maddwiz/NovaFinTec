@@ -22,6 +22,7 @@ from qmods.concentration_governor import govern_matrix
 from qmods.guardrails_bundle import apply_turnover_budget_governor
 
 TRACE_STEPS = [
+    "rank_sleeve_blend",
     "turnover_governor",
     "meta_execution_gate",
     "council_gate",
@@ -38,6 +39,8 @@ TRACE_STEPS = [
     "global_governor",
     "quality_governor",
     "regime_fracture_governor",
+    "regime_moe_governor",
+    "uncertainty_sizing",
     "novaspine_context_boost",
     "novaspine_hive_boost",
     "shock_mask_guard",
@@ -315,6 +318,13 @@ if __name__ == "__main__":
         0.0,
         2.0,
     )
+    rank_sleeve_blend = _env_or_profile_float(
+        "Q_RANK_SLEEVE_BLEND",
+        "rank_sleeve_blend",
+        0.0,
+        0.0,
+        0.60,
+    )
     meta_execution_gate_strength = _env_or_profile_float(
         "Q_META_EXECUTION_GATE_STRENGTH",
         "meta_execution_gate_strength",
@@ -343,6 +353,13 @@ if __name__ == "__main__":
         0.0,
         2.0,
     )
+    heartbeat_scaler_strength = _env_or_profile_float(
+        "Q_HEARTBEAT_SCALER_STRENGTH",
+        "heartbeat_scaler_strength",
+        1.0,
+        0.0,
+        2.0,
+    )
     quality_governor_strength = _env_or_profile_float(
         "Q_QUALITY_GOVERNOR_STRENGTH",
         "quality_governor_strength",
@@ -350,22 +367,44 @@ if __name__ == "__main__":
         0.0,
         2.0,
     )
+    regime_moe_strength = _env_or_profile_float(
+        "Q_REGIME_MOE_STRENGTH",
+        "regime_moe_strength",
+        1.0,
+        0.0,
+        2.0,
+    )
+    uncertainty_sizing_strength = _env_or_profile_float(
+        "Q_UNCERTAINTY_SIZING_STRENGTH",
+        "uncertainty_sizing_strength",
+        1.0,
+        0.0,
+        2.0,
+    )
 
-    # 2) Cluster caps
+    # 2) Cross-sectional rank sleeve blend.
+    Wr = load_mat("runs_plus/weights_rank_sleeve.csv")
+    if _gov_enabled("rank_sleeve_blend") and Wr is not None and Wr.shape[:2] == W.shape and rank_sleeve_blend > 0.0:
+        b = float(np.clip(rank_sleeve_blend, 0.0, 0.60))
+        W = (1.0 - b) * W + b * Wr
+        steps.append("rank_sleeve_blend")
+        _trace_put("rank_sleeve_blend", np.ones(T, float))
+
+    # 3) Cluster caps
     Wc = load_mat("runs_plus/weights_cluster_capped.csv")
     if Wc is not None and Wc.shape[:2] == W.shape:
         W = Wc; steps.append("cluster_caps")
-    # 3) Adaptive caps (per-time cap applied to weights)
+    # 4) Adaptive caps (per-time cap applied to weights)
     Wcap = load_mat("runs_plus/weights_capped.csv")
     if Wcap is not None and Wcap.shape[:2] == W.shape:
         W = Wcap; steps.append("adaptive_caps")
 
-    # 4) Drawdown scaler (guardrails) -> weights_dd_scaled.csv is a full weight matrix
+    # 5) Drawdown scaler (guardrails) -> weights_dd_scaled.csv is a full weight matrix
     Wdd = load_mat("runs_plus/weights_dd_scaled.csv")
     if Wdd is not None and Wdd.shape[:2] == W.shape:
         W = Wdd; steps.append("drawdown_floor")
 
-    # 5) Turnover governor (guardrails)
+    # 6) Turnover governor (guardrails)
     if _gov_enabled("turnover_governor"):
         Wtg, wtg_source = first_mat([
             "runs_plus/weights_turnover_budget_governed.csv",
@@ -430,7 +469,8 @@ if __name__ == "__main__":
     hb = load_series("runs_plus/heartbeat_exposure_scaler.csv")
     if _gov_enabled("heartbeat_scaler") and hb is not None:
         L = min(len(hb), W.shape[0])
-        hs = np.clip(hb[:L], 0.40, 1.20).reshape(-1, 1)
+        hs_raw = np.clip(hb[:L], 0.40, 1.20)
+        hs = _apply_governor_strength(hs_raw, heartbeat_scaler_strength, lo=0.0, hi=2.0).reshape(-1, 1)
         W[:L] = W[:L] * hs
         steps.append("heartbeat_scaler")
         _trace_put("heartbeat_scaler", hs.ravel())
@@ -537,7 +577,27 @@ if __name__ == "__main__":
         steps.append("regime_fracture_governor")
         _trace_put("regime_fracture_governor", rf.ravel())
 
-    # 20) NovaSpine recall-context boost (if available).
+    # 20) Regime MoE governor (specialist blend scalar).
+    rmg = load_series("runs_plus/regime_moe_governor.csv")
+    if _gov_enabled("regime_moe_governor") and rmg is not None:
+        L = min(len(rmg), W.shape[0])
+        rm_raw = np.clip(rmg[:L], 0.50, 1.50)
+        rm = _apply_governor_strength(rm_raw, regime_moe_strength, lo=0.0, hi=2.0).reshape(-1, 1)
+        W[:L] = W[:L] * rm
+        steps.append("regime_moe_governor")
+        _trace_put("regime_moe_governor", rm.ravel())
+
+    # 21) Uncertainty-aware sizing scalar.
+    us = load_series("runs_plus/uncertainty_size_scalar.csv")
+    if _gov_enabled("uncertainty_sizing") and us is not None:
+        L = min(len(us), W.shape[0])
+        ur_raw = np.clip(us[:L], 0.30, 1.30)
+        ur = _apply_governor_strength(ur_raw, uncertainty_sizing_strength, lo=0.0, hi=2.0).reshape(-1, 1)
+        W[:L] = W[:L] * ur
+        steps.append("uncertainty_sizing")
+        _trace_put("uncertainty_sizing", ur.ravel())
+
+    # 22) NovaSpine recall-context boost (if available).
     ncb = load_series("runs_plus/novaspine_context_boost.csv")
     if _gov_enabled("novaspine_context_boost") and ncb is not None:
         L = min(len(ncb), W.shape[0])
@@ -546,7 +606,7 @@ if __name__ == "__main__":
         steps.append("novaspine_context_boost")
         _trace_put("novaspine_context_boost", nb.ravel())
 
-    # 21) NovaSpine per-hive alignment boost (global projection).
+    # 23) NovaSpine per-hive alignment boost (global projection).
     nhb = load_series("runs_plus/novaspine_hive_boost.csv")
     if _gov_enabled("novaspine_hive_boost") and nhb is not None:
         L = min(len(nhb), W.shape[0])
@@ -555,7 +615,7 @@ if __name__ == "__main__":
         steps.append("novaspine_hive_boost")
         _trace_put("novaspine_hive_boost", hb.ravel())
 
-    # 22) Shock/news mask exposure cut.
+    # 24) Shock/news mask exposure cut.
     shock_alpha = _env_or_profile_float("Q_SHOCK_ALPHA", "shock_alpha", 0.35, 0.0, 1.0)
     sm = load_series("runs_plus/shock_mask.csv")
     if _gov_enabled("shock_mask_guard") and sm is not None:
@@ -565,7 +625,7 @@ if __name__ == "__main__":
         steps.append("shock_mask_guard")
         _trace_put("shock_mask_guard", sc.ravel())
 
-    # 23) Runtime floor guard: avoid excessive exposure collapse from stacked governors.
+    # 25) Runtime floor guard: avoid excessive exposure collapse from stacked governors.
     runtime_floor = _runtime_total_floor_default()
     if _gov_enabled("runtime_floor") and runtime_floor > 0.0:
         active_keys = [k for k in TRACE_STEPS if (k in trace and k != "runtime_floor")]
@@ -580,7 +640,7 @@ if __name__ == "__main__":
                 steps.append("runtime_floor")
             _trace_put("runtime_floor", adj)
 
-    # 24) Concentration governor (top1/top3 + HHI caps).
+    # 26) Concentration governor (top1/top3 + HHI caps).
     use_conc = _env_or_profile_bool("Q_USE_CONCENTRATION_GOV", "use_concentration_governor", True)
     conc_top1 = _env_or_profile_float("Q_CONCENTRATION_TOP1_CAP", "concentration_top1_cap", 0.18, 0.01, 1.0)
     conc_top3 = _env_or_profile_float("Q_CONCENTRATION_TOP3_CAP", "concentration_top3_cap", 0.42, 0.01, 1.0)
@@ -620,11 +680,11 @@ if __name__ == "__main__":
         comments="",
     )
 
-    # 24) Save final
+    # 27) Save final
     outp = RUNS/"portfolio_weights_final.csv"
     np.savetxt(outp, W, delimiter=",")
 
-    # 25) Small JSON breadcrumb
+    # 28) Small JSON breadcrumb
     (RUNS/"final_portfolio_info.json").write_text(
         json.dumps(
             {
@@ -637,12 +697,16 @@ if __name__ == "__main__":
                 "governor_params_applied": {
                     "runtime_total_floor": _runtime_total_floor_default(),
                     "shock_alpha": shock_alpha,
+                    "rank_sleeve_blend": rank_sleeve_blend,
                     "meta_execution_gate_strength": meta_execution_gate_strength,
                     "council_gate_strength": council_gate_strength,
                     "meta_mix_leverage_strength": meta_mix_leverage_strength,
                     "meta_reliability_strength": meta_reliability_strength,
                     "global_governor_strength": global_governor_strength,
+                    "heartbeat_scaler_strength": heartbeat_scaler_strength,
                     "quality_governor_strength": quality_governor_strength,
+                    "regime_moe_strength": regime_moe_strength,
+                    "uncertainty_sizing_strength": uncertainty_sizing_strength,
                     "use_concentration_governor": bool(use_conc),
                     "concentration_top1_cap": conc_top1,
                     "concentration_top3_cap": conc_top3,
@@ -678,7 +742,7 @@ if __name__ == "__main__":
         )
     )
 
-    # 26) Report card
+    # 29) Report card
     html = f"<p>Built <b>portfolio_weights_final.csv</b> (T={T}, N={N}). Steps: {', '.join(steps)}.</p>"
     append_card("Final Portfolio ✔", html)
 

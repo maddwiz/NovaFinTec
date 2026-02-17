@@ -24,12 +24,16 @@ def test_profile_from_row_casts_types():
     row = {
         "runtime_total_floor": 0.1,
         "shock_alpha": 0.35,
+        "rank_sleeve_blend": 0.06,
         "meta_execution_gate_strength": 0.95,
         "council_gate_strength": 0.9,
         "meta_mix_leverage_strength": 1.15,
         "meta_reliability_strength": 1.1,
         "global_governor_strength": 0.95,
+        "heartbeat_scaler_strength": 0.4,
         "quality_governor_strength": 1.05,
+        "regime_moe_strength": 1.2,
+        "uncertainty_sizing_strength": 0.85,
         "use_concentration_governor": 1,
         "concentration_top1_cap": 0.18,
         "concentration_top3_cap": 0.42,
@@ -38,11 +42,15 @@ def test_profile_from_row_casts_types():
     out = rps._profile_from_row(row)
     assert out["runtime_total_floor"] == 0.1
     assert out["shock_alpha"] == 0.35
+    assert out["rank_sleeve_blend"] == 0.06
     assert out["meta_execution_gate_strength"] == 0.95
     assert out["council_gate_strength"] == 0.9
     assert out["meta_mix_leverage_strength"] == 1.15
     assert out["meta_reliability_strength"] == 1.1
     assert out["global_governor_strength"] == 0.95
+    assert out["heartbeat_scaler_strength"] == 0.4
     assert out["quality_governor_strength"] == 1.05
+    assert out["regime_moe_strength"] == 1.2
+    assert out["uncertainty_sizing_strength"] == 0.85
     assert out["use_concentration_governor"] is True
     assert out["concentration_top1_cap"] == 0.18

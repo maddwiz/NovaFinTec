@@ -8,12 +8,23 @@
 # Robust to headers: looks for DATE and (Adj Close|Close|close)
 
 import csv, datetime as dt
+import json
+import os
 import numpy as np
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNS = ROOT/"runs_plus"; RUNS.mkdir(exist_ok=True)
 DATA_DIRS = [ROOT/"data", ROOT/"data_new"]
+RET_CLIP_ABS = float(np.clip(float(os.getenv("Q_ASSET_RET_CLIP", "0.35")), 0.01, 5.0))
+
+
+def _sanitize_returns(r: np.ndarray) -> tuple[np.ndarray, int]:
+    arr = np.asarray(r, float).ravel()
+    arr = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
+    clipped = np.clip(arr, -0.95, RET_CLIP_ABS)
+    n_clip = int(np.sum(np.abs(clipped - arr) > 1e-12))
+    return clipped, n_clip
 
 def read_one(fp: Path):
     # returns (dates list[str], close list[float]) or (None, None) if bad
@@ -63,6 +74,7 @@ def read_one(fp: Path):
             prices = np.array([p for *_,p in pairs], float)
             # returns (T-1,)
             rets = np.diff(prices) / (prices[:-1] + 1e-12)
+            rets, _n_clip = _sanitize_returns(rets)
             dates = dates[1:]  # align to returns
             return dates, rets
     except Exception:
@@ -72,15 +84,18 @@ if __name__ == "__main__":
     series = []
     names = []
     date_sets = []
+    clip_events = 0
 
     for d in DATA_DIRS:
         if not d.exists(): continue
         for fp in sorted(d.glob("*.csv")):
             dates, r = read_one(fp)
             if dates is None or r is None: continue
-            series.append((dates, r))
+            rr, n_clip = _sanitize_returns(r)
+            series.append((dates, rr))
             names.append(fp.stem)
             date_sets.append(set(dates))
+            clip_events += int(n_clip)
 
     if not series:
         print("(!) No usable CSVs found in data/ or data_new/."); raise SystemExit(0)
@@ -116,4 +131,18 @@ if __name__ == "__main__":
     np.savetxt(RUNS/"asset_returns.csv", M, delimiter=",")
     (RUNS/"asset_names.csv").write_text("\n".join(names), encoding="utf-8")
     (RUNS/"dates.csv").write_text("\n".join(dates_out), encoding="utf-8")
+    (RUNS/"asset_returns_info.json").write_text(
+        json.dumps(
+            {
+                "rows": int(M.shape[0]),
+                "assets": int(M.shape[1]),
+                "asset_return_clip_abs": float(RET_CLIP_ABS),
+                "clip_events": int(clip_events),
+                "asset_return_min": float(np.min(M)),
+                "asset_return_max": float(np.max(M)),
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
     print(f"✅ Wrote runs_plus/asset_returns.csv [{M.shape[0]} x {M.shape[1]}], asset_names.csv, dates.csv")

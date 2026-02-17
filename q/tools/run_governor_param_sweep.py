@@ -113,12 +113,16 @@ def _profile_from_row(row: dict) -> dict:
     return {
         "runtime_total_floor": float(row["runtime_total_floor"]),
         "shock_alpha": float(row["shock_alpha"]),
+        "rank_sleeve_blend": float(row.get("rank_sleeve_blend", 0.0)),
         "meta_execution_gate_strength": float(row.get("meta_execution_gate_strength", 1.0)),
         "council_gate_strength": float(row.get("council_gate_strength", 1.0)),
         "meta_mix_leverage_strength": float(row.get("meta_mix_leverage_strength", 1.0)),
         "meta_reliability_strength": float(row.get("meta_reliability_strength", 1.0)),
         "global_governor_strength": float(row.get("global_governor_strength", 1.0)),
+        "heartbeat_scaler_strength": float(row.get("heartbeat_scaler_strength", 1.0)),
         "quality_governor_strength": float(row.get("quality_governor_strength", 1.0)),
+        "regime_moe_strength": float(row.get("regime_moe_strength", 1.0)),
+        "uncertainty_sizing_strength": float(row.get("uncertainty_sizing_strength", 1.0)),
         "use_concentration_governor": bool(int(row["use_concentration_governor"])),
         "concentration_top1_cap": float(row["concentration_top1_cap"]),
         "concentration_top3_cap": float(row["concentration_top3_cap"]),
@@ -138,12 +142,16 @@ def _csv_write(rows: list[dict], outp: Path) -> None:
         "stage",
         "runtime_total_floor",
         "shock_alpha",
+        "rank_sleeve_blend",
         "meta_execution_gate_strength",
         "council_gate_strength",
         "meta_mix_leverage_strength",
         "meta_reliability_strength",
         "global_governor_strength",
+        "heartbeat_scaler_strength",
         "quality_governor_strength",
+        "regime_moe_strength",
+        "uncertainty_sizing_strength",
         "use_concentration_governor",
         "concentration_top1_cap",
         "concentration_top3_cap",
@@ -171,12 +179,16 @@ def _env_from_params(params: dict) -> dict[str, str]:
     return {
         "Q_RUNTIME_TOTAL_FLOOR": str(params["runtime_total_floor"]),
         "Q_SHOCK_ALPHA": str(params["shock_alpha"]),
+        "Q_RANK_SLEEVE_BLEND": str(params.get("rank_sleeve_blend", 0.0)),
         "Q_META_EXECUTION_GATE_STRENGTH": str(params.get("meta_execution_gate_strength", 1.0)),
         "Q_COUNCIL_GATE_STRENGTH": str(params.get("council_gate_strength", 1.0)),
         "Q_META_MIX_LEVERAGE_STRENGTH": str(params.get("meta_mix_leverage_strength", 1.0)),
         "Q_META_RELIABILITY_STRENGTH": str(params.get("meta_reliability_strength", 1.0)),
         "Q_GLOBAL_GOVERNOR_STRENGTH": str(params.get("global_governor_strength", 1.0)),
+        "Q_HEARTBEAT_SCALER_STRENGTH": str(params.get("heartbeat_scaler_strength", 1.0)),
         "Q_QUALITY_GOVERNOR_STRENGTH": str(params.get("quality_governor_strength", 1.0)),
+        "Q_REGIME_MOE_STRENGTH": str(params.get("regime_moe_strength", 1.0)),
+        "Q_UNCERTAINTY_SIZING_STRENGTH": str(params.get("uncertainty_sizing_strength", 1.0)),
         "Q_USE_CONCENTRATION_GOV": str(params["use_concentration_governor"]),
         "Q_CONCENTRATION_TOP1_CAP": str(params["concentration_top1_cap"]),
         "Q_CONCENTRATION_TOP3_CAP": str(params["concentration_top3_cap"]),
@@ -211,7 +223,11 @@ def main() -> int:
     meta_mix_leverage_strengths = [0.90, 1.00]
     meta_reliability_strengths = [0.90, 1.00]
     global_governor_strengths = [1.00, 1.15]
+    heartbeat_scaler_strengths = [0.0, 0.5, 1.0]
     quality_governor_strengths = [1.00, 1.20]
+    rank_sleeve_blends = [0.00, 0.05, 0.10]
+    regime_moe_strengths = [0.0, 0.5, 1.0, 1.25]
+    uncertainty_sizing_strengths = [0.5, 0.75, 1.00, 1.25]
 
     rows: list[dict] = []
     try:
@@ -227,12 +243,16 @@ def main() -> int:
                 "stage": "core",
                 "runtime_total_floor": float(floor),
                 "shock_alpha": float(shock),
+                "rank_sleeve_blend": 0.0,
                 "meta_execution_gate_strength": 1.0,
                 "council_gate_strength": 1.0,
                 "meta_mix_leverage_strength": 1.0,
                 "meta_reliability_strength": 1.0,
                 "global_governor_strength": 1.0,
+                "heartbeat_scaler_strength": 1.0,
                 "quality_governor_strength": 1.0,
+                "regime_moe_strength": 1.0,
+                "uncertainty_sizing_strength": 1.0,
                 "use_concentration_governor": int(conc["use_concentration_governor"]),
                 "concentration_top1_cap": float(conc["concentration_top1_cap"]),
                 "concentration_top3_cap": float(conc["concentration_top3_cap"]),
@@ -247,47 +267,69 @@ def main() -> int:
             print("(!) No sweep candidates evaluated.")
             return 1
 
-        # Stage 2: local governor-strength search around the best core config.
-        core_params = dict(best_row)
-        for meg, cg, ml, mr, gg, qg in itertools.product(
-            meta_execution_gate_strengths,
-            council_gate_strengths,
-            meta_mix_leverage_strengths,
-            meta_reliability_strengths,
-            global_governor_strengths,
-            quality_governor_strengths,
-        ):
-            params = {
-                "stage": "strengths",
-                "runtime_total_floor": float(core_params["runtime_total_floor"]),
-                "shock_alpha": float(core_params["shock_alpha"]),
-                "meta_execution_gate_strength": float(meg),
-                "council_gate_strength": float(cg),
-                "meta_mix_leverage_strength": float(ml),
-                "meta_reliability_strength": float(mr),
-                "global_governor_strength": float(gg),
-                "quality_governor_strength": float(qg),
-                "use_concentration_governor": int(core_params["use_concentration_governor"]),
-                "concentration_top1_cap": float(core_params["concentration_top1_cap"]),
-                "concentration_top3_cap": float(core_params["concentration_top3_cap"]),
-                "concentration_max_hhi": float(core_params["concentration_max_hhi"]),
-            }
-            score, _detail, row = _evaluate_candidate(params, base, rows)
-            if score > best_score:
-                best_score = score
-                best_row = row
+        # Stage 2: coordinate strength search (faster than full cartesian product).
+        if best_row is not None:
+            cur = dict(best_row)
+            line_grids = [
+                ("meta_execution_gate_strength", meta_execution_gate_strengths),
+                ("council_gate_strength", council_gate_strengths),
+                ("meta_mix_leverage_strength", meta_mix_leverage_strengths),
+                ("meta_reliability_strength", meta_reliability_strengths),
+                ("global_governor_strength", global_governor_strengths),
+                ("heartbeat_scaler_strength", heartbeat_scaler_strengths),
+                ("quality_governor_strength", quality_governor_strengths),
+                ("rank_sleeve_blend", rank_sleeve_blends),
+                ("regime_moe_strength", regime_moe_strengths),
+                ("uncertainty_sizing_strength", uncertainty_sizing_strengths),
+            ]
+            for _pass in range(2):
+                improved = False
+                for key, values in line_grids:
+                    for val in values:
+                        params = {
+                            "stage": "strengths",
+                            "runtime_total_floor": float(cur["runtime_total_floor"]),
+                            "shock_alpha": float(cur["shock_alpha"]),
+                            "rank_sleeve_blend": float(cur.get("rank_sleeve_blend", 0.0)),
+                            "meta_execution_gate_strength": float(cur["meta_execution_gate_strength"]),
+                            "council_gate_strength": float(cur["council_gate_strength"]),
+                            "meta_mix_leverage_strength": float(cur["meta_mix_leverage_strength"]),
+                            "meta_reliability_strength": float(cur["meta_reliability_strength"]),
+                            "global_governor_strength": float(cur["global_governor_strength"]),
+                            "heartbeat_scaler_strength": float(cur.get("heartbeat_scaler_strength", 1.0)),
+                            "quality_governor_strength": float(cur["quality_governor_strength"]),
+                            "regime_moe_strength": float(cur.get("regime_moe_strength", 1.0)),
+                            "uncertainty_sizing_strength": float(cur.get("uncertainty_sizing_strength", 1.0)),
+                            "use_concentration_governor": int(cur["use_concentration_governor"]),
+                            "concentration_top1_cap": float(cur["concentration_top1_cap"]),
+                            "concentration_top3_cap": float(cur["concentration_top3_cap"]),
+                            "concentration_max_hhi": float(cur["concentration_max_hhi"]),
+                        }
+                        params[key] = float(val)
+                        score, _detail, row = _evaluate_candidate(params, base, rows)
+                        if score > best_score:
+                            best_score = score
+                            best_row = row
+                            cur = dict(row)
+                            improved = True
+                if not improved:
+                    break
 
         # Stage 3: coordinate local refinement around stage-2 best.
         if best_row is not None:
             cur = dict(best_row)
             specs = [
                 ("shock_alpha", 0.05, 0.0, 1.0),
+                ("rank_sleeve_blend", 0.02, 0.0, 0.60),
                 ("meta_execution_gate_strength", 0.05, 0.0, 1.4),
                 ("council_gate_strength", 0.05, 0.6, 1.4),
                 ("meta_mix_leverage_strength", 0.05, 0.7, 1.3),
                 ("meta_reliability_strength", 0.05, 0.7, 1.3),
                 ("global_governor_strength", 0.05, 0.8, 1.4),
+                ("heartbeat_scaler_strength", 0.05, 0.0, 1.4),
                 ("quality_governor_strength", 0.05, 0.8, 1.4),
+                ("regime_moe_strength", 0.05, 0.0, 2.0),
+                ("uncertainty_sizing_strength", 0.05, 0.0, 2.0),
             ]
             for _pass in range(2):
                 improved = False
@@ -307,12 +349,16 @@ def main() -> int:
                             "stage": "refine",
                             "runtime_total_floor": float(cur["runtime_total_floor"]),
                             "shock_alpha": float(cur["shock_alpha"]),
+                            "rank_sleeve_blend": float(cur.get("rank_sleeve_blend", 0.0)),
                             "meta_execution_gate_strength": float(cur["meta_execution_gate_strength"]),
                             "council_gate_strength": float(cur["council_gate_strength"]),
                             "meta_mix_leverage_strength": float(cur["meta_mix_leverage_strength"]),
                             "meta_reliability_strength": float(cur["meta_reliability_strength"]),
                             "global_governor_strength": float(cur["global_governor_strength"]),
+                            "heartbeat_scaler_strength": float(cur.get("heartbeat_scaler_strength", 1.0)),
                             "quality_governor_strength": float(cur["quality_governor_strength"]),
+                            "regime_moe_strength": float(cur.get("regime_moe_strength", 1.0)),
+                            "uncertainty_sizing_strength": float(cur.get("uncertainty_sizing_strength", 1.0)),
                             "use_concentration_governor": int(cur["use_concentration_governor"]),
                             "concentration_top1_cap": float(cur["concentration_top1_cap"]),
                             "concentration_top3_cap": float(cur["concentration_top3_cap"]),
@@ -340,12 +386,16 @@ def main() -> int:
                 "runtime_total_floor": floors,
                 "shock_alpha": shocks,
                 "concentration_presets": conc_presets,
+                "rank_sleeve_blend": rank_sleeve_blends,
                 "meta_execution_gate_strength": meta_execution_gate_strengths,
                 "council_gate_strength": council_gate_strengths,
                 "meta_mix_leverage_strength": meta_mix_leverage_strengths,
                 "meta_reliability_strength": meta_reliability_strengths,
                 "global_governor_strength": global_governor_strengths,
+                "heartbeat_scaler_strength": heartbeat_scaler_strengths,
                 "quality_governor_strength": quality_governor_strengths,
+                "regime_moe_strength": regime_moe_strengths,
+                "uncertainty_sizing_strength": uncertainty_sizing_strengths,
                 "num_candidates": len(rows),
             },
         }

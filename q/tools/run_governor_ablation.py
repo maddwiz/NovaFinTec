@@ -29,6 +29,7 @@ RUNS.mkdir(exist_ok=True)
 PYTHON = str(Path(sys.executable))
 
 TRACE_GOVS = [
+    "rank_sleeve_blend",
     "turnover_governor",
     "meta_execution_gate",
     "council_gate",
@@ -45,6 +46,8 @@ TRACE_GOVS = [
     "global_governor",
     "quality_governor",
     "regime_fracture_governor",
+    "regime_moe_governor",
+    "uncertainty_sizing",
     "novaspine_context_boost",
     "novaspine_hive_boost",
     "shock_mask_guard",

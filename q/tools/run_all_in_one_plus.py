@@ -168,6 +168,9 @@ if __name__ == "__main__":
     # (C) Build council votes (real if present, else sleeves or synthetic)
     ok, rc = run_script("tools/make_council_votes.py")
     if not ok and rc is not None: failures.append({"step": "tools/make_council_votes.py", "code": rc})
+    # Cross-sectional rank sleeve (neutral long/short specialist weights).
+    ok, rc = run_script("tools/run_cross_section_rank_sleeve.py")
+    if not ok and rc is not None: failures.append({"step": "tools/run_cross_section_rank_sleeve.py", "code": rc})
     # (D) Build symbolic/heartbeat/reflexive layers
     ok, rc = run_script("tools/make_symbolic.py")
     if not ok and rc is not None: failures.append({"step": "tools/make_symbolic.py", "code": rc})
@@ -254,6 +257,12 @@ if __name__ == "__main__":
     # Meta-label execution gate for selective exposure scaling.
     ok, rc = run_script("tools/run_meta_execution_gate.py")
     if not ok and rc is not None: failures.append({"step": "tools/run_meta_execution_gate.py", "code": rc})
+    # Regime mixture-of-experts governor (trend / mean-reversion / shock specialists).
+    ok, rc = run_script("tools/run_regime_moe.py")
+    if not ok and rc is not None: failures.append({"step": "tools/run_regime_moe.py", "code": rc})
+    # Uncertainty-aware sizing scalar (confidence/disagreement/meta-exec/shock).
+    ok, rc = run_script("tools/run_uncertainty_sizing.py")
+    if not ok and rc is not None: failures.append({"step": "tools/run_uncertainty_sizing.py", "code": rc})
     # Assemble final portfolio weights from available layers
     ok, rc = run_script("tools/build_final_portfolio.py")
     if not ok and rc is not None: failures.append({"step": "tools/build_final_portfolio.py", "code": rc})
