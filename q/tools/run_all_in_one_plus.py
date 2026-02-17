@@ -267,6 +267,13 @@ def should_run_legacy_tune() -> bool:
         return True
     return not (RUNS / "legacy_exposure.csv").exists()
 
+
+def should_run_runtime_combo_search() -> bool:
+    if str(os.getenv("Q_ENABLE_RUNTIME_COMBO_SEARCH", "0")).strip().lower() in {"1", "true", "yes", "on"}:
+        return True
+    # Bootstrap safety: if profile artifacts are missing, allow one search pass.
+    return not (RUNS / "runtime_profile_active.json").exists()
+
 if __name__ == "__main__":
     strict = str(os.getenv("Q_STRICT", "0")).strip().lower() in {"1", "true", "yes", "on"}
     if not ensure_env():
@@ -423,6 +430,12 @@ if __name__ == "__main__":
     if str(os.getenv("Q_ENABLE_HIT_RECOVERY_TUNE", "0")).strip().lower() in {"1", "true", "yes", "on"}:
         ok, rc = run_script("tools/run_hit_rate_recovery_tune.py")
         if not ok and rc is not None: failures.append({"step": "tools/run_hit_rate_recovery_tune.py", "code": rc})
+    # Optional heavy search for runtime profile evolution; canary logic handles safety.
+    if should_run_runtime_combo_search():
+        ok, rc = run_script("tools/run_runtime_combo_search.py")
+        if not ok and rc is not None: failures.append({"step": "tools/run_runtime_combo_search.py", "code": rc})
+    else:
+        print("… skip (stable mode): tools/run_runtime_combo_search.py [set Q_ENABLE_RUNTIME_COMBO_SEARCH=1 to run]")
     # Apply execution constraints for live realism
     ok, rc = run_script("tools/run_execution_constraints.py", ["--replace-final"])
     if not ok and rc is not None: failures.append({"step": "tools/run_execution_constraints.py", "code": rc})

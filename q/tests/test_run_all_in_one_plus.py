@@ -86,7 +86,10 @@ def test_should_force_legacy_tune_with_env(monkeypatch, tmp_path: Path):
     assert raip.should_run_legacy_tune() is True
 
 
-def test_apply_performance_defaults_sets_runtime_floor(monkeypatch):
+def test_apply_performance_defaults_sets_runtime_floor(monkeypatch, tmp_path: Path):
+    runs = tmp_path / "runs_plus"
+    runs.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(raip, "RUNS", runs)
     monkeypatch.delenv("Q_RUNTIME_TOTAL_FLOOR", raising=False)
     monkeypatch.setenv("Q_DEFAULT_RUNTIME_TOTAL_FLOOR", "0.18")
     monkeypatch.delenv("Q_DISABLE_GOVERNORS", raising=False)
@@ -98,7 +101,12 @@ def test_apply_performance_defaults_sets_runtime_floor(monkeypatch):
     assert "heartbeat_scaler" in got
 
 
-def test_apply_performance_defaults_merges_user_disables(monkeypatch):
+def test_apply_performance_defaults_merges_user_disables(monkeypatch, tmp_path: Path):
+    runs = tmp_path / "runs_plus"
+    runs.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(raip, "RUNS", runs)
+    monkeypatch.delenv("Q_RUNTIME_TOTAL_FLOOR", raising=False)
+    monkeypatch.delenv("Q_DEFAULT_RUNTIME_TOTAL_FLOOR", raising=False)
     monkeypatch.setenv("Q_DISABLE_GOVERNORS", "quality_governor")
     monkeypatch.setenv("Q_DEFAULT_DISABLE_GOVERNORS", "global_governor")
     raip.apply_performance_defaults()
@@ -146,3 +154,29 @@ def test_apply_performance_defaults_prefers_active_profile(monkeypatch, tmp_path
     got = os.environ.get("Q_DISABLE_GOVERNORS", "")
     assert "act" in got
     assert "sel" not in got
+
+
+def test_should_run_runtime_combo_search_when_missing_profile(monkeypatch, tmp_path: Path):
+    runs = tmp_path / "runs_plus"
+    runs.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(raip, "RUNS", runs)
+    monkeypatch.delenv("Q_ENABLE_RUNTIME_COMBO_SEARCH", raising=False)
+    assert raip.should_run_runtime_combo_search() is True
+
+
+def test_should_skip_runtime_combo_search_when_profile_exists(monkeypatch, tmp_path: Path):
+    runs = tmp_path / "runs_plus"
+    runs.mkdir(parents=True, exist_ok=True)
+    (runs / "runtime_profile_active.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(raip, "RUNS", runs)
+    monkeypatch.delenv("Q_ENABLE_RUNTIME_COMBO_SEARCH", raising=False)
+    assert raip.should_run_runtime_combo_search() is False
+
+
+def test_should_force_runtime_combo_search_with_env(monkeypatch, tmp_path: Path):
+    runs = tmp_path / "runs_plus"
+    runs.mkdir(parents=True, exist_ok=True)
+    (runs / "runtime_profile_active.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(raip, "RUNS", runs)
+    monkeypatch.setenv("Q_ENABLE_RUNTIME_COMBO_SEARCH", "1")
+    assert raip.should_run_runtime_combo_search() is True
