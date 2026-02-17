@@ -109,11 +109,15 @@ def _eval_combo(env_overrides: dict[str, str]) -> dict:
     promo = _load_json(RUNS / "q_promotion_gate.json")
     stress = _load_json(RUNS / "cost_stress_validation.json")
     health = _load_json(RUNS / "health_alerts.json")
+    cinfo = _load_json(RUNS / "daily_costs_info.json")
 
     return {
         "robust_sharpe": float(robust.get("sharpe", 0.0)),
         "robust_hit_rate": float(robust.get("hit_rate", 0.0)),
         "robust_max_drawdown": float(robust.get("max_drawdown", 0.0)),
+        "ann_cost_estimate": float(cinfo.get("ann_cost_estimate", 0.0)),
+        "mean_turnover": float(cinfo.get("mean_turnover", 0.0)),
+        "mean_effective_cost_bps": float(cinfo.get("mean_effective_cost_bps", 0.0)),
         "promotion_ok": bool(promo.get("ok", False)),
         "cost_stress_ok": bool(stress.get("ok", False)),
         "health_ok": bool(health.get("ok", False)),
@@ -130,8 +134,22 @@ def _score_row(row: dict) -> float:
     hit_w = float(np.clip(float(os.getenv("Q_RUNTIME_SEARCH_HIT_WEIGHT", "0.75")), 0.0, 10.0))
     mdd_ref = float(np.clip(float(os.getenv("Q_RUNTIME_SEARCH_MDD_REF", "0.04")), 0.001, 1.0))
     mdd_w = float(np.clip(float(os.getenv("Q_RUNTIME_SEARCH_MDD_PENALTY", "4.0")), 0.0, 25.0))
+    cost_ref = float(np.clip(float(os.getenv("Q_RUNTIME_SEARCH_COST_REF_ANNUAL", "0.02")), 0.0, 1.0))
+    cost_w = float(np.clip(float(os.getenv("Q_RUNTIME_SEARCH_COST_PENALTY", "3.0")), 0.0, 100.0))
+    turn_ref = float(np.clip(float(os.getenv("Q_RUNTIME_SEARCH_TURNOVER_REF_DAILY", "0.06")), 0.0, 5.0))
+    turn_w = float(np.clip(float(os.getenv("Q_RUNTIME_SEARCH_TURNOVER_PENALTY", "1.5")), 0.0, 100.0))
+    ann_cost = max(0.0, float(row.get("ann_cost_estimate", 0.0)))
+    mean_turn = max(0.0, float(row.get("mean_turnover", 0.0)))
     over_mdd = max(0.0, mdd - mdd_ref)
-    return float(sh + hit_w * (hit - target_hit) - mdd_w * over_mdd)
+    over_cost = max(0.0, ann_cost - cost_ref)
+    over_turn = max(0.0, mean_turn - turn_ref)
+    return float(
+        sh
+        + hit_w * (hit - target_hit)
+        - mdd_w * over_mdd
+        - cost_w * over_cost
+        - turn_w * over_turn
+    )
 
 
 def _write_progress(*, evaluated: int, total: int, best: dict | None) -> None:
@@ -207,7 +225,7 @@ def _base_runtime_env() -> dict[str, str]:
     params = prof.get("parameters", prof)
     if not isinstance(params, dict):
         params = {}
-    return {
+    base = {
         "Q_DISABLE_REPORT_CARDS": "1",
         "Q_PROMOTION_REQUIRE_COST_STRESS": "1",
         "TURNOVER_MAX_STEP": str(params.get("turnover_max_step", 0.30)),
@@ -225,6 +243,24 @@ def _base_runtime_env() -> dict[str, str]:
         "Q_CASH_YIELD_ANNUAL": str(params.get("cash_yield_annual", 0.01)),
         "Q_CASH_EXPOSURE_TARGET": str(params.get("cash_exposure_target", 1.0)),
     }
+    fc = _load_json(RUNS / "friction_calibration.json")
+    rec = fc.get("recommendation", {}) if isinstance(fc.get("recommendation"), dict) else {}
+    if bool(fc.get("ok", rec.get("ok", False))):
+        try:
+            base["Q_COST_BASE_BPS"] = str(float(rec.get("recommended_cost_base_bps")))
+        except Exception:
+            pass
+        try:
+            base["Q_COST_VOL_SCALED_BPS"] = str(float(rec.get("recommended_cost_vol_scaled_bps", 0.0)))
+        except Exception:
+            pass
+    return base
+
+
+def _refresh_friction_calibration(base_env: dict[str, str]) -> None:
+    env = os.environ.copy()
+    env.update(base_env)
+    _run([PY, str(ROOT / "tools" / "run_calibrate_friction_from_aion.py")], env)
 
 
 def main() -> int:
@@ -239,6 +275,8 @@ def main() -> int:
         floors = [0.18]
 
     rows = []
+    base_env = _base_runtime_env()
+    _refresh_friction_calibration(base_env)
     base_env = _base_runtime_env()
     combos = list(itertools.product([0, 1], repeat=len(flags)))
     total = len(floors) * len(combos)
@@ -309,11 +347,15 @@ def main() -> int:
         "rows_total": len(rows),
         "rows_valid": len(valid_sorted),
         "score_formula": {
-            "score": "sharpe + hit_weight*(hit-target_hit) - mdd_penalty*max(0, abs(max_drawdown)-mdd_ref)",
+            "score": "sharpe + hit_weight*(hit-target_hit) - mdd_penalty*max(0, abs(max_drawdown)-mdd_ref) - cost_penalty*max(0, ann_cost_estimate-cost_ref_annual) - turnover_penalty*max(0, mean_turnover-turnover_ref_daily)",
             "target_hit": float(np.clip(float(os.getenv("Q_RUNTIME_SEARCH_TARGET_HIT", "0.49")), 0.0, 1.0)),
             "hit_weight": float(np.clip(float(os.getenv("Q_RUNTIME_SEARCH_HIT_WEIGHT", "0.75")), 0.0, 10.0)),
             "mdd_ref": float(np.clip(float(os.getenv("Q_RUNTIME_SEARCH_MDD_REF", "0.04")), 0.001, 1.0)),
             "mdd_penalty": float(np.clip(float(os.getenv("Q_RUNTIME_SEARCH_MDD_PENALTY", "4.0")), 0.0, 25.0)),
+            "cost_ref_annual": float(np.clip(float(os.getenv("Q_RUNTIME_SEARCH_COST_REF_ANNUAL", "0.02")), 0.0, 1.0)),
+            "cost_penalty": float(np.clip(float(os.getenv("Q_RUNTIME_SEARCH_COST_PENALTY", "3.0")), 0.0, 100.0)),
+            "turnover_ref_daily": float(np.clip(float(os.getenv("Q_RUNTIME_SEARCH_TURNOVER_REF_DAILY", "0.06")), 0.0, 5.0)),
+            "turnover_penalty": float(np.clip(float(os.getenv("Q_RUNTIME_SEARCH_TURNOVER_PENALTY", "1.5")), 0.0, 100.0)),
         },
         "top_valid": valid_sorted[:20],
         "selected": selected,

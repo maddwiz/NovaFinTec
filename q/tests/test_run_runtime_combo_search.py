@@ -105,3 +105,46 @@ def test_runtime_combo_search_canary_promotes_after_required_passes(monkeypatch,
     assert rcs.main() == 0
     st3 = json.loads((runs / "runtime_profile_stable.json").read_text(encoding="utf-8"))
     assert abs(float(st3["robust_sharpe"]) - 1.4) < 1e-9
+
+
+def test_score_row_penalizes_cost_and_turnover(monkeypatch):
+    base = {
+        "robust_sharpe": 1.0,
+        "robust_hit_rate": 0.50,
+        "robust_max_drawdown": -0.04,
+        "ann_cost_estimate": 0.01,
+        "mean_turnover": 0.04,
+    }
+    stressed = {
+        "robust_sharpe": 1.0,
+        "robust_hit_rate": 0.50,
+        "robust_max_drawdown": -0.04,
+        "ann_cost_estimate": 0.08,
+        "mean_turnover": 0.20,
+    }
+    monkeypatch.setenv("Q_RUNTIME_SEARCH_COST_REF_ANNUAL", "0.02")
+    monkeypatch.setenv("Q_RUNTIME_SEARCH_COST_PENALTY", "4.0")
+    monkeypatch.setenv("Q_RUNTIME_SEARCH_TURNOVER_REF_DAILY", "0.06")
+    monkeypatch.setenv("Q_RUNTIME_SEARCH_TURNOVER_PENALTY", "2.0")
+    assert float(rcs._score_row(base)) > float(rcs._score_row(stressed))
+
+
+def test_base_runtime_env_uses_friction_calibration(monkeypatch, tmp_path: Path):
+    runs = tmp_path / "runs_plus"
+    runs.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(rcs, "RUNS", runs)
+    (runs / "friction_calibration.json").write_text(
+        json.dumps(
+            {
+                "ok": True,
+                "recommendation": {
+                    "recommended_cost_base_bps": 9.1,
+                    "recommended_cost_vol_scaled_bps": 1.7,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    env = rcs._base_runtime_env()
+    assert env.get("Q_COST_BASE_BPS") == "9.1"
+    assert env.get("Q_COST_VOL_SCALED_BPS") == "1.7"
