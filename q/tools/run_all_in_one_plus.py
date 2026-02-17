@@ -171,6 +171,9 @@ if __name__ == "__main__":
     # Cross-sectional rank sleeve (neutral long/short specialist weights).
     ok, rc = run_script("tools/run_cross_section_rank_sleeve.py")
     if not ok and rc is not None: failures.append({"step": "tools/run_cross_section_rank_sleeve.py", "code": rc})
+    # Low-vol anomaly sleeve (defensive uncorrelated overlay).
+    ok, rc = run_script("tools/run_low_vol_sleeve.py")
+    if not ok and rc is not None: failures.append({"step": "tools/run_low_vol_sleeve.py", "code": rc})
     # (D) Build symbolic/heartbeat/reflexive layers
     ok, rc = run_script("tools/make_symbolic.py")
     if not ok and rc is not None: failures.append({"step": "tools/make_symbolic.py", "code": rc})

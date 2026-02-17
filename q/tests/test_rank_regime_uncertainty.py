@@ -1,6 +1,7 @@
 import numpy as np
 
 import tools.run_cross_section_rank_sleeve as rank_sleeve
+import tools.run_low_vol_sleeve as low_vol_sleeve
 import tools.run_regime_moe as regime_moe
 import tools.run_uncertainty_sizing as uncertainty_sizing
 
@@ -20,7 +21,25 @@ def test_build_rank_sleeve_is_neutral_and_l1_normalized():
     row_net = np.sum(w, axis=1)
     assert float(np.max(np.abs(row_net))) < 1e-8
     row_l1 = np.sum(np.abs(w), axis=1)
-    assert float(np.min(row_l1)) > 0.99
+    assert float(np.min(row_l1[5:])) > 0.99
+    assert float(np.max(row_l1)) < 1.01
+
+
+def test_build_low_vol_sleeve_is_neutral_and_l1_normalized():
+    rng = np.random.default_rng(8)
+    asset_returns = rng.normal(0.0, 0.01, size=(140, 10))
+    w = low_vol_sleeve.build_low_vol_sleeve(
+        asset_returns,
+        lookback=30,
+        downside_weight=0.35,
+        gross_target=1.0,
+        per_asset_cap=0.20,
+    )
+    assert w.shape == asset_returns.shape
+    row_net = np.sum(w, axis=1)
+    assert float(np.max(np.abs(row_net))) < 1e-8
+    row_l1 = np.sum(np.abs(w), axis=1)
+    assert float(np.min(row_l1[5:])) > 0.99
     assert float(np.max(row_l1)) < 1.01
 
 

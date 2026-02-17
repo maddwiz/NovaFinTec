@@ -30,6 +30,7 @@ PYTHON = str(Path(sys.executable))
 
 TRACE_GOVS = [
     "rank_sleeve_blend",
+    "low_vol_sleeve_blend",
     "turnover_governor",
     "meta_execution_gate",
     "council_gate",

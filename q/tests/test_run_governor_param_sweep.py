@@ -25,6 +25,7 @@ def test_profile_from_row_casts_types():
         "runtime_total_floor": 0.1,
         "shock_alpha": 0.35,
         "rank_sleeve_blend": 0.06,
+        "low_vol_sleeve_blend": 0.04,
         "meta_execution_gate_strength": 0.95,
         "council_gate_strength": 0.9,
         "meta_mix_leverage_strength": 1.15,
@@ -44,6 +45,7 @@ def test_profile_from_row_casts_types():
     assert out["runtime_total_floor"] == 0.1
     assert out["shock_alpha"] == 0.35
     assert out["rank_sleeve_blend"] == 0.06
+    assert out["low_vol_sleeve_blend"] == 0.04
     assert out["meta_execution_gate_strength"] == 0.95
     assert out["council_gate_strength"] == 0.9
     assert out["meta_mix_leverage_strength"] == 1.15

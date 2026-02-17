@@ -121,6 +121,7 @@ def _profile_from_row(row: dict) -> dict:
         "runtime_total_floor": float(row["runtime_total_floor"]),
         "shock_alpha": float(row["shock_alpha"]),
         "rank_sleeve_blend": float(row.get("rank_sleeve_blend", 0.0)),
+        "low_vol_sleeve_blend": float(row.get("low_vol_sleeve_blend", 0.0)),
         "meta_execution_gate_strength": float(row.get("meta_execution_gate_strength", 1.0)),
         "council_gate_strength": float(row.get("council_gate_strength", 1.0)),
         "meta_mix_leverage_strength": float(row.get("meta_mix_leverage_strength", 1.0)),
@@ -151,6 +152,7 @@ def _csv_write(rows: list[dict], outp: Path) -> None:
         "runtime_total_floor",
         "shock_alpha",
         "rank_sleeve_blend",
+        "low_vol_sleeve_blend",
         "meta_execution_gate_strength",
         "council_gate_strength",
         "meta_mix_leverage_strength",
@@ -189,6 +191,7 @@ def _env_from_params(params: dict) -> dict[str, str]:
         "Q_RUNTIME_TOTAL_FLOOR": str(params["runtime_total_floor"]),
         "Q_SHOCK_ALPHA": str(params["shock_alpha"]),
         "Q_RANK_SLEEVE_BLEND": str(params.get("rank_sleeve_blend", 0.0)),
+        "Q_LOW_VOL_SLEEVE_BLEND": str(params.get("low_vol_sleeve_blend", 0.0)),
         "Q_META_EXECUTION_GATE_STRENGTH": str(params.get("meta_execution_gate_strength", 1.0)),
         "Q_COUNCIL_GATE_STRENGTH": str(params.get("council_gate_strength", 1.0)),
         "Q_META_MIX_LEVERAGE_STRENGTH": str(params.get("meta_mix_leverage_strength", 1.0)),
@@ -236,6 +239,7 @@ def main() -> int:
     heartbeat_scaler_strengths = [0.0, 0.5, 1.0]
     quality_governor_strengths = [1.00, 1.20]
     rank_sleeve_blends = [0.00, 0.05, 0.10]
+    low_vol_sleeve_blends = [0.00, 0.03, 0.06]
     regime_moe_strengths = [0.0, 0.5, 1.0, 1.25]
     uncertainty_sizing_strengths = [0.5, 0.75, 1.00, 1.25]
     vol_target_strengths = [0.0, 0.5, 1.0, 1.25]
@@ -255,6 +259,7 @@ def main() -> int:
                 "runtime_total_floor": float(floor),
                 "shock_alpha": float(shock),
                 "rank_sleeve_blend": 0.0,
+                "low_vol_sleeve_blend": 0.0,
                 "meta_execution_gate_strength": 1.0,
                 "council_gate_strength": 1.0,
                 "meta_mix_leverage_strength": 1.0,
@@ -291,6 +296,7 @@ def main() -> int:
                 ("heartbeat_scaler_strength", heartbeat_scaler_strengths),
                 ("quality_governor_strength", quality_governor_strengths),
                 ("rank_sleeve_blend", rank_sleeve_blends),
+                ("low_vol_sleeve_blend", low_vol_sleeve_blends),
                 ("regime_moe_strength", regime_moe_strengths),
                 ("uncertainty_sizing_strength", uncertainty_sizing_strengths),
                 ("vol_target_strength", vol_target_strengths),
@@ -304,6 +310,7 @@ def main() -> int:
                             "runtime_total_floor": float(cur["runtime_total_floor"]),
                             "shock_alpha": float(cur["shock_alpha"]),
                             "rank_sleeve_blend": float(cur.get("rank_sleeve_blend", 0.0)),
+                            "low_vol_sleeve_blend": float(cur.get("low_vol_sleeve_blend", 0.0)),
                             "meta_execution_gate_strength": float(cur["meta_execution_gate_strength"]),
                             "council_gate_strength": float(cur["council_gate_strength"]),
                             "meta_mix_leverage_strength": float(cur["meta_mix_leverage_strength"]),
@@ -335,6 +342,7 @@ def main() -> int:
             specs = [
                 ("shock_alpha", 0.05, 0.0, 1.0),
                 ("rank_sleeve_blend", 0.02, 0.0, 0.60),
+                ("low_vol_sleeve_blend", 0.02, 0.0, 0.35),
                 ("meta_execution_gate_strength", 0.05, 0.0, 1.4),
                 ("council_gate_strength", 0.05, 0.6, 1.4),
                 ("meta_mix_leverage_strength", 0.05, 0.7, 1.3),
@@ -365,6 +373,7 @@ def main() -> int:
                             "runtime_total_floor": float(cur["runtime_total_floor"]),
                             "shock_alpha": float(cur["shock_alpha"]),
                             "rank_sleeve_blend": float(cur.get("rank_sleeve_blend", 0.0)),
+                            "low_vol_sleeve_blend": float(cur.get("low_vol_sleeve_blend", 0.0)),
                             "meta_execution_gate_strength": float(cur["meta_execution_gate_strength"]),
                             "council_gate_strength": float(cur["council_gate_strength"]),
                             "meta_mix_leverage_strength": float(cur["meta_mix_leverage_strength"]),
@@ -403,6 +412,7 @@ def main() -> int:
                 "shock_alpha": shocks,
                 "concentration_presets": conc_presets,
                 "rank_sleeve_blend": rank_sleeve_blends,
+                "low_vol_sleeve_blend": low_vol_sleeve_blends,
                 "meta_execution_gate_strength": meta_execution_gate_strengths,
                 "council_gate_strength": council_gate_strengths,
                 "meta_mix_leverage_strength": meta_mix_leverage_strengths,

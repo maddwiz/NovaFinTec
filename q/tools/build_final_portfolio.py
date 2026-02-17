@@ -23,6 +23,7 @@ from qmods.guardrails_bundle import apply_turnover_budget_governor
 
 TRACE_STEPS = [
     "rank_sleeve_blend",
+    "low_vol_sleeve_blend",
     "turnover_governor",
     "meta_execution_gate",
     "council_gate",
@@ -370,6 +371,13 @@ if __name__ == "__main__":
         0.0,
         0.60,
     )
+    low_vol_sleeve_blend = _env_or_profile_float(
+        "Q_LOW_VOL_SLEEVE_BLEND",
+        "low_vol_sleeve_blend",
+        0.0,
+        0.0,
+        0.35,
+    )
     meta_execution_gate_strength = _env_or_profile_float(
         "Q_META_EXECUTION_GATE_STRENGTH",
         "meta_execution_gate_strength",
@@ -476,6 +484,14 @@ if __name__ == "__main__":
         W = (1.0 - b) * W + b * Wr
         steps.append("rank_sleeve_blend")
         _trace_put("rank_sleeve_blend", np.ones(T, float))
+
+    # 2b) Low-vol anomaly sleeve blend.
+    Wlv = load_mat("runs_plus/weights_low_vol_sleeve.csv")
+    if _gov_enabled("low_vol_sleeve_blend") and Wlv is not None and Wlv.shape[:2] == W.shape and low_vol_sleeve_blend > 0.0:
+        b = float(np.clip(low_vol_sleeve_blend, 0.0, 0.35))
+        W = (1.0 - b) * W + b * Wlv
+        steps.append("low_vol_sleeve_blend")
+        _trace_put("low_vol_sleeve_blend", np.ones(T, float))
 
     # 3) Cluster caps
     Wc = load_mat("runs_plus/weights_cluster_capped.csv")
@@ -821,6 +837,7 @@ if __name__ == "__main__":
                     "runtime_total_floor": _runtime_total_floor_default(),
                     "shock_alpha": shock_alpha,
                     "rank_sleeve_blend": rank_sleeve_blend,
+                    "low_vol_sleeve_blend": low_vol_sleeve_blend,
                     "meta_execution_gate_strength": meta_execution_gate_strength,
                     "council_gate_strength": council_gate_strength,
                     "meta_mix_leverage_strength": meta_mix_leverage_strength,
