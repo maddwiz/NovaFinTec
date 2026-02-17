@@ -160,6 +160,11 @@ def _load_config():
         },
         "quality_scale_floor": 0.60,
         "quality_scale_ceiling": 1.00,
+        "dynamic_turnover_enabled": True,
+        "dynamic_turnover_floor": 0.55,
+        "dynamic_turnover_capacity_weight": 0.60,
+        "dynamic_turnover_macro_weight": 0.40,
+        "dynamic_turnover_smooth_alpha": 0.20,
     }
     if CFG.exists():
         try:
@@ -200,6 +205,21 @@ def _load_config():
     v = _parse_bool(_env_first("Q_EXEC_ADAPTIVE_RISK"))
     if v is not None:
         cfg["adaptive_risk_enabled"] = v
+    v = _parse_bool(_env_first("Q_EXEC_DYNAMIC_TURNOVER"))
+    if v is not None:
+        cfg["dynamic_turnover_enabled"] = v
+    v = _parse_opt_float(_env_first("Q_EXEC_DYNAMIC_TURNOVER_FLOOR"))
+    if v is not None:
+        cfg["dynamic_turnover_floor"] = v
+    v = _parse_opt_float(_env_first("Q_EXEC_DYNAMIC_TURNOVER_CAPACITY_WEIGHT"))
+    if v is not None:
+        cfg["dynamic_turnover_capacity_weight"] = v
+    v = _parse_opt_float(_env_first("Q_EXEC_DYNAMIC_TURNOVER_MACRO_WEIGHT"))
+    if v is not None:
+        cfg["dynamic_turnover_macro_weight"] = v
+    v = _parse_opt_float(_env_first("Q_EXEC_DYNAMIC_TURNOVER_SMOOTH_ALPHA"))
+    if v is not None:
+        cfg["dynamic_turnover_smooth_alpha"] = v
     return cfg
 
 
@@ -272,14 +292,122 @@ def _step_turnover(weights: np.ndarray) -> np.ndarray:
     return np.sum(np.abs(np.diff(w, axis=0)), axis=1)
 
 
-def _apply_asset_delta_cap(weights: np.ndarray, cap: float | None) -> np.ndarray:
-    w = np.asarray(weights, float).copy()
+def _coerce_step_caps(cap: float | np.ndarray | None, steps: int) -> np.ndarray | None:
     if cap is None:
+        return None
+    if steps <= 0:
+        return None
+    arr = np.asarray(cap, float).ravel()
+    if arr.size == 0:
+        return None
+    if arr.size == 1:
+        v = float(arr[0])
+        if (not np.isfinite(v)) or v <= 0.0:
+            return None
+        return np.full(steps, v, dtype=float)
+    out = np.full(steps, float(arr[-1]), dtype=float)
+    take = min(steps, arr.size)
+    out[:take] = arr[:take]
+    out = np.where(np.isfinite(out) & (out > 0.0), out, 0.0)
+    if np.all(out <= 0.0):
+        return None
+    return out
+
+
+def _align_series_tail(x: np.ndarray, n: int, fill: float) -> np.ndarray:
+    arr = np.asarray(x, float).ravel()
+    if n <= 0:
+        return np.asarray([], dtype=float)
+    if arr.size >= n:
+        return arr[-n:]
+    out = np.full(n, float(fill), dtype=float)
+    if arr.size > 0:
+        out[-arr.size :] = arr
+        out[: n - arr.size] = float(arr[0])
+    return out
+
+
+def _load_scalar_series(path: Path, n: int, default: float = 1.0) -> np.ndarray:
+    if n <= 0:
+        return np.asarray([], dtype=float)
+    if not path.exists():
+        return np.full(n, float(default), dtype=float)
+    try:
+        arr = np.loadtxt(path, delimiter=",")
+    except Exception:
+        try:
+            arr = np.loadtxt(path, delimiter=",", skiprows=1)
+        except Exception:
+            return np.full(n, float(default), dtype=float)
+    arr = np.asarray(arr, float).ravel()
+    arr = arr[np.isfinite(arr)] if arr.size else arr
+    if arr.size == 0:
+        return np.full(n, float(default), dtype=float)
+    return _align_series_tail(arr, n, float(arr[0]))
+
+
+def _build_dynamic_turnover_scale(cfg: dict, rows: int) -> tuple[np.ndarray, dict]:
+    if rows <= 0:
+        return np.asarray([], dtype=float), {"enabled": False, "reason": "empty_rows"}
+    if not bool(cfg.get("dynamic_turnover_enabled", True)):
+        return np.ones(rows, dtype=float), {"enabled": False, "reason": "disabled"}
+
+    floor = _parse_opt_float(cfg.get("dynamic_turnover_floor"))
+    if floor is None:
+        floor = 0.55
+    floor = float(np.clip(floor, 0.10, 1.0))
+    alpha = _parse_opt_float(cfg.get("dynamic_turnover_smooth_alpha"))
+    if alpha is None:
+        alpha = 0.20
+    alpha = float(np.clip(alpha, 0.01, 1.0))
+
+    w_cap = _parse_opt_float(cfg.get("dynamic_turnover_capacity_weight"))
+    w_mac = _parse_opt_float(cfg.get("dynamic_turnover_macro_weight"))
+    if w_cap is None:
+        w_cap = 0.60
+    if w_mac is None:
+        w_mac = 0.40
+    w_cap = float(np.clip(w_cap, 0.0, 10.0))
+    w_mac = float(np.clip(w_mac, 0.0, 10.0))
+
+    cap = _load_scalar_series(RUNS / "capacity_impact_scalar.csv", rows, default=1.0)
+    mac = _load_scalar_series(RUNS / "macro_risk_scalar.csv", rows, default=1.0)
+    cap = np.clip(cap, floor, 1.20)
+    mac = np.clip(mac, floor, 1.20)
+
+    total_w = max(1e-9, w_cap + w_mac)
+    raw = (w_cap * cap + w_mac * mac) / total_w
+    raw = np.clip(raw, floor, 1.20)
+    smooth = pd.Series(raw).ewm(alpha=alpha, adjust=False).mean().values.astype(float)
+    smooth = np.clip(smooth, floor, 1.20)
+    detail = {
+        "enabled": True,
+        "floor": float(floor),
+        "smooth_alpha": float(alpha),
+        "capacity_weight": float(w_cap),
+        "macro_weight": float(w_mac),
+        "raw_mean": float(np.mean(raw)),
+        "raw_min": float(np.min(raw)),
+        "raw_max": float(np.max(raw)),
+        "mean": float(np.mean(smooth)),
+        "min": float(np.min(smooth)),
+        "max": float(np.max(smooth)),
+    }
+    return smooth, detail
+
+
+def _apply_asset_delta_cap(weights: np.ndarray, cap: float | np.ndarray | None) -> np.ndarray:
+    w = np.asarray(weights, float).copy()
+    caps = _coerce_step_caps(cap, max(0, w.shape[0] - 1))
+    if caps is None:
         return w
-    c = float(cap)
-    if (not np.isfinite(c)) or c <= 0.0 or w.shape[0] <= 1:
+    if w.shape[0] <= 1:
         return w
     for t in range(1, w.shape[0]):
+        c = float(caps[t - 1])
+        if c <= 0.0:
+            w[t] = w[t - 1]
+            continue
         d = w[t] - w[t - 1]
         d = np.clip(d, -c, c)
         w[t] = w[t - 1] + d
@@ -288,7 +416,7 @@ def _apply_asset_delta_cap(weights: np.ndarray, cap: float | None) -> np.ndarray
 
 def _apply_turnover_caps(
     weights: np.ndarray,
-    max_step_turnover: float | None = None,
+    max_step_turnover: float | np.ndarray | None = None,
     rolling_window: int | None = None,
     rolling_limit: float | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -304,11 +432,7 @@ def _apply_turnover_caps(
     if w.shape[0] <= 1:
         return w, t_before, t_before.copy()
 
-    step_cap = None
-    if max_step_turnover is not None:
-        sc = float(max_step_turnover)
-        if np.isfinite(sc) and sc > 0.0:
-            step_cap = sc
+    step_caps = _coerce_step_caps(max_step_turnover, max(0, w.shape[0] - 1))
 
     roll_w = None
     roll_lim = None
@@ -323,9 +447,11 @@ def _apply_turnover_caps(
     for t in range(1, w.shape[0]):
         d = w[t] - w[t - 1]
         step = float(np.sum(np.abs(d)))
-        if step_cap is not None and step > step_cap and step > 0.0:
-            d = d * (step_cap / step)
-            step = step_cap
+        if step_caps is not None:
+            step_cap = float(step_caps[t - 1])
+            if step > step_cap and step > 0.0:
+                d = d * (step_cap / step)
+                step = step_cap
 
         if roll_w is not None and roll_lim is not None:
             start = max(0, t - roll_w)
@@ -387,6 +513,7 @@ if __name__ == "__main__":
     fracture_info = _load_json(RUNS / "regime_fracture_info.json") or {}
     quality_snapshot = _load_json(RUNS / "quality_snapshot.json") or {}
     adaptive_scale, adaptive_detail = _adaptive_risk_scale(cfg, fracture_info, quality_snapshot)
+    dynamic_turn_scale, dynamic_turn_detail = _build_dynamic_turnover_scale(cfg, W.shape[0])
 
     out = np.asarray(W, float).copy()
     gross0 = np.sum(np.abs(out), axis=1)
@@ -439,6 +566,11 @@ if __name__ == "__main__":
     )
     if max_asset_step_change is not None:
         max_asset_step_change = float(max_asset_step_change) * float(adaptive_scale)
+        max_asset_step_change = np.clip(
+            float(max_asset_step_change) * np.clip(dynamic_turn_scale[1:], 0.10, 2.0),
+            0.0,
+            None,
+        )
     out = _apply_asset_delta_cap(out, max_asset_step_change)
 
     max_step_turnover = cfg.get("max_step_turnover", None)
@@ -453,6 +585,11 @@ if __name__ == "__main__":
     )
     if max_step_turnover is not None:
         max_step_turnover = float(max_step_turnover) * float(adaptive_scale)
+        max_step_turnover = np.clip(
+            float(max_step_turnover) * np.clip(dynamic_turn_scale[1:], 0.10, 2.0),
+            0.0,
+            None,
+        )
     rolling_window = cfg.get("rolling_turnover_window", None)
     try:
         rolling_window = int(rolling_window) if rolling_window is not None else None
@@ -496,13 +633,14 @@ if __name__ == "__main__":
         "session_scale": sess_scale,
         "adaptive_risk_scale": float(adaptive_scale),
         "adaptive_risk": adaptive_detail,
+        "dynamic_turnover_scale": dynamic_turn_detail,
         "session_turnover_scale": _resolve_session_scale(session, cfg.get("session_turnover_scales", {}), default=1.0),
         "session_asset_step_scale": _resolve_session_scale(session, cfg.get("session_asset_step_scales", {}), default=1.0),
         "replace_final": bool(args.replace_final),
         "gross_before_mean": float(np.mean(gross0)),
         "gross_after_mean": float(np.mean(np.sum(np.abs(out), axis=1))),
-        "max_asset_step_change": max_asset_step_change,
-        "max_step_turnover": max_step_turnover,
+        "max_asset_step_change": float(np.mean(max_asset_step_change)) if isinstance(max_asset_step_change, np.ndarray) else max_asset_step_change,
+        "max_step_turnover": float(np.mean(max_step_turnover)) if isinstance(max_step_turnover, np.ndarray) else max_step_turnover,
         "rolling_turnover_window": rolling_window,
         "rolling_turnover_limit": rolling_limit,
         "turnover_before_mean": float(np.mean(turnover_before)) if turnover_before.size else 0.0,

@@ -32,6 +32,21 @@ def test_apply_asset_delta_cap_limits_each_asset_step():
     assert np.allclose(out[2], np.array([0.10, -0.10], dtype=float))
 
 
+def test_apply_asset_delta_cap_supports_per_step_caps():
+    w = np.array(
+        [
+            [0.0, 0.0],
+            [0.50, -0.50],
+            [0.90, -0.90],
+        ],
+        dtype=float,
+    )
+    out = rec._apply_asset_delta_cap(w, cap=np.array([0.20, 0.05], dtype=float))
+    d = np.diff(out, axis=0)
+    assert np.allclose(np.abs(d[0]), np.array([0.20, 0.20], dtype=float))
+    assert np.allclose(np.abs(d[1]), np.array([0.05, 0.05], dtype=float))
+
+
 def test_apply_turnover_caps_step_limit():
     w = np.array(
         [
@@ -47,6 +62,20 @@ def test_apply_turnover_caps_step_limit():
     assert np.all(after <= 1.0 + 1e-12)
     assert np.allclose(after, np.array([1.0, 1.0], dtype=float))
     assert np.allclose(out[-1], np.array([1.0, -1.0], dtype=float))
+
+
+def test_apply_turnover_caps_step_limit_array():
+    w = np.array(
+        [
+            [0.0, 0.0],
+            [1.0, -1.0],
+            [2.0, -2.0],
+        ],
+        dtype=float,
+    )
+    out, _before, after = rec._apply_turnover_caps(w, max_step_turnover=np.array([2.0, 0.50], dtype=float))
+    assert np.allclose(after, np.array([2.0, 0.5], dtype=float))
+    assert np.allclose(out[-1], np.array([1.25, -1.25], dtype=float))
 
 
 def test_apply_turnover_caps_rolling_budget():
@@ -153,3 +182,23 @@ def test_adaptive_risk_scale_disabled_returns_one():
     scale, detail = rec._adaptive_risk_scale({"adaptive_risk_enabled": False}, {}, {})
     assert scale == 1.0
     assert detail["enabled"] is False
+
+
+def test_build_dynamic_turnover_scale_blends_capacity_and_macro(monkeypatch, tmp_path):
+    runs = tmp_path / "runs_plus"
+    runs.mkdir(parents=True, exist_ok=True)
+    np.savetxt(runs / "capacity_impact_scalar.csv", np.array([1.0, 0.8, 0.6, 0.9]), delimiter=",")
+    np.savetxt(runs / "macro_risk_scalar.csv", np.array([1.0, 0.7, 0.7, 0.95]), delimiter=",")
+    monkeypatch.setattr(rec, "RUNS", runs)
+    cfg = {
+        "dynamic_turnover_enabled": True,
+        "dynamic_turnover_floor": 0.50,
+        "dynamic_turnover_capacity_weight": 0.7,
+        "dynamic_turnover_macro_weight": 0.3,
+        "dynamic_turnover_smooth_alpha": 1.0,
+    }
+    s, d = rec._build_dynamic_turnover_scale(cfg, rows=4)
+    assert len(s) == 4
+    assert d["enabled"] is True
+    assert float(np.min(s)) >= 0.50
+    assert s[2] < s[0]
