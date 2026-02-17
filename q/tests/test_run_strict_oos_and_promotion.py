@@ -15,6 +15,13 @@ def test_strict_oos_metrics_basic():
     assert m["vol_daily"] > 0.0
 
 
+def test_strict_oos_metrics_uses_sample_volatility_ddof1():
+    r = np.array([0.01, -0.01], dtype=float)
+    m = so._metrics(r)
+    expected = float(np.std(r, ddof=1))
+    assert abs(float(m["vol_daily"]) - expected) < 1e-9
+
+
 def test_q_promotion_gate_pass(tmp_path: Path, monkeypatch):
     runs = tmp_path / "runs_plus"
     runs.mkdir(parents=True, exist_ok=True)

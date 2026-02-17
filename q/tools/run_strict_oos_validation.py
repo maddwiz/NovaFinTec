@@ -56,7 +56,11 @@ def _metrics(r: np.ndarray) -> dict:
             "ann_vol": 0.0,
         }
     mu = float(np.mean(v))
-    sd = float(np.std(v) + 1e-12)
+    if v.size > 1:
+        sd = float(np.std(v, ddof=1))
+    else:
+        sd = 0.0
+    sd = float(sd + 1e-12)
     sh = float((mu / sd) * math.sqrt(252.0))
     hit = float(np.mean(v > 0.0))
     eq = np.cumsum(v)
