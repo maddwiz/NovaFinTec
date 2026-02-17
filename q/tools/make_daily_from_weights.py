@@ -27,6 +27,76 @@ def first_mat(paths):
     return None, None
 
 
+def _safe_float(x, default):
+    try:
+        v = float(x)
+        return v if np.isfinite(v) else default
+    except Exception:
+        return default
+
+
+def _load_json(path: Path) -> dict:
+    if not path.exists():
+        return {}
+    try:
+        obj = json.loads(path.read_text(encoding="utf-8"))
+        return obj if isinstance(obj, dict) else {}
+    except Exception:
+        return {}
+
+
+def resolve_cost_params(*, runs_dir: Path | None = None) -> dict:
+    runs = RUNS if runs_dir is None else Path(runs_dir)
+    cal_path = runs / "friction_calibration.json"
+    cal = _load_json(cal_path)
+    rec = cal.get("recommendation") if isinstance(cal.get("recommendation"), dict) else {}
+    cal_ok = bool(cal.get("ok", rec.get("ok", False)))
+    rec_base = _safe_float(rec.get("recommended_cost_base_bps"), None)
+    rec_vol = _safe_float(rec.get("recommended_cost_vol_scaled_bps"), None)
+    baseline = _safe_float(rec.get("baseline_cost_base_bps"), None)
+
+    default_base = 10.0
+    default_vol = 0.0
+    source_base = "default"
+    source_vol = "default"
+    if cal_ok and rec_base is not None:
+        default_base = float(rec_base)
+        source_base = "friction_calibration"
+    elif baseline is not None:
+        default_base = float(baseline)
+        source_base = "friction_baseline"
+    if cal_ok and rec_vol is not None:
+        default_vol = float(rec_vol)
+        source_vol = "friction_calibration"
+
+    legacy_bps = str(os.getenv("Q_COST_BPS", "")).strip()
+    env_base = str(os.getenv("Q_COST_BASE_BPS", "")).strip()
+    env_vol = str(os.getenv("Q_COST_VOL_SCALED_BPS", "")).strip()
+    if legacy_bps and not env_base:
+        base_bps = float(np.clip(_safe_float(legacy_bps, default_base), 0.0, 100.0))
+        source_base = "env:Q_COST_BPS"
+    elif env_base:
+        base_bps = float(np.clip(_safe_float(env_base, default_base), 0.0, 100.0))
+        source_base = "env:Q_COST_BASE_BPS"
+    else:
+        base_bps = float(np.clip(default_base, 0.0, 100.0))
+
+    if env_vol:
+        vol_scaled_bps = float(np.clip(_safe_float(env_vol, default_vol), 0.0, 100.0))
+        source_vol = "env:Q_COST_VOL_SCALED_BPS"
+    else:
+        vol_scaled_bps = float(np.clip(default_vol, 0.0, 100.0))
+
+    return {
+        "base_bps": float(base_bps),
+        "vol_scaled_bps": float(vol_scaled_bps),
+        "source_base": source_base,
+        "source_vol": source_vol,
+        "friction_calibration_ok": bool(cal_ok),
+        "friction_calibration_path": str(cal_path) if cal_path.exists() else "",
+    }
+
+
 def build_costed_daily_returns(
     W: np.ndarray,
     A: np.ndarray,
@@ -102,13 +172,9 @@ if __name__ == "__main__":
         print(f"(!) Col mismatch: asset_returns N={A.shape[1]} vs weights N={W.shape[1]}.")
         raise SystemExit(0)
 
-    # Backward-compatible legacy knob.
-    legacy_bps = str(os.getenv("Q_COST_BPS", "")).strip()
-    if legacy_bps and (not str(os.getenv("Q_COST_BASE_BPS", "")).strip()):
-        base_bps = float(np.clip(float(legacy_bps), 0.0, 100.0))
-    else:
-        base_bps = float(np.clip(float(os.getenv("Q_COST_BASE_BPS", "10.0")), 0.0, 100.0))
-    vol_scaled_bps = float(np.clip(float(os.getenv("Q_COST_VOL_SCALED_BPS", "0.0")), 0.0, 100.0))
+    cost_cfg = resolve_cost_params(runs_dir=RUNS)
+    base_bps = float(cost_cfg["base_bps"])
+    vol_scaled_bps = float(cost_cfg["vol_scaled_bps"])
     vol_lookback = int(np.clip(int(float(os.getenv("Q_COST_VOL_LOOKBACK", "20"))), 2, 252))
     vol_ref_daily = float(np.clip(float(os.getenv("Q_COST_VOL_REF_DAILY", "0.0063")), 1e-5, 0.25))
     half_turnover = str(os.getenv("Q_COST_HALF_TURNOVER", "1")).strip().lower() in {"1", "true", "yes", "on"}
@@ -138,11 +204,15 @@ if __name__ == "__main__":
         json.dumps(
             {
                 "cost_base_bps": float(base_bps),
+                "cost_base_source": str(cost_cfg.get("source_base", "default")),
                 "cost_vol_scaled_bps": float(vol_scaled_bps),
+                "cost_vol_scaled_source": str(cost_cfg.get("source_vol", "default")),
                 "cost_vol_lookback": int(vol_lookback),
                 "cost_vol_ref_daily": float(vol_ref_daily),
                 "cost_half_turnover": bool(half_turnover),
                 "fixed_daily_fee": float(fixed_daily_fee),
+                "friction_calibration_ok": bool(cost_cfg.get("friction_calibration_ok", False)),
+                "friction_calibration_path": str(cost_cfg.get("friction_calibration_path", "")),
                 "cash_yield_annual": float(cash_yield_annual),
                 "cash_exposure_target": float(cash_exposure_target),
                 "rows": int(T),
@@ -165,6 +235,8 @@ if __name__ == "__main__":
         print(f"(!) Clipped {clip_events} extreme asset-return values with |r|>{clip_abs:.3f}")
     print(
         f"✅ Wrote runs_plus/daily_returns.csv (T={T}) from weights='{src}' "
-        f"[base_bps={base_bps:.2f}, vol_scaled_bps={vol_scaled_bps:.2f}, fixed_daily_fee={fixed_daily_fee:.5f}, "
+        f"[base_bps={base_bps:.2f} ({cost_cfg.get('source_base','default')}), "
+        f"vol_scaled_bps={vol_scaled_bps:.2f} ({cost_cfg.get('source_vol','default')}), "
+        f"fixed_daily_fee={fixed_daily_fee:.5f}, "
         f"cash_yield_annual={cash_yield_annual:.4f}]"
     )

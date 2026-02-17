@@ -394,6 +394,9 @@ if __name__ == "__main__":
     # Assemble provisional portfolio weights and returns.
     ok, rc = run_script("tools/build_final_portfolio.py")
     if not ok and rc is not None: failures.append({"step": "tools/build_final_portfolio.py", "code": rc})
+    # Calibrate friction assumptions from recent AION execution logs.
+    ok, rc = run_script("tools/run_calibrate_friction_from_aion.py")
+    if not ok and rc is not None: failures.append({"step": "tools/run_calibrate_friction_from_aion.py", "code": rc})
     # Costed returns from provisional weights.
     ok, rc = run_script("tools/make_daily_from_weights.py")
     if not ok and rc is not None: failures.append({"step": "tools/make_daily_from_weights.py", "code": rc})

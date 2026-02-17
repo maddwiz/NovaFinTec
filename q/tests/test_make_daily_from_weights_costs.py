@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+
 import numpy as np
 
 import tools.make_daily_from_weights as mdw
@@ -98,3 +101,54 @@ def test_build_costed_daily_returns_adds_cash_carry():
     assert np.allclose(cost, np.zeros(2, dtype=float))
     assert np.allclose(gross, expected_carry)
     assert np.allclose(net, expected_carry)
+
+
+def test_resolve_cost_params_uses_friction_calibration_defaults(monkeypatch, tmp_path: Path):
+    runs = tmp_path / "runs_plus"
+    runs.mkdir(parents=True, exist_ok=True)
+    (runs / "friction_calibration.json").write_text(
+        json.dumps(
+            {
+                "ok": True,
+                "recommendation": {
+                    "recommended_cost_base_bps": 6.4,
+                    "recommended_cost_vol_scaled_bps": 2.1,
+                    "baseline_cost_base_bps": 10.0,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("Q_COST_BPS", raising=False)
+    monkeypatch.delenv("Q_COST_BASE_BPS", raising=False)
+    monkeypatch.delenv("Q_COST_VOL_SCALED_BPS", raising=False)
+    cfg = mdw.resolve_cost_params(runs_dir=runs)
+    assert abs(float(cfg["base_bps"]) - 6.4) < 1e-9
+    assert abs(float(cfg["vol_scaled_bps"]) - 2.1) < 1e-9
+    assert cfg["source_base"] == "friction_calibration"
+    assert cfg["source_vol"] == "friction_calibration"
+
+
+def test_resolve_cost_params_env_overrides_calibration(monkeypatch, tmp_path: Path):
+    runs = tmp_path / "runs_plus"
+    runs.mkdir(parents=True, exist_ok=True)
+    (runs / "friction_calibration.json").write_text(
+        json.dumps(
+            {
+                "ok": True,
+                "recommendation": {
+                    "recommended_cost_base_bps": 5.0,
+                    "recommended_cost_vol_scaled_bps": 1.0,
+                    "baseline_cost_base_bps": 10.0,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("Q_COST_BASE_BPS", "11.2")
+    monkeypatch.setenv("Q_COST_VOL_SCALED_BPS", "4.3")
+    cfg = mdw.resolve_cost_params(runs_dir=runs)
+    assert abs(float(cfg["base_bps"]) - 11.2) < 1e-9
+    assert abs(float(cfg["vol_scaled_bps"]) - 4.3) < 1e-9
+    assert cfg["source_base"] == "env:Q_COST_BASE_BPS"
+    assert cfg["source_vol"] == "env:Q_COST_VOL_SCALED_BPS"
