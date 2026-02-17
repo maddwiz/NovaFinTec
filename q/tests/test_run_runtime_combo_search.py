@@ -332,3 +332,67 @@ def test_canary_ignores_cost_worsen_when_stable_missing_cost_fields(monkeypatch)
     ok, reasons = rcs._canary_qualifies(stable, candidate)
     assert ok is True
     assert reasons == []
+
+
+def test_canary_rejects_latest_oos_degradation(monkeypatch):
+    monkeypatch.setenv("Q_RUNTIME_CANARY_MIN_SHARPE_DELTA", "0.0")
+    monkeypatch.setenv("Q_RUNTIME_CANARY_MIN_SCORE_DELTA", "0.0")
+    monkeypatch.setenv("Q_RUNTIME_CANARY_MAX_LATEST_SHARPE_DROP", "0.03")
+    monkeypatch.setenv("Q_RUNTIME_CANARY_MAX_LATEST_HIT_DROP", "0.005")
+    monkeypatch.setenv("Q_RUNTIME_CANARY_MAX_LATEST_ABS_MDD_WORSEN", "0.01")
+    monkeypatch.setenv("Q_RUNTIME_CANARY_LATEST_MIN_N", "126")
+    stable = {
+        "robust_sharpe": 1.30,
+        "robust_hit_rate": 0.50,
+        "robust_max_drawdown": -0.040,
+        "score": 1.30,
+        "latest_oos_sharpe": 1.25,
+        "latest_oos_hit_rate": 0.51,
+        "latest_oos_max_drawdown": -0.03,
+        "latest_oos_n": 252,
+    }
+    candidate = {
+        "robust_sharpe": 1.36,
+        "robust_hit_rate": 0.50,
+        "robust_max_drawdown": -0.040,
+        "score": 1.37,
+        "latest_oos_sharpe": 1.15,
+        "latest_oos_hit_rate": 0.49,
+        "latest_oos_max_drawdown": -0.05,
+        "latest_oos_n": 252,
+        "promotion_ok": True,
+        "cost_stress_ok": True,
+        "health_ok": True,
+    }
+    ok, reasons = rcs._canary_qualifies(stable, candidate)
+    assert ok is False
+    assert any("latest_sharpe_drop" in str(r) for r in reasons)
+    assert any("latest_mdd_worsen" in str(r) for r in reasons)
+
+
+def test_canary_skips_latest_checks_when_latest_missing(monkeypatch):
+    monkeypatch.setenv("Q_RUNTIME_CANARY_MIN_SHARPE_DELTA", "0.0")
+    monkeypatch.setenv("Q_RUNTIME_CANARY_MIN_SCORE_DELTA", "0.0")
+    monkeypatch.setenv("Q_RUNTIME_CANARY_MAX_LATEST_SHARPE_DROP", "0.01")
+    stable = {
+        "robust_sharpe": 1.20,
+        "robust_hit_rate": 0.50,
+        "robust_max_drawdown": -0.040,
+        "score": 1.20,
+    }
+    candidate = {
+        "robust_sharpe": 1.25,
+        "robust_hit_rate": 0.50,
+        "robust_max_drawdown": -0.040,
+        "score": 1.25,
+        "latest_oos_sharpe": 0.10,
+        "latest_oos_hit_rate": 0.40,
+        "latest_oos_max_drawdown": -0.20,
+        "latest_oos_n": 252,
+        "promotion_ok": True,
+        "cost_stress_ok": True,
+        "health_ok": True,
+    }
+    ok, reasons = rcs._canary_qualifies(stable, candidate)
+    assert ok is True
+    assert reasons == []

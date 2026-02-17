@@ -342,12 +342,21 @@ def _canary_qualifies(stable: dict, candidate: dict) -> tuple[bool, list[str]]:
     max_mdd_worsen = float(np.clip(float(os.getenv("Q_RUNTIME_CANARY_MAX_ABS_MDD_WORSEN", "0.005")), 0.0, 0.50))
     max_ann_cost_worsen = float(np.clip(float(os.getenv("Q_RUNTIME_CANARY_MAX_ANN_COST_WORSEN", "0.004")), 0.0, 1.0))
     max_turnover_worsen = float(np.clip(float(os.getenv("Q_RUNTIME_CANARY_MAX_TURNOVER_WORSEN", "0.010")), 0.0, 5.0))
+    latest_min_n = int(np.clip(int(float(os.getenv("Q_RUNTIME_CANARY_LATEST_MIN_N", "126"))), 1, 1000000))
+    max_latest_sharpe_drop = float(
+        np.clip(float(os.getenv("Q_RUNTIME_CANARY_MAX_LATEST_SHARPE_DROP", "0.08")), 0.0, 5.0)
+    )
+    max_latest_hit_drop = float(np.clip(float(os.getenv("Q_RUNTIME_CANARY_MAX_LATEST_HIT_DROP", "0.0075")), 0.0, 0.25))
+    max_latest_mdd_worsen = float(
+        np.clip(float(os.getenv("Q_RUNTIME_CANARY_MAX_LATEST_ABS_MDD_WORSEN", "0.015")), 0.0, 1.0)
+    )
 
     st_sh = float(stable.get("robust_sharpe", 0.0))
     st_hit = float(stable.get("robust_hit_rate", 0.0))
     st_mdd = abs(float(stable.get("robust_max_drawdown", 0.0)))
     st_score = float(stable.get("score", st_sh))
-    def _opt_nonneg(src: dict, key: str) -> float | None:
+
+    def _opt_float(src: dict, key: str) -> float | None:
         if key not in src:
             return None
         try:
@@ -356,16 +365,30 @@ def _canary_qualifies(stable: dict, candidate: dict) -> tuple[bool, list[str]]:
             return None
         if not np.isfinite(v):
             return None
+        return v
+
+    def _opt_nonneg(src: dict, key: str) -> float | None:
+        v = _opt_float(src, key)
+        if v is None:
+            return None
         return max(0.0, v)
 
     st_ann_cost = _opt_nonneg(stable, "ann_cost_estimate")
     st_turn = _opt_nonneg(stable, "mean_turnover")
+    st_latest_sh = _opt_float(stable, "latest_oos_sharpe")
+    st_latest_hit = _opt_float(stable, "latest_oos_hit_rate")
+    st_latest_mdd = _opt_float(stable, "latest_oos_max_drawdown")
+    st_latest_n = _opt_nonneg(stable, "latest_oos_n")
     ca_sh = float(candidate.get("robust_sharpe", 0.0))
     ca_hit = float(candidate.get("robust_hit_rate", 0.0))
     ca_mdd = abs(float(candidate.get("robust_max_drawdown", 0.0)))
     ca_score = float(candidate.get("score", ca_sh))
     ca_ann_cost = _opt_nonneg(candidate, "ann_cost_estimate")
     ca_turn = _opt_nonneg(candidate, "mean_turnover")
+    ca_latest_sh = _opt_float(candidate, "latest_oos_sharpe")
+    ca_latest_hit = _opt_float(candidate, "latest_oos_hit_rate")
+    ca_latest_mdd = _opt_float(candidate, "latest_oos_max_drawdown")
+    ca_latest_n = _opt_nonneg(candidate, "latest_oos_n")
     sh_delta = float(ca_sh - st_sh)
     score_delta = float(ca_score - st_score)
 
@@ -381,6 +404,21 @@ def _canary_qualifies(stable: dict, candidate: dict) -> tuple[bool, list[str]]:
         reasons.append(f"ann_cost_worsen>{max_ann_cost_worsen:.4f} ({ca_ann_cost - st_ann_cost:.4f})")
     if (st_turn is not None) and (ca_turn is not None) and (ca_turn > (st_turn + max_turnover_worsen)):
         reasons.append(f"turnover_worsen>{max_turnover_worsen:.4f} ({ca_turn - st_turn:.4f})")
+    have_latest = (
+        (st_latest_n is not None)
+        and (ca_latest_n is not None)
+        and (int(st_latest_n) >= latest_min_n)
+        and (int(ca_latest_n) >= latest_min_n)
+    )
+    if have_latest and (st_latest_sh is not None) and (ca_latest_sh is not None):
+        if (st_latest_sh - ca_latest_sh) > max_latest_sharpe_drop:
+            reasons.append(f"latest_sharpe_drop>{max_latest_sharpe_drop:.3f} ({st_latest_sh - ca_latest_sh:.3f})")
+    if have_latest and (st_latest_hit is not None) and (ca_latest_hit is not None):
+        if ca_latest_hit < (st_latest_hit - max_latest_hit_drop):
+            reasons.append(f"latest_hit_drop>{max_latest_hit_drop:.4f} ({st_latest_hit - ca_latest_hit:.4f})")
+    if have_latest and (st_latest_mdd is not None) and (ca_latest_mdd is not None):
+        if abs(ca_latest_mdd) > (abs(st_latest_mdd) + max_latest_mdd_worsen):
+            reasons.append(f"latest_mdd_worsen>{max_latest_mdd_worsen:.3f} ({abs(ca_latest_mdd) - abs(st_latest_mdd):.3f})")
     if not bool(candidate.get("promotion_ok", False)):
         reasons.append("promotion_not_ok")
     if not bool(candidate.get("cost_stress_ok", False)):
