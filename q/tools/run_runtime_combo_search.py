@@ -9,6 +9,11 @@ are considered valid.
 Writes:
   - runs_plus/runtime_combo_search.json
   - runs_plus/runtime_profile_selected.json
+  - runs_plus/runtime_profile_stable.json
+  - runs_plus/runtime_profile_active.json
+  - runs_plus/runtime_profile_challenger.json (when canary armed)
+  - runs_plus/runtime_profile_canary_state.json
+  - runs_plus/runtime_profile_promotion_status.json
 """
 
 from __future__ import annotations
@@ -139,6 +144,64 @@ def _write_progress(*, evaluated: int, total: int, best: dict | None) -> None:
     (RUNS / "runtime_combo_search_progress.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
+def _profile_signature(profile: dict) -> str:
+    floor = float(profile.get("runtime_total_floor", 0.0))
+    disabled = sorted({str(x).strip().lower() for x in (profile.get("disable_governors") or []) if str(x).strip()})
+    return f"floor={floor:.6f}|disable={','.join(disabled)}"
+
+
+def _profile_payload(row: dict) -> dict:
+    return {
+        "runtime_total_floor": float(row.get("runtime_total_floor", 0.18)),
+        "disable_governors": list(row.get("disable_governors", [])),
+        "robust_sharpe": float(row.get("robust_sharpe", 0.0)),
+        "robust_hit_rate": float(row.get("robust_hit_rate", 0.0)),
+        "robust_max_drawdown": float(row.get("robust_max_drawdown", 0.0)),
+        "score": float(row.get("score", 0.0)),
+        "promotion_ok": bool(row.get("promotion_ok", False)),
+        "cost_stress_ok": bool(row.get("cost_stress_ok", False)),
+        "health_ok": bool(row.get("health_ok", False)),
+    }
+
+
+def _write_profile(name: str, payload: dict) -> None:
+    (RUNS / name).write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def _remove_profile(name: str) -> None:
+    p = RUNS / name
+    if p.exists():
+        p.unlink()
+
+
+def _canary_qualifies(stable: dict, candidate: dict) -> tuple[bool, list[str]]:
+    reasons = []
+    min_sh_delta = float(np.clip(float(os.getenv("Q_RUNTIME_CANARY_MIN_SHARPE_DELTA", "0.02")), 0.0, 2.0))
+    max_hit_drop = float(np.clip(float(os.getenv("Q_RUNTIME_CANARY_MAX_HIT_DROP", "0.0025")), 0.0, 0.10))
+    max_mdd_worsen = float(np.clip(float(os.getenv("Q_RUNTIME_CANARY_MAX_ABS_MDD_WORSEN", "0.005")), 0.0, 0.50))
+
+    st_sh = float(stable.get("robust_sharpe", 0.0))
+    st_hit = float(stable.get("robust_hit_rate", 0.0))
+    st_mdd = abs(float(stable.get("robust_max_drawdown", 0.0)))
+    ca_sh = float(candidate.get("robust_sharpe", 0.0))
+    ca_hit = float(candidate.get("robust_hit_rate", 0.0))
+    ca_mdd = abs(float(candidate.get("robust_max_drawdown", 0.0)))
+
+    if ca_sh < (st_sh + min_sh_delta):
+        reasons.append(f"sharpe_delta<{min_sh_delta:.3f} ({ca_sh - st_sh:.3f})")
+    if ca_hit < (st_hit - max_hit_drop):
+        reasons.append(f"hit_drop>{max_hit_drop:.4f} ({st_hit - ca_hit:.4f})")
+    if ca_mdd > (st_mdd + max_mdd_worsen):
+        reasons.append(f"mdd_worsen>{max_mdd_worsen:.3f} ({ca_mdd - st_mdd:.3f})")
+    if not bool(candidate.get("promotion_ok", False)):
+        reasons.append("promotion_not_ok")
+    if not bool(candidate.get("cost_stress_ok", False)):
+        reasons.append("cost_stress_not_ok")
+    if not bool(candidate.get("health_ok", False)):
+        reasons.append("health_not_ok")
+    return len(reasons) == 0, reasons
+
+
 def _base_runtime_env() -> dict[str, str]:
     prof = _load_json(RUNS / "governor_params_profile.json")
     params = prof.get("parameters", prof)
@@ -257,27 +320,96 @@ def main() -> int:
     }
     (RUNS / "runtime_combo_search.json").write_text(json.dumps(out, indent=2), encoding="utf-8")
 
+    state_path = RUNS / "runtime_profile_canary_state.json"
+    status_path = RUNS / "runtime_profile_promotion_status.json"
+    required_passes = int(np.clip(int(float(os.getenv("Q_RUNTIME_CANARY_REQUIRED_PASSES", "3"))), 1, 20))
+    rollback_fails = int(np.clip(int(float(os.getenv("Q_RUNTIME_CANARY_ROLLBACK_FAILS", "2"))), 1, 20))
+
+    stable = _load_json(RUNS / "runtime_profile_stable.json")
+    active = _load_json(RUNS / "runtime_profile_active.json")
+    state = _load_json(state_path)
+    if not isinstance(state, dict):
+        state = {}
+    status = {
+        "updated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "action": "none",
+        "required_passes": int(required_passes),
+        "rollback_fails": int(rollback_fails),
+        "reasons": [],
+    }
+
     if selected:
-        sel = {
-            "runtime_total_floor": float(selected.get("runtime_total_floor", 0.18)),
-            "disable_governors": list(selected.get("disable_governors", [])),
-            "robust_sharpe": float(selected.get("robust_sharpe", 0.0)),
-            "robust_hit_rate": float(selected.get("robust_hit_rate", 0.0)),
-            "robust_max_drawdown": float(selected.get("robust_max_drawdown", 0.0)),
-            "score": float(selected.get("score", 0.0)),
-            "promotion_ok": bool(selected.get("promotion_ok", False)),
-            "cost_stress_ok": bool(selected.get("cost_stress_ok", False)),
-            "health_ok": bool(selected.get("health_ok", False)),
-        }
-        (RUNS / "runtime_profile_selected.json").write_text(json.dumps(sel, indent=2), encoding="utf-8")
+        sel = _profile_payload(selected)
+        _write_profile("runtime_profile_selected.json", sel)
         print(f"✅ Selected runtime profile: floor={sel['runtime_total_floor']} disable={sel['disable_governors']}")
+
+        if not stable:
+            _write_profile("runtime_profile_stable.json", sel)
+            _write_profile("runtime_profile_active.json", sel)
+            _remove_profile("runtime_profile_challenger.json")
+            state = {"challenger_signature": "", "passes": 0, "fails": 0}
+            status["action"] = "bootstrap_stable"
+        else:
+            st_sig = _profile_signature(stable)
+            sel_sig = _profile_signature(sel)
+            prev_sig = str(state.get("challenger_signature", ""))
+            passes = int(state.get("passes", 0))
+            fails = int(state.get("fails", 0))
+            if sel_sig == st_sig:
+                _remove_profile("runtime_profile_challenger.json")
+                _write_profile("runtime_profile_active.json", stable)
+                state = {"challenger_signature": "", "passes": 0, "fails": 0}
+                status["action"] = "stable_retained"
+            else:
+                ok, reasons = _canary_qualifies(stable, sel)
+                if prev_sig != sel_sig:
+                    passes = 0
+                    fails = 0
+                if ok:
+                    passes += 1
+                    fails = 0
+                    _write_profile("runtime_profile_challenger.json", sel)
+                    _write_profile("runtime_profile_active.json", stable)
+                    status["action"] = "canary_armed"
+                    if passes >= required_passes:
+                        _write_profile("runtime_profile_stable.json", sel)
+                        _write_profile("runtime_profile_active.json", sel)
+                        _remove_profile("runtime_profile_challenger.json")
+                        status["action"] = "promoted"
+                        state = {"challenger_signature": "", "passes": 0, "fails": 0}
+                    else:
+                        state = {"challenger_signature": sel_sig, "passes": passes, "fails": fails}
+                else:
+                    fails += 1
+                    passes = 0
+                    _write_profile("runtime_profile_challenger.json", sel)
+                    _write_profile("runtime_profile_active.json", stable)
+                    status["action"] = "canary_failed"
+                    status["reasons"] = reasons
+                    if fails >= rollback_fails:
+                        _remove_profile("runtime_profile_challenger.json")
+                        status["action"] = "challenger_rollback"
+                        state = {"challenger_signature": "", "passes": 0, "fails": 0}
+                    else:
+                        state = {"challenger_signature": sel_sig, "passes": passes, "fails": fails}
     else:
         print("(!) No valid runtime profile found in search grid.")
+        if stable:
+            _write_profile("runtime_profile_active.json", stable)
+        status["action"] = "no_valid_profile"
+
+    state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    status["state"] = state
+    status["stable"] = _load_json(RUNS / "runtime_profile_stable.json")
+    status["active"] = _load_json(RUNS / "runtime_profile_active.json")
+    status["challenger"] = _load_json(RUNS / "runtime_profile_challenger.json")
+    status_path.write_text(json.dumps(status, indent=2), encoding="utf-8")
 
     _write_progress(evaluated=total, total=total, best=best_so_far)
     print(f"✅ Wrote {RUNS/'runtime_combo_search.json'}")
     if selected:
         print(f"✅ Wrote {RUNS/'runtime_profile_selected.json'}")
+    print(f"✅ Wrote {status_path}")
     return 0
 
 

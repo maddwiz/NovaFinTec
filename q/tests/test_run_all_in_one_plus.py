@@ -123,3 +123,26 @@ def test_apply_performance_defaults_uses_selected_profile(monkeypatch, tmp_path:
     assert os.environ.get("Q_RUNTIME_TOTAL_FLOOR") == "0.16"
     got = os.environ.get("Q_DISABLE_GOVERNORS", "")
     assert "x" in got and "y" in got
+
+
+def test_apply_performance_defaults_prefers_active_profile(monkeypatch, tmp_path: Path):
+    runs = tmp_path / "runs_plus"
+    runs.mkdir(parents=True, exist_ok=True)
+    (runs / "runtime_profile_selected.json").write_text(
+        '{"runtime_total_floor":0.12,"disable_governors":["sel"]}',
+        encoding="utf-8",
+    )
+    (runs / "runtime_profile_active.json").write_text(
+        '{"runtime_total_floor":0.18,"disable_governors":["act"]}',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(raip, "RUNS", runs)
+    monkeypatch.delenv("Q_RUNTIME_TOTAL_FLOOR", raising=False)
+    monkeypatch.delenv("Q_DEFAULT_RUNTIME_TOTAL_FLOOR", raising=False)
+    monkeypatch.delenv("Q_DEFAULT_DISABLE_GOVERNORS", raising=False)
+    monkeypatch.delenv("Q_DISABLE_GOVERNORS", raising=False)
+    raip.apply_performance_defaults()
+    assert os.environ.get("Q_RUNTIME_TOTAL_FLOOR") == "0.18"
+    got = os.environ.get("Q_DISABLE_GOVERNORS", "")
+    assert "act" in got
+    assert "sel" not in got

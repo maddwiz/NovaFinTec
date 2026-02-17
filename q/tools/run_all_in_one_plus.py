@@ -131,8 +131,8 @@ def apply_profile_env_defaults():
         print(f"↺ applied runtime defaults from governor profile: {applied}")
 
 
-def _load_selected_runtime_profile() -> dict:
-    p = RUNS / "runtime_profile_selected.json"
+def _load_runtime_profile(name: str) -> dict:
+    p = RUNS / name
     if not p.exists():
         return {}
     try:
@@ -140,6 +140,14 @@ def _load_selected_runtime_profile() -> dict:
     except Exception:
         return {}
     return obj if isinstance(obj, dict) else {}
+
+
+def _load_default_runtime_profile() -> dict:
+    for name in ["runtime_profile_active.json", "runtime_profile_stable.json", "runtime_profile_selected.json"]:
+        obj = _load_runtime_profile(name)
+        if obj:
+            return obj
+    return {}
 
 
 def _merge_csv_tokens(current: str, extra: list[str]) -> str:
@@ -159,7 +167,7 @@ def _merge_csv_tokens(current: str, extra: list[str]) -> str:
 
 
 def apply_performance_defaults():
-    selected = _load_selected_runtime_profile()
+    selected = _load_default_runtime_profile()
     sel_floor = selected.get("runtime_total_floor")
     sel_disable = selected.get("disable_governors", [])
     if not isinstance(sel_disable, list):
