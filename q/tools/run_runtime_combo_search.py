@@ -320,14 +320,25 @@ def _canary_qualifies(stable: dict, candidate: dict) -> tuple[bool, list[str]]:
     st_hit = float(stable.get("robust_hit_rate", 0.0))
     st_mdd = abs(float(stable.get("robust_max_drawdown", 0.0)))
     st_score = float(stable.get("score", st_sh))
-    st_ann_cost = max(0.0, float(stable.get("ann_cost_estimate", 0.0)))
-    st_turn = max(0.0, float(stable.get("mean_turnover", 0.0)))
+    def _opt_nonneg(src: dict, key: str) -> float | None:
+        if key not in src:
+            return None
+        try:
+            v = float(src.get(key))
+        except Exception:
+            return None
+        if not np.isfinite(v):
+            return None
+        return max(0.0, v)
+
+    st_ann_cost = _opt_nonneg(stable, "ann_cost_estimate")
+    st_turn = _opt_nonneg(stable, "mean_turnover")
     ca_sh = float(candidate.get("robust_sharpe", 0.0))
     ca_hit = float(candidate.get("robust_hit_rate", 0.0))
     ca_mdd = abs(float(candidate.get("robust_max_drawdown", 0.0)))
     ca_score = float(candidate.get("score", ca_sh))
-    ca_ann_cost = max(0.0, float(candidate.get("ann_cost_estimate", 0.0)))
-    ca_turn = max(0.0, float(candidate.get("mean_turnover", 0.0)))
+    ca_ann_cost = _opt_nonneg(candidate, "ann_cost_estimate")
+    ca_turn = _opt_nonneg(candidate, "mean_turnover")
     sh_delta = float(ca_sh - st_sh)
     score_delta = float(ca_score - st_score)
 
@@ -339,9 +350,9 @@ def _canary_qualifies(stable: dict, candidate: dict) -> tuple[bool, list[str]]:
         reasons.append(f"hit_drop>{max_hit_drop:.4f} ({st_hit - ca_hit:.4f})")
     if ca_mdd > (st_mdd + max_mdd_worsen):
         reasons.append(f"mdd_worsen>{max_mdd_worsen:.3f} ({ca_mdd - st_mdd:.3f})")
-    if ca_ann_cost > (st_ann_cost + max_ann_cost_worsen):
+    if (st_ann_cost is not None) and (ca_ann_cost is not None) and (ca_ann_cost > (st_ann_cost + max_ann_cost_worsen)):
         reasons.append(f"ann_cost_worsen>{max_ann_cost_worsen:.4f} ({ca_ann_cost - st_ann_cost:.4f})")
-    if ca_turn > (st_turn + max_turnover_worsen):
+    if (st_turn is not None) and (ca_turn is not None) and (ca_turn > (st_turn + max_turnover_worsen)):
         reasons.append(f"turnover_worsen>{max_turnover_worsen:.4f} ({ca_turn - st_turn:.4f})")
     if not bool(candidate.get("promotion_ok", False)):
         reasons.append("promotion_not_ok")

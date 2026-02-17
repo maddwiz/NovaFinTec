@@ -264,3 +264,29 @@ def test_canary_rejects_large_cost_worsening(monkeypatch):
     ok, reasons = rcs._canary_qualifies(stable, candidate)
     assert ok is False
     assert any("ann_cost_worsen" in str(r) for r in reasons)
+
+
+def test_canary_ignores_cost_worsen_when_stable_missing_cost_fields(monkeypatch):
+    monkeypatch.setenv("Q_RUNTIME_CANARY_MIN_SHARPE_DELTA", "0.01")
+    monkeypatch.setenv("Q_RUNTIME_CANARY_MIN_SCORE_DELTA", "0.01")
+    stable = {
+        "robust_sharpe": 1.50,
+        "robust_hit_rate": 0.49,
+        "robust_max_drawdown": -0.04,
+        "score": 1.51,
+        # intentionally missing ann_cost_estimate / mean_turnover
+    }
+    candidate = {
+        "robust_sharpe": 1.55,
+        "robust_hit_rate": 0.49,
+        "robust_max_drawdown": -0.04,
+        "score": 1.56,
+        "ann_cost_estimate": 0.02,
+        "mean_turnover": 0.08,
+        "promotion_ok": True,
+        "cost_stress_ok": True,
+        "health_ok": True,
+    }
+    ok, reasons = rcs._canary_qualifies(stable, candidate)
+    assert ok is True
+    assert reasons == []
