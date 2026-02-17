@@ -278,6 +278,10 @@ if __name__ == "__main__":
     # Promotion gate artifact for AION overlay safety.
     ok, rc = run_script("tools/run_q_promotion_gate.py")
     if not ok and rc is not None: failures.append({"step": "tools/run_q_promotion_gate.py", "code": rc})
+    # Optional hit-rate recovery tuner (heavier search; disabled by default).
+    if str(os.getenv("Q_ENABLE_HIT_RECOVERY_TUNE", "0")).strip().lower() in {"1", "true", "yes", "on"}:
+        ok, rc = run_script("tools/run_hit_rate_recovery_tune.py")
+        if not ok and rc is not None: failures.append({"step": "tools/run_hit_rate_recovery_tune.py", "code": rc})
     # Apply execution constraints for live realism
     ok, rc = run_script("tools/run_execution_constraints.py", ["--replace-final"])
     if not ok and rc is not None: failures.append({"step": "tools/run_execution_constraints.py", "code": rc})

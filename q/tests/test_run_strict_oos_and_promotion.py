@@ -36,6 +36,33 @@ def test_q_promotion_gate_pass(tmp_path: Path, monkeypatch):
     assert out["reasons"] == []
 
 
+def test_q_promotion_gate_prefers_robust_when_available(tmp_path: Path, monkeypatch):
+    runs = tmp_path / "runs_plus"
+    runs.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "metrics_oos_net": {
+            "sharpe": 1.4,
+            "hit_rate": 0.52,
+            "max_drawdown": -0.03,
+            "n": 400,
+        },
+        "metrics_oos_robust": {
+            "sharpe": 1.1,
+            "hit_rate": 0.50,
+            "max_drawdown": -0.04,
+            "n": 300,
+        },
+    }
+    (runs / "strict_oos_validation.json").write_text(json.dumps(payload), encoding="utf-8")
+    monkeypatch.setattr(pg, "ROOT", tmp_path)
+    monkeypatch.setattr(pg, "RUNS", runs)
+    rc = pg.main()
+    assert rc == 0
+    out = json.loads((runs / "q_promotion_gate.json").read_text(encoding="utf-8"))
+    assert out["ok"] is True
+    assert out["metric_source"] == "metrics_oos_robust"
+
+
 def test_q_promotion_gate_fail(tmp_path: Path, monkeypatch):
     runs = tmp_path / "runs_plus"
     runs.mkdir(parents=True, exist_ok=True)
@@ -55,3 +82,16 @@ def test_q_promotion_gate_fail(tmp_path: Path, monkeypatch):
     out = json.loads((runs / "q_promotion_gate.json").read_text(encoding="utf-8"))
     assert out["ok"] is False
     assert len(out["reasons"]) >= 1
+
+
+def test_robust_oos_aggregate_shapes():
+    ms = [
+        {"sharpe": 1.0, "hit_rate": 0.49, "max_drawdown": -0.05, "n": 300},
+        {"sharpe": 1.4, "hit_rate": 0.51, "max_drawdown": -0.03, "n": 280},
+        {"sharpe": 0.8, "hit_rate": 0.47, "max_drawdown": -0.06, "n": 260},
+    ]
+    out = so._aggregate_robust(ms)
+    assert out["num_splits"] == 3
+    assert out["n"] == 260
+    assert out["sharpe"] > 0.0
+    assert out["hit_rate"] > 0.0

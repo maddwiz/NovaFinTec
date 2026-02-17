@@ -93,19 +93,30 @@ def _metrics() -> dict:
 def _strict_oos_metrics() -> dict:
     p = RUNS / "strict_oos_validation.json"
     if not p.exists():
-        return {"sharpe": 0.0, "hit_rate": 0.0, "max_drawdown": 0.0, "n": 0}
+        return {"sharpe": 0.0, "hit_rate": 0.0, "max_drawdown": 0.0, "n": 0, "source": "missing"}
     try:
         obj = json.loads(p.read_text(encoding="utf-8"))
     except Exception:
-        return {"sharpe": 0.0, "hit_rate": 0.0, "max_drawdown": 0.0, "n": 0}
-    m = obj.get("metrics_oos_net", {}) if isinstance(obj, dict) else {}
+        return {"sharpe": 0.0, "hit_rate": 0.0, "max_drawdown": 0.0, "n": 0, "source": "error"}
+    mode = str(os.getenv("Q_SWEEP_OOS_MODE", "robust_then_single")).strip().lower()
+    net = obj.get("metrics_oos_net", {}) if isinstance(obj, dict) and isinstance(obj.get("metrics_oos_net"), dict) else {}
+    robust = obj.get("metrics_oos_robust", {}) if isinstance(obj, dict) and isinstance(obj.get("metrics_oos_robust"), dict) else {}
+    if mode == "single":
+        src, m = "metrics_oos_net", net
+    elif mode == "robust":
+        src, m = "metrics_oos_robust", robust
+    elif robust:
+        src, m = "metrics_oos_robust", robust
+    else:
+        src, m = "metrics_oos_net", net
     if not isinstance(m, dict):
-        return {"sharpe": 0.0, "hit_rate": 0.0, "max_drawdown": 0.0, "n": 0}
+        return {"sharpe": 0.0, "hit_rate": 0.0, "max_drawdown": 0.0, "n": 0, "source": src}
     return {
         "sharpe": float(m.get("sharpe", 0.0)),
         "hit_rate": float(m.get("hit_rate", 0.0)),
         "max_drawdown": float(m.get("max_drawdown", 0.0)),
         "n": int(m.get("n", 0)),
+        "source": src,
     }
 
 
@@ -228,6 +239,7 @@ def _csv_write(rows: list[dict], outp: Path) -> None:
         "oos_hit_rate",
         "oos_max_drawdown",
         "oos_n",
+        "oos_source",
         "turnover_mean",
         "gross_mean",
         "score",
@@ -288,6 +300,7 @@ def _evaluate_candidate(params: dict, base: dict, rows: list[dict]) -> tuple[flo
         "oos_hit_rate": float(oos["hit_rate"]),
         "oos_max_drawdown": float(oos["max_drawdown"]),
         "oos_n": int(oos["n"]),
+        "oos_source": str(oos.get("source", "")),
     }
     score, detail = _objective(m, base)
     row = _row_from_params(params, m, score, detail)
@@ -552,6 +565,7 @@ def main() -> int:
             f"OOS_Sharpe={base['oos_sharpe']:.3f}",
             f"OOS_Hit={base['oos_hit_rate']:.3f}",
             f"OOS_MaxDD={base['oos_max_drawdown']:.3f}",
+            f"OOS_Source={base.get('oos_source','')}",
         )
         print(
             "Best:",
@@ -561,6 +575,7 @@ def main() -> int:
             f"OOS_Sharpe={best_row['oos_sharpe']:.3f}",
             f"OOS_Hit={best_row['oos_hit_rate']:.3f}",
             f"OOS_MaxDD={best_row['oos_max_drawdown']:.3f}",
+            f"OOS_Source={best_row.get('oos_source','')}",
             f"Score={best_row['score']:.3f}",
         )
         print(
@@ -571,6 +586,7 @@ def main() -> int:
             f"OOS_Sharpe={applied_oos['sharpe']:.3f}",
             f"OOS_Hit={applied_oos['hit_rate']:.3f}",
             f"OOS_MaxDD={applied_oos['max_drawdown']:.3f}",
+            f"OOS_Source={applied_oos.get('source','')}",
         )
         return 0
     finally:

@@ -43,6 +43,19 @@ def _append_card(title: str, html: str) -> None:
         p.write_text(txt, encoding="utf-8")
 
 
+def _select_metrics(val: dict, mode: str) -> tuple[str, dict]:
+    net = val.get("metrics_oos_net", {}) if isinstance(val.get("metrics_oos_net"), dict) else {}
+    robust = val.get("metrics_oos_robust", {}) if isinstance(val.get("metrics_oos_robust"), dict) else {}
+    m = str(mode).strip().lower()
+    if m == "robust":
+        return "metrics_oos_robust", robust
+    if m == "single":
+        return "metrics_oos_net", net
+    if robust:
+        return "metrics_oos_robust", robust
+    return "metrics_oos_net", net
+
+
 def main() -> int:
     src = RUNS / "strict_oos_validation.json"
     val = _load_json(src)
@@ -58,7 +71,8 @@ def main() -> int:
         print("Promotion gate: FAIL (missing strict OOS validation)")
         return 0
 
-    m = val.get("metrics_oos_net", {}) if isinstance(val.get("metrics_oos_net"), dict) else {}
+    metric_mode = str(os.getenv("Q_PROMOTION_OOS_MODE", "robust_then_single")).strip().lower()
+    metric_source, m = _select_metrics(val, metric_mode)
     sharpe = float(m.get("sharpe", 0.0))
     hit = float(m.get("hit_rate", 0.0))
     mdd = float(m.get("max_drawdown", 0.0))
@@ -83,6 +97,8 @@ def main() -> int:
     out = {
         "ok": bool(ok),
         "source": str(src),
+        "metric_source": metric_source,
+        "metric_mode": metric_mode,
         "thresholds": {
             "min_oos_sharpe": float(min_sharpe),
             "min_oos_hit": float(min_hit),
@@ -103,7 +119,8 @@ def main() -> int:
     color = "#1b8f3a" if ok else "#a91d2b"
     html = (
         f"<p><b style='color:{color}'>Promotion {badge}</b> "
-        f"(OOS Sharpe={sharpe:.3f}, Hit={hit:.3f}, MaxDD={mdd:.3f}, N={n}).</p>"
+        f"(OOS Sharpe={sharpe:.3f}, Hit={hit:.3f}, MaxDD={mdd:.3f}, N={n}, "
+        f"source={metric_source}).</p>"
     )
     if reasons:
         html += f"<p>Reasons: {', '.join(reasons)}</p>"

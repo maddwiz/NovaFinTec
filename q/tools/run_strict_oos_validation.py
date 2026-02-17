@@ -85,6 +85,45 @@ def _append_card(title: str, html: str) -> None:
         p.write_text(txt, encoding="utf-8")
 
 
+def _build_split_index(T: int, train_frac: float, min_train: int, min_test: int) -> int:
+    split = max(int(min_train), int(T * train_frac))
+    if (T - split) < int(min_test):
+        split = max(int(min_train), T - int(min_test))
+    split = int(np.clip(split, 1, max(1, T - 1)))
+    return split
+
+
+def _robust_splits(T: int, min_train: int, min_test: int, n_splits: int) -> list[int]:
+    lo = int(np.clip(int(min_train), 1, max(1, T - 1)))
+    hi = int(np.clip(T - int(min_test), 1, max(1, T - 1)))
+    if hi < lo:
+        return [int(np.clip(hi, 1, max(1, T - 1)))]
+    ns = int(np.clip(int(n_splits), 1, 16))
+    idx = np.linspace(lo, hi, ns, dtype=int)
+    out = sorted(set(int(np.clip(i, 1, max(1, T - 1))) for i in idx.tolist()))
+    return out if out else [int(np.clip(hi, 1, max(1, T - 1)))]
+
+
+def _aggregate_robust(metrics: list[dict]) -> dict:
+    if not metrics:
+        return _metrics(np.asarray([], float))
+    sh = np.asarray([float(m.get("sharpe", 0.0)) for m in metrics], float)
+    hit = np.asarray([float(m.get("hit_rate", 0.0)) for m in metrics], float)
+    dd_abs = np.asarray([abs(float(m.get("max_drawdown", 0.0))) for m in metrics], float)
+    ns = np.asarray([int(m.get("n", 0)) for m in metrics], int)
+    return {
+        "n": int(np.min(ns)) if ns.size else 0,
+        "sharpe": float(np.median(sh)),
+        "hit_rate": float(np.median(hit)),
+        # Conservative drawdown: 75th percentile of drawdown severity.
+        "max_drawdown": float(-np.quantile(dd_abs, 0.75)),
+        "sharpe_p25": float(np.quantile(sh, 0.25)),
+        "hit_rate_p25": float(np.quantile(hit, 0.25)),
+        "max_drawdown_worst": float(-np.max(dd_abs)),
+        "num_splits": int(len(metrics)),
+    }
+
+
 def main() -> int:
     r = _load_series(RUNS / "daily_returns.csv")
     if r is None:
@@ -96,14 +135,42 @@ def main() -> int:
     min_train = int(np.clip(int(float(os.getenv("Q_STRICT_OOS_MIN_TRAIN", "756"))), 100, 100000))
     min_test = int(np.clip(int(float(os.getenv("Q_STRICT_OOS_MIN_TEST", "252"))), 50, 100000))
 
-    split = max(min_train, int(T * train_frac))
-    if (T - split) < min_test:
-        split = max(min_train, T - min_test)
-    split = int(np.clip(split, 1, max(1, T - 1)))
+    split = _build_split_index(T, train_frac, min_train, min_test)
 
     train = r[:split]
     oos = r[split:]
     np.savetxt(RUNS / "wf_oos_returns.csv", oos, delimiter=",")
+
+    robust_n_splits = int(np.clip(int(float(os.getenv("Q_STRICT_OOS_ROBUST_SPLITS", "5"))), 1, 16))
+    split_ix = _robust_splits(T, min_train=min_train, min_test=min_test, n_splits=robust_n_splits)
+    split_rows = []
+    split_metrics = []
+    for s in split_ix:
+        seg = r[s:]
+        m = _metrics(seg)
+        row = {
+            "split_index": int(s),
+            "train_rows": int(s),
+            "oos_rows": int(len(seg)),
+            "metrics_oos_net": m,
+        }
+        split_rows.append(row)
+        split_metrics.append(m)
+    robust = _aggregate_robust(split_metrics)
+    (RUNS / "strict_oos_splits.json").write_text(
+        json.dumps(
+            {
+                "rows_total": int(T),
+                "min_train": int(min_train),
+                "min_test": int(min_test),
+                "num_splits_requested": int(robust_n_splits),
+                "splits": split_rows,
+                "metrics_oos_robust": robust,
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
 
     gross = _load_series(RUNS / "daily_returns_gross.csv")
     costs = _load_series(RUNS / "daily_costs.csv")
@@ -130,22 +197,32 @@ def main() -> int:
         "metrics_full_net": _metrics(r),
         "metrics_train_net": _metrics(train),
         "metrics_oos_net": _metrics(oos),
+        "metrics_oos_robust": robust,
+        "robust_oos_splits_file": str(RUNS / "strict_oos_splits.json"),
         "cost_context": cost_info,
     }
     (RUNS / "strict_oos_validation.json").write_text(json.dumps(out, indent=2), encoding="utf-8")
 
     m = out["metrics_oos_net"]
+    mr = out["metrics_oos_robust"]
     html = (
         f"<p>Strict OOS net validation: rows={out['oos_rows']}, "
         f"Sharpe={m['sharpe']:.3f}, Hit={m['hit_rate']:.3f}, MaxDD={m['max_drawdown']:.3f}.</p>"
         f"<p>Split: train={out['train_rows']} / oos={out['oos_rows']}.</p>"
+        f"<p>Robust OOS ({mr['num_splits']} splits): Sharpe={mr['sharpe']:.3f}, "
+        f"Hit={mr['hit_rate']:.3f}, MaxDD={mr['max_drawdown']:.3f}.</p>"
     )
     _append_card("Strict OOS Validation ✔", html)
 
     print(f"✅ Wrote {RUNS/'wf_oos_returns.csv'}")
+    print(f"✅ Wrote {RUNS/'strict_oos_splits.json'}")
     print(f"✅ Wrote {RUNS/'strict_oos_validation.json'}")
     print(
         f"OOS net: Sharpe={m['sharpe']:.3f} Hit={m['hit_rate']:.3f} MaxDD={m['max_drawdown']:.3f} N={m['n']}"
+    )
+    print(
+        f"OOS robust: Sharpe={mr['sharpe']:.3f} Hit={mr['hit_rate']:.3f} "
+        f"MaxDD={mr['max_drawdown']:.3f} Splits={mr['num_splits']}"
     )
     return 0
 
