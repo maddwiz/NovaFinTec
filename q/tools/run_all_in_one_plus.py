@@ -131,6 +131,17 @@ def apply_profile_env_defaults():
         print(f"↺ applied runtime defaults from governor profile: {applied}")
 
 
+def _load_selected_runtime_profile() -> dict:
+    p = RUNS / "runtime_profile_selected.json"
+    if not p.exists():
+        return {}
+    try:
+        obj = json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return obj if isinstance(obj, dict) else {}
+
+
 def _merge_csv_tokens(current: str, extra: list[str]) -> str:
     vals = []
     seen = set()
@@ -148,15 +159,32 @@ def _merge_csv_tokens(current: str, extra: list[str]) -> str:
 
 
 def apply_performance_defaults():
+    selected = _load_selected_runtime_profile()
+    sel_floor = selected.get("runtime_total_floor")
+    sel_disable = selected.get("disable_governors", [])
+    if not isinstance(sel_disable, list):
+        sel_disable = []
+
     # Keep runtime floor below over-throttling zone unless explicitly overridden.
+    default_floor = os.getenv("Q_DEFAULT_RUNTIME_TOTAL_FLOOR", "").strip()
+    if not default_floor:
+        if sel_floor is not None:
+            default_floor = str(sel_floor)
+        else:
+            default_floor = "0.18"
     if "Q_RUNTIME_TOTAL_FLOOR" not in os.environ:
         os.environ["Q_RUNTIME_TOTAL_FLOOR"] = str(
-            float(np.clip(float(os.getenv("Q_DEFAULT_RUNTIME_TOTAL_FLOOR", "0.18")), 0.0, 1.0))
+            float(np.clip(float(default_floor), 0.0, 1.0))
         )
     # Performance defaults discovered from constrained search; users can
     # override by setting Q_DEFAULT_DISABLE_GOVERNORS or Q_DISABLE_GOVERNORS.
-    defaults = str(os.getenv("Q_DEFAULT_DISABLE_GOVERNORS", "global_governor,heartbeat_scaler")).strip()
-    default_tokens = [t for t in defaults.split(",") if str(t).strip()]
+    defaults = str(os.getenv("Q_DEFAULT_DISABLE_GOVERNORS", "")).strip()
+    if defaults:
+        default_tokens = [t for t in defaults.split(",") if str(t).strip()]
+    elif sel_disable:
+        default_tokens = [str(t).strip().lower() for t in sel_disable if str(t).strip()]
+    else:
+        default_tokens = ["global_governor", "heartbeat_scaler"]
     if default_tokens:
         cur = os.getenv("Q_DISABLE_GOVERNORS", "")
         os.environ["Q_DISABLE_GOVERNORS"] = _merge_csv_tokens(cur, default_tokens)

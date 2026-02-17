@@ -105,3 +105,21 @@ def test_apply_performance_defaults_merges_user_disables(monkeypatch):
     got = os.environ.get("Q_DISABLE_GOVERNORS", "")
     assert "quality_governor" in got
     assert "global_governor" in got
+
+
+def test_apply_performance_defaults_uses_selected_profile(monkeypatch, tmp_path: Path):
+    runs = tmp_path / "runs_plus"
+    runs.mkdir(parents=True, exist_ok=True)
+    (runs / "runtime_profile_selected.json").write_text(
+        '{"runtime_total_floor":0.16,"disable_governors":["x","y"]}',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(raip, "RUNS", runs)
+    monkeypatch.delenv("Q_RUNTIME_TOTAL_FLOOR", raising=False)
+    monkeypatch.delenv("Q_DEFAULT_RUNTIME_TOTAL_FLOOR", raising=False)
+    monkeypatch.delenv("Q_DEFAULT_DISABLE_GOVERNORS", raising=False)
+    monkeypatch.delenv("Q_DISABLE_GOVERNORS", raising=False)
+    raip.apply_performance_defaults()
+    assert os.environ.get("Q_RUNTIME_TOTAL_FLOOR") == "0.16"
+    got = os.environ.get("Q_DISABLE_GOVERNORS", "")
+    assert "x" in got and "y" in got
