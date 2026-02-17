@@ -36,7 +36,7 @@ AION_MODE=brain AION_TASK=trade ./run_aion.sh
 AION now supports two runtime strategy modes:
 
 - `AION_TRADING_MODE=long_term` (default): slower cadence, wider targets, longer holds.
-- `AION_TRADING_MODE=day_skimmer`: 1-minute bar engine for intraday pattern skimming, tighter exits, higher trade cadence.
+- `AION_TRADING_MODE=day_skimmer`: 1-minute bar engine for intraday pattern skimming, opening-range + VWAP + volume entry confirmation, tighter exits, higher trade cadence.
 
 Examples:
 
@@ -77,6 +77,9 @@ Useful tuning env vars:
 - `AION_VWAP_LEN` (rolling VWAP confirmation window)
 - `AION_BREAKOUT_RETEST_LOOKBACK`, `AION_BREAKOUT_RETEST_TOL`
 - `AION_DIVERGENCE_LOOKBACK`, `AION_DIVERGENCE_PRICE_MOVE_MIN`, `AION_DIVERGENCE_RSI_DELTA_MIN`, `AION_DIVERGENCE_OBV_DELTA_MIN`
+- Minute-chart execution gate:
+- `AION_INTRADAY_CONFIRM_ENABLED`, `AION_INTRADAY_MIN_ALIGNMENT_SCORE`
+- `AION_INTRADAY_OPEN_RANGE_MIN`, `AION_INTRADAY_BREAK_TOL`, `AION_INTRADAY_VOLUME_REL_MIN`, `AION_INTRADAY_RECENT_BARS`
 - `AION_REGIME_TH_SHIFT_TRENDING`, `AION_REGIME_TH_SHIFT_SQUEEZE`, `AION_REGIME_TH_SHIFT_CALM_RANGE`, `AION_REGIME_TH_SHIFT_HIGH_VOL_CHOP`
 - `AION_REGIME_OPP_EXIT_SHIFT_TRENDING`, `AION_REGIME_OPP_EXIT_SHIFT_SQUEEZE`, `AION_REGIME_OPP_EXIT_SHIFT_CALM_RANGE`, `AION_REGIME_OPP_EXIT_SHIFT_HIGH_VOL_CHOP`
 - `AION_REGIME_MARGIN_SHIFT_TRENDING`, `AION_REGIME_MARGIN_SHIFT_SQUEEZE`, `AION_REGIME_MARGIN_SHIFT_CALM_RANGE`, `AION_REGIME_MARGIN_SHIFT_HIGH_VOL_CHOP`

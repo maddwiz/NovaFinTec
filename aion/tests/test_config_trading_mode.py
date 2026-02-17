@@ -24,6 +24,8 @@ def test_day_skimmer_mode_applies_intraday_defaults(monkeypatch, tmp_path):
     assert int(cfg.LOOP_SECONDS) == 12
     assert int(cfg.MAX_TRADES_PER_DAY) == 30
     assert int(cfg.MAX_HOLD_CYCLES) == 6
+    assert cfg.INTRADAY_CONFIRM_ENABLED is True
+    assert float(cfg.INTRADAY_MIN_ALIGNMENT_SCORE) >= 0.60
 
 
 def test_long_term_mode_respects_explicit_env_overrides(monkeypatch, tmp_path):
@@ -36,3 +38,4 @@ def test_long_term_mode_respects_explicit_env_overrides(monkeypatch, tmp_path):
     assert cfg.TRADING_MODE == "long_term"
     assert cfg.HIST_BAR_SIZE == "15 mins"
     assert int(cfg.LOOP_SECONDS) == 45
+    assert cfg.INTRADAY_CONFIRM_ENABLED is False

@@ -646,6 +646,170 @@ def score_signal(row: pd.Series, price: float, high: float, low: float, cfg):
     }
 
 
+def _bar_minutes_from_setting(bar_size: str) -> int:
+    raw = str(bar_size or "").strip().lower()
+    if not raw:
+        return 1
+    parts = raw.split()
+    n = 1
+    if parts:
+        try:
+            n = max(1, int(float(parts[0])))
+        except Exception:
+            n = 1
+    if "hour" in raw:
+        return max(1, n * 60)
+    if "sec" in raw:
+        return max(1, int(np.ceil(n / 60.0)))
+    return max(1, n)
+
+
+def intraday_entry_alignment(df_intraday: pd.DataFrame, side: str, cfg):
+    """
+    Minute-chart execution gate for day skimmer mode.
+    Scores opening-range structure + VWAP position + volume pressure + short-term momentum.
+    """
+    if df_intraday is None or df_intraday.empty:
+        return 0.5, ["No intraday bars"]
+    side_u = str(side or "").strip().upper()
+    if side_u not in {"LONG", "SHORT"}:
+        return 0.5, ["No side"]
+
+    work = df_intraday.copy()
+    idx = None
+    if "date" in work.columns:
+        idx = pd.to_datetime(work["date"], errors="coerce")
+    else:
+        idx = pd.to_datetime(work.index, errors="coerce")
+
+    if idx is not None and not idx.isna().all():
+        mask = ~idx.isna()
+        work = work.loc[mask].copy()
+        work.index = pd.DatetimeIndex(idx[mask])
+        work = work.sort_index()
+
+    for col in ["open", "high", "low", "close"]:
+        if col not in work.columns:
+            return 0.5, [f"Missing intraday column: {col}"]
+        work[col] = pd.to_numeric(work[col], errors="coerce")
+    work = work.dropna(subset=["high", "low", "close"])
+    if work.empty:
+        return 0.5, ["No usable intraday OHLC bars"]
+
+    bar_minutes = _bar_minutes_from_setting(getattr(cfg, "HIST_BAR_SIZE", "1 min"))
+    open_range_min = int(max(5, getattr(cfg, "INTRADAY_OPEN_RANGE_MIN", 15)))
+    open_bars = max(2, int(round(open_range_min / max(1, bar_minutes))))
+    recent_bars = int(max(3, getattr(cfg, "INTRADAY_RECENT_BARS", 6)))
+    min_rows = max(open_bars + recent_bars + 2, 12)
+
+    if isinstance(work.index, pd.DatetimeIndex) and len(work.index) > 0:
+        latest_day = work.index[-1].date()
+        sess = work.loc[work.index.date == latest_day].copy()
+    else:
+        sess = work.copy()
+    if len(sess) < min_rows:
+        sess = work.iloc[-min(len(work), max(min_rows, 36)) :].copy()
+    if len(sess) < min_rows:
+        return 0.5, ["Insufficient intraday session bars"]
+
+    tol = float(max(1e-4, getattr(cfg, "INTRADAY_BREAK_TOL", 0.0012)))
+    vol_rel_min = float(max(1.0, getattr(cfg, "INTRADAY_VOLUME_REL_MIN", 1.12)))
+
+    opening = sess.iloc[:open_bars]
+    orb_high = float(opening["high"].max())
+    orb_low = float(opening["low"].min())
+    close_now = float(sess["close"].iloc[-1])
+    high_recent = float(sess["high"].iloc[-recent_bars:].max())
+    low_recent = float(sess["low"].iloc[-recent_bars:].min())
+
+    if "vwap" in sess.columns:
+        vwap_now = float(pd.to_numeric(sess["vwap"], errors="coerce").iloc[-1])
+    else:
+        vwap_now = np.nan
+    if not np.isfinite(vwap_now):
+        if "volume" in sess.columns:
+            vol = pd.to_numeric(sess["volume"], errors="coerce").fillna(0.0)
+            tp = (sess["high"] + sess["low"] + sess["close"]) / 3.0
+            cvol = vol.cumsum()
+            if float(cvol.iloc[-1]) > 0:
+                vwap_now = float((tp * vol).cumsum().iloc[-1] / (cvol.iloc[-1] + 1e-9))
+            else:
+                vwap_now = float(tp.rolling(20, min_periods=1).mean().iloc[-1])
+        else:
+            vwap_now = close_now
+
+    vol_rel = 1.0
+    if "volume" in sess.columns:
+        vol_s = pd.to_numeric(sess["volume"], errors="coerce").fillna(0.0)
+        med = float(vol_s.median())
+        if med > 0:
+            vol_rel = float(vol_s.iloc[-1] / med)
+
+    mom_ref_idx = max(0, len(sess) - recent_bars - 1)
+    mom_ref = float(sess["close"].iloc[mom_ref_idx])
+    momentum = (close_now - mom_ref) / (abs(mom_ref) + 1e-9)
+
+    score = 0.32
+    reasons = []
+
+    if side_u == "LONG":
+        cond_or = (close_now >= orb_high * (1.0 + tol)) or (
+            high_recent >= orb_high * (1.0 + tol) and close_now >= orb_high * (1.0 - 0.5 * tol)
+        )
+        cond_vwap = close_now >= vwap_now
+        cond_vol = vol_rel >= vol_rel_min
+        cond_mom = momentum >= 0.0
+
+        if cond_or:
+            score += 0.30
+            reasons.append("Opening-range breakout aligned")
+        else:
+            reasons.append("No opening-range breakout confirmation")
+        if cond_vwap:
+            score += 0.20
+            reasons.append("Price holding above VWAP")
+        else:
+            reasons.append("Price below VWAP")
+        if cond_vol:
+            score += 0.12
+            reasons.append("Volume expansion confirmed")
+        if cond_mom:
+            score += 0.10
+            reasons.append("Short-term momentum positive")
+        if cond_or and cond_vwap and cond_vol:
+            score += 0.14
+            reasons.append("Breakout/VWAP/volume confluence")
+    else:
+        cond_or = (close_now <= orb_low * (1.0 - tol)) or (
+            low_recent <= orb_low * (1.0 - tol) and close_now <= orb_low * (1.0 + 0.5 * tol)
+        )
+        cond_vwap = close_now <= vwap_now
+        cond_vol = vol_rel >= vol_rel_min
+        cond_mom = momentum <= 0.0
+
+        if cond_or:
+            score += 0.30
+            reasons.append("Opening-range breakdown aligned")
+        else:
+            reasons.append("No opening-range breakdown confirmation")
+        if cond_vwap:
+            score += 0.20
+            reasons.append("Price holding below VWAP")
+        else:
+            reasons.append("Price above VWAP")
+        if cond_vol:
+            score += 0.12
+            reasons.append("Volume expansion confirmed")
+        if cond_mom:
+            score += 0.10
+            reasons.append("Short-term momentum negative")
+        if cond_or and cond_vwap and cond_vol:
+            score += 0.14
+            reasons.append("Breakdown/VWAP/volume confluence")
+
+    return _clamp01(score), reasons
+
+
 def multi_timeframe_alignment(df_1h: pd.DataFrame, df_4h: pd.DataFrame, side: str, cfg):
     if df_1h is None or df_4h is None or df_1h.empty or df_4h.empty:
         return 0.5, ["No MTF data"]

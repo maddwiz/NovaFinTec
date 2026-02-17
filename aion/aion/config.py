@@ -157,6 +157,14 @@ def _apply_aion_preset_defaults():
         "AION_PARTIAL_TAKE_R",
         "AION_MAX_HOLD_CYCLES",
         "AION_MTF_CONFIRM_ENABLED",
+        "AION_INTRADAY_CONFIRM_ENABLED",
+        "AION_INTRADAY_MIN_ALIGNMENT_SCORE",
+        "AION_INTRADAY_OPEN_RANGE_MIN",
+        "AION_INTRADAY_BREAK_TOL",
+        "AION_INTRADAY_VOLUME_REL_MIN",
+        "AION_INTRADAY_RECENT_BARS",
+        "AION_INTRADAY_CONF_BASE",
+        "AION_INTRADAY_CONF_GAIN",
     }
     for k, v in env_map.items():
         if explicit_mode and (k in mode_sensitive):
@@ -215,6 +223,16 @@ MTF_1H_DURATION = os.getenv("AION_MTF_1H_DURATION", "20 D")
 MTF_4H_BAR = os.getenv("AION_MTF_4H_BAR", "4 hours")
 MTF_4H_DURATION = os.getenv("AION_MTF_4H_DURATION", "90 D")
 MTF_MIN_ALIGNMENT_SCORE = float(os.getenv("AION_MTF_MIN_ALIGNMENT_SCORE", "0.58"))
+
+# Intraday minute-chart confirmation (opening range + VWAP + volume).
+INTRADAY_CONFIRM_ENABLED = _bool_env("AION_INTRADAY_CONFIRM_ENABLED", bool(_mode_default(False, True)))
+INTRADAY_MIN_ALIGNMENT_SCORE = float(os.getenv("AION_INTRADAY_MIN_ALIGNMENT_SCORE", str(_mode_default(0.0, 0.60))))
+INTRADAY_OPEN_RANGE_MIN = int(os.getenv("AION_INTRADAY_OPEN_RANGE_MIN", "15"))
+INTRADAY_BREAK_TOL = float(os.getenv("AION_INTRADAY_BREAK_TOL", "0.0012"))
+INTRADAY_VOLUME_REL_MIN = float(os.getenv("AION_INTRADAY_VOLUME_REL_MIN", "1.12"))
+INTRADAY_RECENT_BARS = int(os.getenv("AION_INTRADAY_RECENT_BARS", "6"))
+INTRADAY_CONF_BASE = float(os.getenv("AION_INTRADAY_CONF_BASE", "0.68"))
+INTRADAY_CONF_GAIN = float(os.getenv("AION_INTRADAY_CONF_GAIN", "0.42"))
 
 EQUITY_START = float(os.getenv("AION_EQUITY_START", "5000"))
 RISK_PER_TRADE = float(os.getenv("AION_RISK_PER_TRADE", str(_mode_default(0.02, 0.008))))

@@ -8,6 +8,7 @@ from ..brain.signals import (
     build_trade_signal,
     compute_features,
     confidence_tag,
+    intraday_entry_alignment,
     multi_timeframe_alignment,
     opposite_confidence,
 )
@@ -1862,9 +1863,24 @@ def main() -> int:
                         external=ext_sig,
                     )
                     base_conf = float(signal.get("confidence", 0.0))
+                    intraday_score = 1.0
+                    intraday_reasons = []
                     mtf_score = 1.0
                     mtf_reasons = []
                     meta_prob = 1.0
+
+                    if signal["side"] and cfg.INTRADAY_CONFIRM_ENABLED:
+                        intraday_score, intraday_reasons = intraday_entry_alignment(feats, signal["side"], cfg)
+                        if intraday_score < float(cfg.INTRADAY_MIN_ALIGNMENT_SCORE):
+                            signal["reasons"].append(f"Intraday blocked ({intraday_score:.2f})")
+                            signal["reasons"].extend(intraday_reasons)
+                            signal["side"] = None
+                        else:
+                            mult = float(cfg.INTRADAY_CONF_BASE) + float(cfg.INTRADAY_CONF_GAIN) * float(intraday_score)
+                            signal["confidence"] = min(1.0, base_conf * max(0.4, mult))
+                            signal["reasons"].append(f"Intraday align {intraday_score:.2f}")
+                            signal["reasons"].extend(intraday_reasons)
+                            base_conf = float(signal.get("confidence", base_conf))
 
                     if signal["side"] and cfg.MTF_CONFIRM_ENABLED:
                         df_1h = hist_bars_cached(
