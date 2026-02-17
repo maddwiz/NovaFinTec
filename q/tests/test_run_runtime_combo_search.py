@@ -148,3 +148,49 @@ def test_base_runtime_env_uses_friction_calibration(monkeypatch, tmp_path: Path)
     env = rcs._base_runtime_env()
     assert env.get("Q_COST_BASE_BPS") == "9.1"
     assert env.get("Q_COST_VOL_SCALED_BPS") == "1.7"
+
+
+def test_canary_qualifies_on_score_delta_when_sharpe_delta_small(monkeypatch):
+    monkeypatch.setenv("Q_RUNTIME_CANARY_MIN_SHARPE_DELTA", "0.02")
+    monkeypatch.setenv("Q_RUNTIME_CANARY_MIN_SCORE_DELTA", "0.01")
+    stable = {
+        "robust_sharpe": 1.50,
+        "robust_hit_rate": 0.49,
+        "robust_max_drawdown": -0.040,
+        "score": 1.55,
+    }
+    candidate = {
+        "robust_sharpe": 1.515,  # below sharpe delta gate
+        "robust_hit_rate": 0.49,
+        "robust_max_drawdown": -0.040,
+        "score": 1.565,  # meets score delta gate
+        "promotion_ok": True,
+        "cost_stress_ok": True,
+        "health_ok": True,
+    }
+    ok, reasons = rcs._canary_qualifies(stable, candidate)
+    assert ok is True
+    assert reasons == []
+
+
+def test_canary_rejects_when_both_sharpe_and_score_deltas_low(monkeypatch):
+    monkeypatch.setenv("Q_RUNTIME_CANARY_MIN_SHARPE_DELTA", "0.02")
+    monkeypatch.setenv("Q_RUNTIME_CANARY_MIN_SCORE_DELTA", "0.01")
+    stable = {
+        "robust_sharpe": 1.50,
+        "robust_hit_rate": 0.49,
+        "robust_max_drawdown": -0.040,
+        "score": 1.55,
+    }
+    candidate = {
+        "robust_sharpe": 1.51,
+        "robust_hit_rate": 0.49,
+        "robust_max_drawdown": -0.040,
+        "score": 1.556,
+        "promotion_ok": True,
+        "cost_stress_ok": True,
+        "health_ok": True,
+    }
+    ok, reasons = rcs._canary_qualifies(stable, candidate)
+    assert ok is False
+    assert any("delta_below_thresholds" in str(r) for r in reasons)

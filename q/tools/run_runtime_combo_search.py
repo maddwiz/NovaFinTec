@@ -195,18 +195,25 @@ def _remove_profile(name: str) -> None:
 def _canary_qualifies(stable: dict, candidate: dict) -> tuple[bool, list[str]]:
     reasons = []
     min_sh_delta = float(np.clip(float(os.getenv("Q_RUNTIME_CANARY_MIN_SHARPE_DELTA", "0.02")), 0.0, 2.0))
+    min_score_delta = float(np.clip(float(os.getenv("Q_RUNTIME_CANARY_MIN_SCORE_DELTA", "0.015")), 0.0, 2.0))
     max_hit_drop = float(np.clip(float(os.getenv("Q_RUNTIME_CANARY_MAX_HIT_DROP", "0.0025")), 0.0, 0.10))
     max_mdd_worsen = float(np.clip(float(os.getenv("Q_RUNTIME_CANARY_MAX_ABS_MDD_WORSEN", "0.005")), 0.0, 0.50))
 
     st_sh = float(stable.get("robust_sharpe", 0.0))
     st_hit = float(stable.get("robust_hit_rate", 0.0))
     st_mdd = abs(float(stable.get("robust_max_drawdown", 0.0)))
+    st_score = float(stable.get("score", st_sh))
     ca_sh = float(candidate.get("robust_sharpe", 0.0))
     ca_hit = float(candidate.get("robust_hit_rate", 0.0))
     ca_mdd = abs(float(candidate.get("robust_max_drawdown", 0.0)))
+    ca_score = float(candidate.get("score", ca_sh))
+    sh_delta = float(ca_sh - st_sh)
+    score_delta = float(ca_score - st_score)
 
-    if ca_sh < (st_sh + min_sh_delta):
-        reasons.append(f"sharpe_delta<{min_sh_delta:.3f} ({ca_sh - st_sh:.3f})")
+    if (sh_delta < min_sh_delta) and (score_delta < min_score_delta):
+        reasons.append(
+            f"delta_below_thresholds (sh={sh_delta:.3f}<{min_sh_delta:.3f}, score={score_delta:.3f}<{min_score_delta:.3f})"
+        )
     if ca_hit < (st_hit - max_hit_drop):
         reasons.append(f"hit_drop>{max_hit_drop:.4f} ({st_hit - ca_hit:.4f})")
     if ca_mdd > (st_mdd + max_mdd_worsen):
