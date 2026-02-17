@@ -88,3 +88,43 @@ def test_uncertainty_scalar_reacts_to_shock_and_uncertainty():
     assert float(np.min(s)) >= 0.50 - 1e-9
     assert float(np.max(s)) <= 1.10 + 1e-9
     assert float(np.mean(s[-5:])) < float(np.mean(s[:10]))
+
+
+def test_uncertainty_scalar_macro_shock_blend_penalizes_risk():
+    t = 30
+    conf = np.full(t, 0.8)
+    dgate = np.full(t, 0.9)
+    mprob = np.full(t, 0.8)
+    shock = np.zeros(t)
+    macro = np.zeros(t)
+    macro[-10:] = 1.0
+
+    out_no = uncertainty_sizing.build_uncertainty_scalar(
+        t,
+        conf_cal=conf,
+        conf_raw=conf,
+        disagreement_gate=dgate,
+        meta_exec_prob=mprob,
+        shock_mask=shock,
+        macro_shock=macro,
+        macro_shock_blend=0.0,
+        beta=0.35,
+        shock_penalty=0.25,
+        floor=0.50,
+        ceiling=1.10,
+    )
+    out_yes = uncertainty_sizing.build_uncertainty_scalar(
+        t,
+        conf_cal=conf,
+        conf_raw=conf,
+        disagreement_gate=dgate,
+        meta_exec_prob=mprob,
+        shock_mask=shock,
+        macro_shock=macro,
+        macro_shock_blend=0.8,
+        beta=0.35,
+        shock_penalty=0.25,
+        floor=0.50,
+        ceiling=1.10,
+    )
+    assert float(np.mean(out_yes["scalar"][-10:])) < float(np.mean(out_no["scalar"][-10:]))

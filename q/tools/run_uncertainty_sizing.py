@@ -61,8 +61,10 @@ def build_uncertainty_scalar(
     disagreement_gate: np.ndarray | None,
     meta_exec_prob: np.ndarray | None,
     shock_mask: np.ndarray | None,
+    macro_shock: np.ndarray | None = None,
     beta: float = 0.45,
     shock_penalty: float = 0.20,
+    macro_shock_blend: float = 0.0,
     floor: float = 0.55,
     ceiling: float = 1.10,
 ) -> dict:
@@ -71,6 +73,9 @@ def build_uncertainty_scalar(
     dgate = np.clip(_align(disagreement_gate, T, 0.7), 0.0, 1.0)
     mprob = np.clip(_align(meta_exec_prob, T, 0.5), 0.0, 1.0)
     shock = np.clip(_align(shock_mask, T, 0.0), 0.0, 1.0)
+    mshock = np.clip(_align(macro_shock, T, 0.0), 0.0, 1.0)
+    mblend = float(np.clip(macro_shock_blend, 0.0, 1.0))
+    shock_eff = np.clip((1.0 - mblend) * shock + mblend * mshock, 0.0, 1.0)
 
     meta_unc = 1.0 - (2.0 * np.abs(mprob - 0.5))  # 0 confident, 1 uncertain
     conf = np.clip(0.45 * ccal + 0.20 * craw + 0.20 * dgate + 0.15 * (1.0 - meta_unc), 0.0, 1.0)
@@ -78,12 +83,13 @@ def build_uncertainty_scalar(
 
     b = float(np.clip(beta, 0.0, 1.5))
     sp = float(np.clip(shock_penalty, 0.0, 1.0))
-    scalar = 1.0 - b * unc - sp * shock
+    scalar = 1.0 - b * unc - sp * shock_eff
     scalar = np.clip(scalar, float(floor), float(ceiling))
     return {
         "scalar": scalar.astype(float),
         "confidence": conf.astype(float),
         "uncertainty": unc.astype(float),
+        "shock_effective": shock_eff.astype(float),
     }
 
 
@@ -112,6 +118,7 @@ def main() -> int:
 
     beta = float(np.clip(float(os.getenv("Q_UNCERTAINTY_BETA", "0.45")), 0.0, 1.5))
     shock_pen = float(np.clip(float(os.getenv("Q_UNCERTAINTY_SHOCK_PENALTY", "0.20")), 0.0, 1.0))
+    macro_blend = float(np.clip(float(os.getenv("Q_UNCERTAINTY_MACRO_SHOCK_BLEND", "0.00")), 0.0, 1.0))
     floor = float(np.clip(float(os.getenv("Q_UNCERTAINTY_FLOOR", "0.55")), 0.10, 1.5))
     ceil = float(np.clip(float(os.getenv("Q_UNCERTAINTY_CEIL", "1.10")), floor, 1.8))
 
@@ -122,8 +129,10 @@ def main() -> int:
         disagreement_gate=_load_series(RUNS / "disagreement_gate.csv"),
         meta_exec_prob=_load_series(RUNS / "meta_execution_prob.csv"),
         shock_mask=_load_series(RUNS / "shock_mask.csv"),
+        macro_shock=_load_series(RUNS / "macro_shock_proxy.csv"),
         beta=beta,
         shock_penalty=shock_pen,
+        macro_shock_blend=macro_blend,
         floor=floor,
         ceiling=ceil,
     )
@@ -133,6 +142,7 @@ def main() -> int:
         "rows": int(T),
         "beta": float(beta),
         "shock_penalty": float(shock_pen),
+        "macro_shock_blend": float(macro_blend),
         "floor": float(floor),
         "ceiling": float(ceil),
         "scalar_mean": float(np.mean(out["scalar"])),
@@ -140,6 +150,7 @@ def main() -> int:
         "scalar_max": float(np.max(out["scalar"])),
         "confidence_mean": float(np.mean(out["confidence"])),
         "uncertainty_mean": float(np.mean(out["uncertainty"])),
+        "shock_effective_mean": float(np.mean(out["shock_effective"])),
     }
     (RUNS / "uncertainty_sizing_info.json").write_text(json.dumps(info, indent=2), encoding="utf-8")
 
