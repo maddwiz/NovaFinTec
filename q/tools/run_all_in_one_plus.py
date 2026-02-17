@@ -410,6 +410,9 @@ if __name__ == "__main__":
     # Regime mixture-of-experts governor (trend / mean-reversion / shock specialists).
     ok, rc = run_script("tools/run_regime_moe.py")
     if not ok and rc is not None: failures.append({"step": "tools/run_regime_moe.py", "code": rc})
+    # Capacity/impact proxy guard (position size vs ADV pressure).
+    ok, rc = run_script("tools/run_capacity_impact_guard.py")
+    if not ok and rc is not None: failures.append({"step": "tools/run_capacity_impact_guard.py", "code": rc})
     # Macro/forward-looking proxy guard (VIX term structure, curve, credit stress).
     ok, rc = run_script("tools/run_macro_proxy_guard.py")
     if not ok and rc is not None: failures.append({"step": "tools/run_macro_proxy_guard.py", "code": rc})
