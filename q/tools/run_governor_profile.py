@@ -41,6 +41,34 @@ def _parse_csv(path: Path) -> pd.DataFrame:
     return df if isinstance(df, pd.DataFrame) else pd.DataFrame()
 
 
+def _ablation_map_from_summary(path: Path) -> dict[str, dict]:
+    if not path.exists():
+        return {}
+    try:
+        obj = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    rows = obj.get("rows")
+    if not isinstance(rows, list):
+        return {}
+    out: dict[str, dict] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        sc = str(row.get("scenario", ""))
+        if not sc.startswith("drop_"):
+            continue
+        name = sc[len("drop_") :].strip().lower()
+        if not name:
+            continue
+        out[name] = {
+            "delta_sharpe": _safe_float(row.get("delta_sharpe_vs_baseline"), None),
+            "delta_hit": _safe_float(row.get("delta_hit_vs_baseline"), None),
+            "delta_maxdd": _safe_float(row.get("delta_maxdd_vs_baseline"), None),
+        }
+    return out
+
+
 def build_governor_profile(
     trace: pd.DataFrame,
     *,
@@ -48,8 +76,13 @@ def build_governor_profile(
     neutral_mean_abs: float = 0.005,
     neutral_active_share: float = 0.10,
     protected: set[str] | None = None,
+    ablation_impacts: dict[str, dict] | None = None,
+    ablation_min_sharpe_gain: float = 0.015,
+    ablation_max_hit_drop: float = 0.003,
+    ablation_max_mdd_worsen: float = 0.003,
 ):
     prot = {str(x).strip().lower() for x in (protected or set()) if str(x).strip()}
+    abl = {str(k).strip().lower(): v for k, v in (ablation_impacts or {}).items() if str(k).strip()}
     if trace.empty:
         return {
             "ok": False,
@@ -82,6 +115,17 @@ def build_governor_profile(
             status = "neutral_redundant"
         else:
             status = "active"
+        impact = abl.get(cname)
+        delta_sh = _safe_float((impact or {}).get("delta_sharpe"), None)
+        delta_hit = _safe_float((impact or {}).get("delta_hit"), None)
+        delta_mdd = _safe_float((impact or {}).get("delta_maxdd"), None)
+        if cname not in prot and impact and (delta_sh is not None) and (delta_hit is not None) and (delta_mdd is not None):
+            if (
+                delta_sh >= float(ablation_min_sharpe_gain)
+                and delta_hit >= -float(ablation_max_hit_drop)
+                and delta_mdd >= -float(ablation_max_mdd_worsen)
+            ):
+                status = "ablation_harmful"
 
         gov_rows.append(
             {
@@ -92,12 +136,23 @@ def build_governor_profile(
                 "max": mx,
                 "mean_abs_dev": mad,
                 "active_share": active,
+                "ablation_delta_sharpe": delta_sh,
+                "ablation_delta_hit": delta_hit,
+                "ablation_delta_maxdd": delta_mdd,
                 "status": status,
             }
         )
 
-    gov_rows = sorted(gov_rows, key=lambda x: (x["status"] != "neutral_redundant", -x["mean_abs_dev"], -x["active_share"]))
-    disable = sorted([r["name"] for r in gov_rows if r.get("status") == "neutral_redundant"])
+    gov_rows = sorted(
+        gov_rows,
+        key=lambda x: (
+            x["status"] not in {"ablation_harmful", "neutral_redundant"},
+            x["status"] != "ablation_harmful",
+            -x["mean_abs_dev"],
+            -x["active_share"],
+        ),
+    )
+    disable = sorted([r["name"] for r in gov_rows if r.get("status") in {"neutral_redundant", "ablation_harmful"}])
 
     rt = None
     if "runtime_total_scalar" in trace.columns:
@@ -125,6 +180,11 @@ def build_governor_profile(
             "min": float(np.min(rtv)),
             "max": float(np.max(rtv)),
         },
+        "ablation_thresholds": {
+            "min_sharpe_gain": float(ablation_min_sharpe_gain),
+            "max_hit_drop": float(ablation_max_hit_drop),
+            "max_mdd_worsen": float(ablation_max_mdd_worsen),
+        },
         "governors": gov_rows,
     }
 
@@ -133,9 +193,13 @@ def parse_args():
     ap = argparse.ArgumentParser()
     ap.add_argument("--trace", default=str(RUNS / "final_governor_trace.csv"))
     ap.add_argument("--out-json", default=str(RUNS / "governor_profile.json"))
+    ap.add_argument("--ablation-json", default=str(RUNS / "governor_ablation.json"))
     ap.add_argument("--eps", type=float, default=0.01)
     ap.add_argument("--neutral-mean-abs", type=float, default=0.005)
     ap.add_argument("--neutral-active-share", type=float, default=0.10)
+    ap.add_argument("--ablation-min-sharpe-gain", type=float, default=0.015)
+    ap.add_argument("--ablation-max-hit-drop", type=float, default=0.003)
+    ap.add_argument("--ablation-max-mdd-worsen", type=float, default=0.003)
     ap.add_argument(
         "--protect",
         default="global_governor,quality_governor,council_gate,turnover_governor,runtime_floor,shock_mask_guard",
@@ -147,9 +211,11 @@ def main():
     args = parse_args()
     trace_path = Path(args.trace)
     out_path = Path(args.out_json)
+    ablation_path = Path(args.ablation_json)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     df = _parse_csv(trace_path)
+    ablation_impacts = _ablation_map_from_summary(ablation_path)
     protected = {s.strip().lower() for s in str(args.protect).split(",") if s.strip()}
     prof = build_governor_profile(
         df,
@@ -157,6 +223,10 @@ def main():
         neutral_mean_abs=float(max(0.0, args.neutral_mean_abs)),
         neutral_active_share=float(np.clip(args.neutral_active_share, 0.0, 1.0)),
         protected=protected,
+        ablation_impacts=ablation_impacts,
+        ablation_min_sharpe_gain=float(max(0.0, args.ablation_min_sharpe_gain)),
+        ablation_max_hit_drop=float(np.clip(args.ablation_max_hit_drop, 0.0, 1.0)),
+        ablation_max_mdd_worsen=float(max(0.0, args.ablation_max_mdd_worsen)),
     )
 
     out_path.write_text(json.dumps(prof, indent=2), encoding="utf-8")
