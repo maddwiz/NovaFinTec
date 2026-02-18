@@ -48,6 +48,20 @@ def _bars_1m(n: int = 120) -> pd.DataFrame:
     )
 
 
+def _frames_for_price(price: float, atr_5m: float = 1.0):
+    idx_1m = pd.date_range("2026-01-06 11:00:00", periods=3, freq="min")
+    bars_1m = pd.DataFrame({"close": [price - 0.1, price, price]}, index=idx_1m)
+
+    idx_5m = pd.date_range("2026-01-06 10:50:00", periods=3, freq="5min")
+    bars_5m = pd.DataFrame({"close": [price - 0.3, price - 0.1, price]}, index=idx_5m)
+    atr = pd.Series([atr_5m, atr_5m, atr_5m], index=idx_5m)
+
+    return {
+        "1m": SimpleNamespace(bars=bars_1m, atr=None),
+        "5m": SimpleNamespace(bars=bars_5m, atr=atr),
+    }
+
+
 def _configure_cfg(monkeypatch, tmp_path):
     monkeypatch.setattr(skl.cfg, "EQUITY_START", 100_000.0, raising=False)
     monkeypatch.setattr(skl.cfg, "SKIMMER_STOP_ATR_MULTIPLE", 1.5, raising=False)
@@ -173,3 +187,79 @@ def test_tick_uses_confluence_no_entry_path(monkeypatch, tmp_path):
     actions = [json.loads(line).get("action") for line in decisions if line.strip()]
     assert "NO_ENTRY" in actions
 
+
+def test_manage_position_takes_partial_profit_then_keeps_remainder(monkeypatch, tmp_path):
+    _configure_cfg(monkeypatch, tmp_path)
+
+    monkeypatch.setattr(skl, "SkimmerWatchlistManager", _WatchlistStub)
+    monkeypatch.setattr(skl, "ExecutionSimulator", _ExecStub)
+    monkeypatch.setattr(skl, "emit_trade_event", lambda *args, **kwargs: None)
+    monkeypatch.setattr(skl, "build_trade_event", lambda **kwargs: kwargs)
+    monkeypatch.setattr(skl, "log_run", lambda *args, **kwargs: None)
+    monkeypatch.setattr(skl, "log_trade", lambda *args, **kwargs: None)
+    monkeypatch.setattr(skl, "log_equity", lambda *args, **kwargs: None)
+
+    loop = skl.SkimmerLoop(skl.cfg)
+    loop.open_trades["AAPL"] = skl.TradeState(
+        symbol="AAPL",
+        side="LONG",
+        entry_price=100.0,
+        entry_qty=10,
+        current_qty=10,
+        risk_distance=2.0,
+        partial_taken=False,
+        highest_since_entry=100.0,
+        lowest_since_entry=100.0,
+        entry_time=pd.Timestamp("2026-01-06T15:00:00Z").to_pydatetime(),
+        stop_price=98.0,
+        r_target_1=102.0,
+    )
+
+    frames = _frames_for_price(price=102.2, atr_5m=1.0)
+    loop._manage_position("AAPL", frames, 102.2)
+
+    assert "AAPL" in loop.open_trades
+    st = loop.open_trades["AAPL"]
+    assert st.partial_taken is True
+    assert st.current_qty == 5
+    assert st.stop_price >= st.entry_price
+
+
+def test_manage_position_trailing_stop_only_after_partial(monkeypatch, tmp_path):
+    _configure_cfg(monkeypatch, tmp_path)
+
+    monkeypatch.setattr(skl, "SkimmerWatchlistManager", _WatchlistStub)
+    monkeypatch.setattr(skl, "ExecutionSimulator", _ExecStub)
+    monkeypatch.setattr(skl, "emit_trade_event", lambda *args, **kwargs: None)
+    monkeypatch.setattr(skl, "build_trade_event", lambda **kwargs: kwargs)
+    monkeypatch.setattr(skl, "log_run", lambda *args, **kwargs: None)
+    monkeypatch.setattr(skl, "log_trade", lambda *args, **kwargs: None)
+    monkeypatch.setattr(skl, "log_equity", lambda *args, **kwargs: None)
+
+    loop = skl.SkimmerLoop(skl.cfg)
+    loop.open_trades["AAPL"] = skl.TradeState(
+        symbol="AAPL",
+        side="LONG",
+        entry_price=100.0,
+        entry_qty=8,
+        current_qty=8,
+        risk_distance=2.0,
+        partial_taken=False,
+        highest_since_entry=103.0,
+        lowest_since_entry=100.0,
+        entry_time=pd.Timestamp("2026-01-06T15:00:00Z").to_pydatetime(),
+        stop_price=95.0,
+        r_target_1=104.0,
+    )
+
+    frames = _frames_for_price(price=100.0, atr_5m=1.0)
+
+    # Before partial is taken, trailing stop must not fire.
+    loop._manage_position("AAPL", frames, 100.0)
+    assert "AAPL" in loop.open_trades
+    assert loop.open_trades["AAPL"].current_qty == 8
+
+    # After partial is marked taken, same price should trigger trailing stop.
+    loop.open_trades["AAPL"].partial_taken = True
+    loop._manage_position("AAPL", frames, 100.0)
+    assert "AAPL" not in loop.open_trades

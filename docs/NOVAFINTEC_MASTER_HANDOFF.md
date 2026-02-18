@@ -14,6 +14,7 @@ NovaSpine integration is wired as optional but active memory/context feedback th
 Implemented and validated:
 - Intraday gate telemetry in AION signals/dashboard.
 - Explicit `day_skimmer` runtime-path coverage: `paper_loop.py` dispatch + `skimmer_loop.py` tick integration tests now enforce bar-engine -> patterns -> confluence -> risk/entry flow.
+- `day_skimmer` position-lifecycle coverage extended in `test_skimmer_loop_integration.py` for partial-profit execution and trailing-stop activation ordering.
 - Canonical decision telemetry + summary refresh in long-term `paper_loop.py` (`trade_decisions.jsonl`, `telemetry_summary.json`).
 - Cross-sectional momentum overlay in Q runtime stack.
 - External untouched holdout protocol (`run_external_holdout_validation.py`) integrated into pipeline.
@@ -26,13 +27,14 @@ Implemented and validated:
 - Local multi-asset bundle ingestion (`ingest_multi_asset_csv_bundle.py`).
 
 Validation status:
-- Latest full local run (`q/tests` + `aion/tests`): `611 passed`.
+- Latest full local run (`q/tests` + `aion/tests`): `613 passed`.
 - Latest targeted run (new governor walk-forward batch): `24 passed`.
 - Latest AION suite run after telemetry wiring: `216 passed`.
 - Latest skimmer wiring run (`test_skimmer_loop_integration.py` + dispatch): `3 passed`.
 - Latest regime-council hardening run (`test_run_regime_council_weights.py`): `6 passed`.
 - Latest council-member stability run (`test_council_member_overlays.py`): `5 passed`.
-- Latest CI-equivalent run (`.github/workflows/ci.yml` command): `541 passed`.
+- Latest skimmer lifecycle run (`test_skimmer_loop_integration.py`): `4 passed`.
+- Latest CI-equivalent run (`.github/workflows/ci.yml` command): `544 passed`.
 - GitHub Actions workflow: `.github/workflows/ci.yml`.
 
 ## 3) Top-Level File Map
