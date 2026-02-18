@@ -1,7 +1,7 @@
 # NovaFinTec Master Handoff
 
-Last updated (UTC): 2026-02-17
-Primary repo root: `/Users/desmondpottle/Documents/New project`
+Last updated (UTC): 2026-02-18
+Primary repo root: `.`
 
 ## 1) What NovaFinTec Is
 NovaFinTec is a two-layer quant stack:
@@ -159,33 +159,33 @@ Published artifacts (`results/`):
 ## 8) Runbooks
 ### Q full cycle
 ```bash
-cd "/Users/desmondpottle/Documents/New project/q"
+cd q
 ../.venv/bin/python tools/run_all_in_one_plus.py
 ```
 
 ### Strict production cycle
 ```bash
-cd "/Users/desmondpottle/Documents/New project/q"
+cd q
 ./tools/run_prod_cycle.sh
 ```
 
 ### AION paper trade + dashboard
 ```bash
-cd "/Users/desmondpottle/Documents/New project/aion"
+cd aion
 nohup env AION_TASK=trade ./run_aion.sh > logs/live_trade.out 2>&1 &
 nohup env AION_TASK=dashboard ./run_aion.sh > logs/dashboard.out 2>&1 &
 ```
 
 ### Multi-asset bundle ingestion (new)
 ```bash
-cd "/Users/desmondpottle/Documents/New project/q"
+cd q
 export Q_MULTI_ASSET_SOURCE_DIR="/absolute/path/to/csv_bundle"
 ../.venv/bin/python tools/ingest_multi_asset_csv_bundle.py
 ```
 
 ### External untouched holdout validation (new)
 ```bash
-cd "/Users/desmondpottle/Documents/New project/q"
+cd q
 ../.venv/bin/python tools/run_external_holdout_validation.py
 ```
 Optional direct returns file:
@@ -235,7 +235,7 @@ Recommended cadence:
 ## 12) Quick Commands for Future Agents
 - Full tests:
 ```bash
-PYTHONPATH="$(pwd)/q:$(pwd)/aion" .venv/bin/python -m pytest -q q/tests aion/tests/test_external_signals_runtime.py aion/tests/test_doctor_external_overlay.py aion/tests/test_dashboard_status.py aion/tests/test_config_external_overlay_path.py aion/tests/test_novaspine_bridge.py aion/tests/test_runtime_risk_caps.py aion/tests/test_risk_policy.py aion/tests/test_ops_guard.py aion/tests/test_promotion_gate.py aion/tests/test_runtime_decision.py aion/tests/test_operator.py aion/tests/test_ib_client.py
+PYTHONPATH="$(pwd)/q:$(pwd)/aion" .venv/bin/python -m pytest -q q/tests aion/tests/test_external_signals_runtime.py aion/tests/test_doctor_external_overlay.py aion/tests/test_dashboard_status.py aion/tests/test_config_external_overlay_path.py aion/tests/test_novaspine_bridge.py aion/tests/test_runtime_risk_caps.py aion/tests/test_risk_policy.py aion/tests/test_ops_guard.py aion/tests/test_promotion_gate.py aion/tests/test_runtime_decision.py aion/tests/test_operator.py aion/tests/test_ib_client.py aion/tests/test_watchlist.py aion/tests/test_backtest_skimmer.py aion/tests/test_telemetry_summary.py aion/tests/test_paper_loop_day_skimmer_dispatch.py aion/tests/test_skimmer_telemetry.py
 ```
 - Compile check:
 ```bash
