@@ -165,6 +165,69 @@ def _run(cmd: list[str], env: dict[str, str]) -> int:
     return int(p.returncode)
 
 
+def _load_series(paths: list[Path]) -> np.ndarray | None:
+    for p in paths:
+        if not p.exists():
+            continue
+        try:
+            a = np.loadtxt(p, delimiter=",")
+        except Exception:
+            try:
+                a = np.loadtxt(p, delimiter=",", skiprows=1)
+            except Exception:
+                continue
+        a = np.asarray(a, float)
+        if a.ndim == 2 and a.shape[1] >= 1:
+            a = a[:, -1]
+        a = np.nan_to_num(a.ravel(), nan=0.0, posinf=0.0, neginf=0.0)
+        if a.size > 0:
+            return a
+    return None
+
+
+def _returns_metrics(r: np.ndarray) -> dict:
+    x = np.asarray(r, float).ravel()
+    x = np.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
+    n = int(x.size)
+    if n <= 0:
+        return {"sharpe": 0.0, "hit_rate": 0.0, "max_drawdown": 0.0, "n": 0}
+    mu = float(np.mean(x))
+    sd = float(np.std(x, ddof=1)) if n > 1 else 0.0
+    sharpe = float((mu / (sd + 1e-12)) * np.sqrt(252.0)) if sd > 0 else 0.0
+    hit_rate = float(np.mean(x > 0.0))
+    eq = np.cumprod(1.0 + np.clip(x, -0.95, 10.0))
+    peak = np.maximum.accumulate(eq)
+    dd = eq / (peak + 1e-12) - 1.0
+    mdd = float(np.min(dd)) if dd.size else 0.0
+    return {"sharpe": sharpe, "hit_rate": hit_rate, "max_drawdown": mdd, "n": n}
+
+
+def _governor_train_validation_split(total_rows: int, train_frac: float, holdout_min: int) -> tuple[int, int]:
+    n = int(max(0, total_rows))
+    if n <= 1:
+        return 0, n
+    frac = float(np.clip(float(train_frac), 0.50, 0.95))
+    min_hold = int(max(20, int(holdout_min)))
+    frac_hold = int(max(1, round(n * (1.0 - frac))))
+    hold = max(min_hold, frac_hold)
+    if hold >= n:
+        hold = max(1, n // 3)
+        hold = min(hold, n - 1)
+    train = max(1, n - hold)
+    hold = n - train
+    return int(train), int(hold)
+
+
+def _load_daily_returns_for_governor_eval() -> np.ndarray | None:
+    return _load_series(
+        [
+            RUNS / "daily_returns.csv",
+            ROOT / "daily_returns.csv",
+            ROOT / "portfolio_daily_returns.csv",
+        ]
+    )
+
+
 def _eval_combo(env_overrides: dict[str, str]) -> dict:
     env = os.environ.copy()
     env.update(env_overrides)
@@ -213,10 +276,52 @@ def _eval_combo(env_overrides: dict[str, str]) -> dict:
     ext = _load_json(RUNS / "external_holdout_validation.json")
     extm = ext.get("metrics_external_holdout_net", {}) if isinstance(ext.get("metrics_external_holdout_net"), dict) else {}
 
+    strict_robust_sh = float(robust.get("sharpe", 0.0))
+    strict_robust_hit = float(robust.get("hit_rate", 0.0))
+    strict_robust_mdd = float(robust.get("max_drawdown", 0.0))
+
+    train_frac = float(np.clip(float(env.get("Q_RUNTIME_SEARCH_GOVERNOR_TRAIN_FRAC", "0.75")), 0.50, 0.95))
+    holdout_min = int(np.clip(int(float(env.get("Q_RUNTIME_SEARCH_GOVERNOR_HOLDOUT_MIN", "252"))), 20, 5000))
+    gov_train_rows = 0
+    gov_val_rows = 0
+    gov_train_metrics = {"sharpe": 0.0, "hit_rate": 0.0, "max_drawdown": 0.0, "n": 0}
+    gov_val_metrics = {"sharpe": 0.0, "hit_rate": 0.0, "max_drawdown": 0.0, "n": 0}
+
+    r = _load_daily_returns_for_governor_eval()
+    if r is not None and len(r) >= 3:
+        gov_train_rows, gov_val_rows = _governor_train_validation_split(
+            total_rows=len(r),
+            train_frac=train_frac,
+            holdout_min=holdout_min,
+        )
+        train_r = np.asarray(r[:gov_train_rows], float)
+        val_r = np.asarray(r[gov_train_rows : gov_train_rows + gov_val_rows], float)
+        gov_train_metrics = _returns_metrics(train_r)
+        gov_val_metrics = _returns_metrics(val_r)
+
+    robust_sharpe = float(gov_val_metrics.get("sharpe", strict_robust_sh))
+    robust_hit_rate = float(gov_val_metrics.get("hit_rate", strict_robust_hit))
+    robust_max_drawdown = float(gov_val_metrics.get("max_drawdown", strict_robust_mdd))
+    if int(gov_val_metrics.get("n", 0)) <= 0:
+        robust_sharpe = strict_robust_sh
+        robust_hit_rate = strict_robust_hit
+        robust_max_drawdown = strict_robust_mdd
+
     return {
-        "robust_sharpe": float(robust.get("sharpe", 0.0)),
-        "robust_hit_rate": float(robust.get("hit_rate", 0.0)),
-        "robust_max_drawdown": float(robust.get("max_drawdown", 0.0)),
+        "robust_sharpe": robust_sharpe,
+        "robust_hit_rate": robust_hit_rate,
+        "robust_max_drawdown": robust_max_drawdown,
+        "strict_robust_sharpe": strict_robust_sh,
+        "strict_robust_hit_rate": strict_robust_hit,
+        "strict_robust_max_drawdown": strict_robust_mdd,
+        "governor_train_rows": int(gov_train_rows),
+        "governor_validation_rows": int(gov_val_rows),
+        "governor_train_sharpe": float(gov_train_metrics.get("sharpe", 0.0)),
+        "governor_train_hit_rate": float(gov_train_metrics.get("hit_rate", 0.0)),
+        "governor_train_max_drawdown": float(gov_train_metrics.get("max_drawdown", 0.0)),
+        "governor_validation_sharpe": float(gov_val_metrics.get("sharpe", 0.0)),
+        "governor_validation_hit_rate": float(gov_val_metrics.get("hit_rate", 0.0)),
+        "governor_validation_max_drawdown": float(gov_val_metrics.get("max_drawdown", 0.0)),
         "latest_oos_sharpe": float(latest.get("sharpe", 0.0)),
         "latest_oos_hit_rate": float(latest.get("hit_rate", 0.0)),
         "latest_oos_max_drawdown": float(latest.get("max_drawdown", 0.0)),
@@ -349,6 +454,14 @@ def _profile_payload(row: dict) -> dict:
         "macro_proxy_strength": float(row.get("macro_proxy_strength", 0.0)),
         "capacity_impact_strength": float(row.get("capacity_impact_strength", 0.0)),
         "uncertainty_macro_shock_blend": float(row.get("uncertainty_macro_shock_blend", 0.0)),
+        "governor_train_rows": int(row.get("governor_train_rows", 0)),
+        "governor_validation_rows": int(row.get("governor_validation_rows", 0)),
+        "governor_train_sharpe": float(row.get("governor_train_sharpe", 0.0)),
+        "governor_train_hit_rate": float(row.get("governor_train_hit_rate", 0.0)),
+        "governor_train_max_drawdown": float(row.get("governor_train_max_drawdown", 0.0)),
+        "governor_validation_sharpe": float(row.get("governor_validation_sharpe", 0.0)),
+        "governor_validation_hit_rate": float(row.get("governor_validation_hit_rate", 0.0)),
+        "governor_validation_max_drawdown": float(row.get("governor_validation_max_drawdown", 0.0)),
         "robust_sharpe": float(row.get("robust_sharpe", 0.0)),
         "robust_hit_rate": float(row.get("robust_hit_rate", 0.0)),
         "robust_max_drawdown": float(row.get("robust_max_drawdown", 0.0)),

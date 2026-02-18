@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import numpy as np
+
 import tools.run_runtime_combo_search as rcs
 
 
@@ -472,3 +474,48 @@ def test_runtime_combo_search_writes_relaxed_candidate_when_no_promotable(monkey
     assert (runs / "runtime_profile_selected_relaxed.json").exists()
     status = json.loads((runs / "runtime_profile_promotion_status.json").read_text(encoding="utf-8"))
     assert status["action"] == "no_promotable_profile"
+
+
+def test_governor_train_validation_split_respects_holdout_min():
+    train, val = rcs._governor_train_validation_split(total_rows=800, train_frac=0.75, holdout_min=252)
+    assert train == 548
+    assert val == 252
+
+    train2, val2 = rcs._governor_train_validation_split(total_rows=2000, train_frac=0.75, holdout_min=252)
+    assert train2 == 1500
+    assert val2 == 500
+
+
+def test_eval_combo_scores_using_governor_validation(monkeypatch, tmp_path: Path):
+    runs = tmp_path / "runs_plus"
+    runs.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(rcs, "ROOT", tmp_path)
+    monkeypatch.setattr(rcs, "RUNS", runs)
+    monkeypatch.setattr(rcs, "_run", lambda *_args, **_kwargs: 0)
+
+    def _fake_load_json(path: Path):
+        name = path.name
+        if name == "strict_oos_validation.json":
+            return {
+                "metrics_oos_robust": {"sharpe": 9.0, "hit_rate": 0.95, "max_drawdown": -0.50},
+                "metrics_oos_latest": {"sharpe": 1.0, "hit_rate": 0.5, "max_drawdown": -0.1, "n": 252},
+            }
+        if name in {"q_promotion_gate.json", "cost_stress_validation.json", "health_alerts.json"}:
+            return {"ok": True, "alerts_hard": 0}
+        return {}
+
+    monkeypatch.setattr(rcs, "_load_json", _fake_load_json)
+    r = np.r_[np.full(300, 0.01), np.full(100, -0.01)]
+    monkeypatch.setattr(rcs, "_load_daily_returns_for_governor_eval", lambda: r)
+    monkeypatch.setenv("Q_RUNTIME_SEARCH_GOVERNOR_TRAIN_FRAC", "0.75")
+    monkeypatch.setenv("Q_RUNTIME_SEARCH_GOVERNOR_HOLDOUT_MIN", "80")
+
+    out = rcs._eval_combo({})
+    assert int(out["governor_train_rows"]) == 300
+    assert int(out["governor_validation_rows"]) == 100
+    # Validation slice is negative-only, so hit rate should be near zero and
+    # robust metrics must come from this validation segment, not strict robust.
+    assert float(out["governor_validation_hit_rate"]) < 0.05
+    assert float(out["robust_hit_rate"]) == float(out["governor_validation_hit_rate"])
+    assert float(out["strict_robust_sharpe"]) == 9.0
+    assert float(out["robust_sharpe"]) != float(out["strict_robust_sharpe"])
