@@ -50,6 +50,21 @@ AION_MODE=brain AION_TASK=trade AION_TRADING_MODE=day_skimmer ./run_aion.sh
 
 `day_skimmer` aliases also work: `day`, `day_trading`, `intraday`, `skimmer`.
 
+## Execution backend
+
+AION supports two order execution backends:
+
+- `AION_EXECUTION_BACKEND=simulator` (default): latency/spread/queue-impact simulation only.
+- `AION_EXECUTION_BACKEND=ib_paper`: routes orders to IBKR paper account via `placeOrder` and uses IB fills/status updates.
+
+Example IB paper routing launch:
+
+```bash
+AION_MODE=brain AION_TASK=trade AION_PAPER_MODE=1 AION_EXECUTION_BACKEND=ib_paper ./run_aion.sh
+```
+
+Keep `AION_BLOCK_LIVE_ORDERS=1` when running paper to preserve live-order guardrails.
+
 Optional preset profiles (shared repo-level config):
 
 ```bash

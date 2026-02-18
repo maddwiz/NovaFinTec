@@ -58,6 +58,41 @@ def _write_json_atomic(path: Path, payload: dict) -> None:
     tmp.replace(p)
 
 
+def _execute_fill(
+    exe,
+    *,
+    side: str,
+    qty: int,
+    ref_price: float,
+    atr_pct: float,
+    confidence: float,
+    allow_partial: bool,
+    symbol: str,
+    ib_client,
+):
+    try:
+        return exe.execute(
+            side=side,
+            qty=qty,
+            ref_price=ref_price,
+            atr_pct=atr_pct,
+            confidence=confidence,
+            allow_partial=allow_partial,
+            symbol=symbol,
+            ib_client=ib_client,
+        )
+    except TypeError:
+        # Backward-compatible path for test stubs and legacy executors.
+        return exe.execute(
+            side=side,
+            qty=qty,
+            ref_price=ref_price,
+            atr_pct=atr_pct,
+            confidence=confidence,
+            allow_partial=allow_partial,
+        )
+
+
 def _extract_open_orders(client) -> list[dict]:
     rows: list[dict] = []
     try:
@@ -1328,6 +1363,7 @@ def _close_position(
     telemetry_sink: DecisionTelemetry | None = None,
     governor_compound_scalar: float | None = None,
     filled_qty: int | None = None,
+    sync_shadow: bool = True,
 ):
     pos = open_positions[symbol]
     prev_qty = int(pos["qty"])
@@ -1423,17 +1459,18 @@ def _close_position(
             "remaining_qty": int(max(0, prev_qty - qty)),
         },
     )
-    try:
-        apply_shadow_fill(
-            Path(cfg.STATE_DIR) / "shadow_trades.json",
-            symbol=str(symbol).upper(),
-            action=str(shadow_action),
-            filled_qty=int(qty),
-            avg_fill_price=float(fill_price),
-            timestamp=dt.datetime.now(dt.timezone.utc).isoformat(),
-        )
-    except Exception as exc:
-        log_run(f"shadow update failed on close {symbol}: {exc}")
+    if bool(sync_shadow):
+        try:
+            apply_shadow_fill(
+                Path(cfg.STATE_DIR) / "shadow_trades.json",
+                symbol=str(symbol).upper(),
+                action=str(shadow_action),
+                filled_qty=int(qty),
+                avg_fill_price=float(fill_price),
+                timestamp=dt.datetime.now(dt.timezone.utc).isoformat(),
+            )
+        except Exception as exc:
+            log_run(f"shadow update failed on close {symbol}: {exc}")
     remaining = max(0, prev_qty - qty)
     if remaining > 0:
         pos["qty"] = int(remaining)
@@ -1508,13 +1545,16 @@ def _partial_close(
         },
         log_dir=Path(cfg.STATE_DIR),
     )
-    fill = exe.execute(
+    fill = _execute_fill(
+        exe,
         side=side,
         qty=close_qty,
         ref_price=price,
         atr_pct=float(pos.get("atr_pct", 0.0)),
         confidence=float(pos.get("confidence", 0.5)),
         allow_partial=False,
+        symbol=str(symbol),
+        ib_client=ib_client,
     )
     filled_qty = int(max(0, min(close_qty, int(getattr(fill, "filled_qty", 0)))))
     if filled_qty <= 0:
@@ -1530,17 +1570,18 @@ def _partial_close(
         )
         return cash, closed_pnl, False
 
-    try:
-        apply_shadow_fill(
-            Path(cfg.STATE_DIR) / "shadow_trades.json",
-            symbol=str(symbol).upper(),
-            action=str(side).upper(),
-            filled_qty=int(filled_qty),
-            avg_fill_price=float(fill.avg_fill),
-            timestamp=dt.datetime.now(dt.timezone.utc).isoformat(),
-        )
-    except Exception as exc:
-        log_run(f"shadow update failed on partial close {symbol}: {exc}")
+    if str(getattr(fill, "source", "simulator")).strip().lower() != "ib_paper":
+        try:
+            apply_shadow_fill(
+                Path(cfg.STATE_DIR) / "shadow_trades.json",
+                symbol=str(symbol).upper(),
+                action=str(side).upper(),
+                filled_qty=int(filled_qty),
+                avg_fill_price=float(fill.avg_fill),
+                timestamp=dt.datetime.now(dt.timezone.utc).isoformat(),
+            )
+        except Exception as exc:
+            log_run(f"shadow update failed on partial close {symbol}: {exc}")
 
     if pos["side"] == "LONG":
         pnl = (fill.avg_fill - pos["entry"]) * filled_qty
@@ -1972,13 +2013,16 @@ def main() -> int:
                     if px <= 0:
                         px = float(_safe_float(pos.get("entry", 0.0), 0.0))
                     side = "SELL" if str(pos.get("side", "")).upper() == "LONG" else "BUY"
-                    fill = exe.execute(
+                    fill = _execute_fill(
+                        exe,
                         side=side,
                         qty=qty,
                         ref_price=px,
                         atr_pct=float(_safe_float(pos.get("atr_pct"), 0.0)),
                         confidence=1.0,
                         allow_partial=False,
+                        symbol=str(sym),
+                        ib_client=ib_client,
                     )
                     fq = int(max(0, min(qty, _safe_int(getattr(fill, "filled_qty", 0), 0))))
                     if fq <= 0:
@@ -2000,6 +2044,7 @@ def main() -> int:
                         telemetry_sink=telemetry_sink,
                         governor_compound_scalar=None,
                         filled_qty=fq,
+                        sync_shadow=(str(getattr(fill, "source", "simulator")).strip().lower() != "ib_paper"),
                     )
                     fully_closed = sym not in open_positions
                     if fully_closed:
@@ -2999,13 +3044,16 @@ def main() -> int:
                                 },
                                 log_dir=Path(cfg.STATE_DIR),
                             )
-                            fill = exe.execute(
+                            fill = _execute_fill(
+                                exe,
                                 side=side,
                                 qty=req_qty,
                                 ref_price=price,
                                 atr_pct=atr_pct,
                                 confidence=float(pos.get("confidence", 0.5)),
                                 allow_partial=False,
+                                symbol=str(sym),
+                                ib_client=ib_client,
                             )
                             filled_qty = int(max(0, min(req_qty, int(getattr(fill, "filled_qty", 0)))))
                             if filled_qty <= 0:
@@ -3050,6 +3098,7 @@ def main() -> int:
                                 telemetry_sink=telemetry_sink,
                                 governor_compound_scalar=governor_compound_scalar,
                                 filled_qty=filled_qty,
+                                sync_shadow=(str(getattr(fill, "source", "simulator")).strip().lower() != "ib_paper"),
                             )
                             fully_closed = sym not in open_positions
                             if fully_closed:
@@ -3203,13 +3252,16 @@ def main() -> int:
                     },
                     log_dir=Path(cfg.STATE_DIR),
                 )
-                fill = exe.execute(
+                fill = _execute_fill(
+                    exe,
                     side=entry_side,
                     qty=qty,
                     ref_price=c["price"],
                     atr_pct=c["atr_pct"],
                     confidence=c["confidence"],
                     allow_partial=True,
+                    symbol=str(sym),
+                    ib_client=ib_client,
                 )
                 monitor.record_execution(fill.est_slippage_bps)
                 if fill.filled_qty <= 0:
@@ -3254,17 +3306,18 @@ def main() -> int:
                 else:
                     cash += notional
 
-                try:
-                    apply_shadow_fill(
-                        Path(cfg.STATE_DIR) / "shadow_trades.json",
-                        symbol=str(sym).upper(),
-                        action=str(entry_side).upper(),
-                        filled_qty=int(fill.filled_qty),
-                        avg_fill_price=float(fill.avg_fill),
-                        timestamp=dt.datetime.now(dt.timezone.utc).isoformat(),
-                    )
-                except Exception as exc:
-                    log_run(f"shadow update failed on entry {sym}: {exc}")
+                if str(getattr(fill, "source", "simulator")).strip().lower() != "ib_paper":
+                    try:
+                        apply_shadow_fill(
+                            Path(cfg.STATE_DIR) / "shadow_trades.json",
+                            symbol=str(sym).upper(),
+                            action=str(entry_side).upper(),
+                            filled_qty=int(fill.filled_qty),
+                            avg_fill_price=float(fill.avg_fill),
+                            timestamp=dt.datetime.now(dt.timezone.utc).isoformat(),
+                        )
+                    except Exception as exc:
+                        log_run(f"shadow update failed on entry {sym}: {exc}")
 
                 init_risk = max(c["atr"] * float(c.get("stop_atr_mult", c["signal"]["stop_atr_mult"])), fill.avg_fill * 0.0035)
                 if c["side"] == "LONG":

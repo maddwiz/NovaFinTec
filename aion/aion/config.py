@@ -325,6 +325,11 @@ PORTFOLIO_MAX_WEIGHT = float(os.getenv("AION_PORTFOLIO_MAX_WEIGHT", "0.30"))
 PORTFOLIO_MAX_CANDIDATES = int(os.getenv("AION_PORTFOLIO_MAX_CANDIDATES", "12"))
 
 # Execution realism
+EXECUTION_BACKEND = str(os.getenv("AION_EXECUTION_BACKEND", "simulator")).strip().lower()
+if EXECUTION_BACKEND not in {"simulator", "ib_paper"}:
+    EXECUTION_BACKEND = "simulator"
+IB_ORDER_TIMEOUT_SEC = float(os.getenv("AION_IB_ORDER_TIMEOUT_SEC", "4.0"))
+IB_ORDER_POLL_SEC = float(os.getenv("AION_IB_ORDER_POLL_SEC", "0.20"))
 SLIPPAGE_BPS = int(os.getenv("AION_SLIPPAGE_BPS", "5"))
 SPREAD_BPS_BASE = float(os.getenv("AION_SPREAD_BPS_BASE", "2.5"))
 SPREAD_BPS_VOL_MULT = float(os.getenv("AION_SPREAD_BPS_VOL_MULT", "18.0"))

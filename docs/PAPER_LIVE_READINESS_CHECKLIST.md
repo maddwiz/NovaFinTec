@@ -42,6 +42,6 @@ Scope: AION paper-live testing with live market data, simulated fills, full safe
 - [x] CI workflow includes install/lint/type/tests/secrets
 - [x] Local full test suite passes
 
-## Optional Next Upgrade (not required for paper-live shadow testing)
+## Optional Next Upgrade (now implemented, opt-in)
 
-- [ ] IB paper-account order routing path (replace `ExecutionSimulator` with real IB order placement in trade loop)
+- [x] IB paper-account order routing path via `AION_EXECUTION_BACKEND=ib_paper` (trade loops keep simulator default; IB path is opt-in and guarded)

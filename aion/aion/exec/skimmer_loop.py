@@ -191,6 +191,40 @@ def _run_exposure_gate(client, symbol: str, side: str, qty: int, price: float, f
     }
 
 
+def _execute_fill(
+    exe,
+    *,
+    side: str,
+    qty: int,
+    ref_price: float,
+    atr_pct: float,
+    confidence: float,
+    allow_partial: bool,
+    symbol: str,
+    ib_client,
+):
+    try:
+        return exe.execute(
+            side=side,
+            qty=qty,
+            ref_price=ref_price,
+            atr_pct=atr_pct,
+            confidence=confidence,
+            allow_partial=allow_partial,
+            symbol=symbol,
+            ib_client=ib_client,
+        )
+    except TypeError:
+        return exe.execute(
+            side=side,
+            qty=qty,
+            ref_price=ref_price,
+            atr_pct=atr_pct,
+            confidence=confidence,
+            allow_partial=allow_partial,
+        )
+
+
 class SkimmerLoop:
     def __init__(self, cfg_mod=cfg):
         self.cfg = cfg_mod
@@ -531,13 +565,16 @@ class SkimmerLoop:
             },
             log_dir=Path(self.cfg.STATE_DIR),
         )
-        fill = self.exe.execute(
+        fill = _execute_fill(
+            self.exe,
             side=side_exec,
             qty=q,
             ref_price=float(price),
             atr_pct=float(max(0.0, atr_pct)),
             confidence=0.6,
             allow_partial=False,
+            symbol=str(symbol),
+            ib_client=self._ib_client,
         )
         fq = int(max(0, min(fill.filled_qty, st.current_qty)))
         if fq <= 0:
@@ -564,17 +601,18 @@ class SkimmerLoop:
             },
             log_dir=Path(self.cfg.STATE_DIR),
         )
-        try:
-            apply_shadow_fill(
-                Path(self.cfg.STATE_DIR) / "shadow_trades.json",
-                symbol=str(symbol).upper(),
-                action=str(side_exec).upper(),
-                filled_qty=int(fq),
-                avg_fill_price=float(fill.avg_fill),
-                timestamp=dt.datetime.now(dt.timezone.utc).isoformat(),
-            )
-        except Exception as exc:
-            log_run(f"shadow update failed on skimmer close {symbol}: {exc}")
+        if str(getattr(fill, "source", "simulator")).strip().lower() != "ib_paper":
+            try:
+                apply_shadow_fill(
+                    Path(self.cfg.STATE_DIR) / "shadow_trades.json",
+                    symbol=str(symbol).upper(),
+                    action=str(side_exec).upper(),
+                    filled_qty=int(fq),
+                    avg_fill_price=float(fill.avg_fill),
+                    timestamp=dt.datetime.now(dt.timezone.utc).isoformat(),
+                )
+            except Exception as exc:
+                log_run(f"shadow update failed on skimmer close {symbol}: {exc}")
 
         if st.side == "LONG":
             self.cash += float(fill.avg_fill) * fq
@@ -849,13 +887,16 @@ class SkimmerLoop:
             },
             log_dir=Path(self.cfg.STATE_DIR),
         )
-        fill = self.exe.execute(
+        fill = _execute_fill(
+            self.exe,
             side=side_exec,
             qty=int(requested_qty),
             ref_price=float(px),
             atr_pct=float(self._atr_pct_1m(frames)),
             confidence=float(np.clip(best_result.score, 0.0, 1.0)),
             allow_partial=True,
+            symbol=str(symbol),
+            ib_client=self._ib_client,
         )
         if fill.filled_qty <= 0:
             audit_log(
@@ -928,17 +969,18 @@ class SkimmerLoop:
         else:
             self.cash += notional
 
-        try:
-            apply_shadow_fill(
-                Path(self.cfg.STATE_DIR) / "shadow_trades.json",
-                symbol=str(symbol).upper(),
-                action=str(side_exec).upper(),
-                filled_qty=int(fill.filled_qty),
-                avg_fill_price=float(fill.avg_fill),
-                timestamp=dt.datetime.now(dt.timezone.utc).isoformat(),
-            )
-        except Exception as exc:
-            log_run(f"shadow update failed on skimmer entry {symbol}: {exc}")
+        if str(getattr(fill, "source", "simulator")).strip().lower() != "ib_paper":
+            try:
+                apply_shadow_fill(
+                    Path(self.cfg.STATE_DIR) / "shadow_trades.json",
+                    symbol=str(symbol).upper(),
+                    action=str(side_exec).upper(),
+                    filled_qty=int(fill.filled_qty),
+                    avg_fill_price=float(fill.avg_fill),
+                    timestamp=dt.datetime.now(dt.timezone.utc).isoformat(),
+                )
+            except Exception as exc:
+                log_run(f"shadow update failed on skimmer entry {symbol}: {exc}")
 
         ts_utc = dt.datetime.now(dt.timezone.utc)
         self.open_trades[symbol] = TradeState(
