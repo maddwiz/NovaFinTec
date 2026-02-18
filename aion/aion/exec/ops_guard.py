@@ -95,6 +95,9 @@ def start_task(task: str, *, root: Path | None = None, log_dir: Path | None = No
     try:
         env = dict(os.environ)
         env["AION_TASK"] = t
+        # run_aion.sh blocks concurrent launch when ops_guard is active;
+        # this flag explicitly marks supervisor-managed starts as allowed.
+        env["AION_ALLOW_OPS_GUARD_CONCURRENT"] = "1"
         with out_log.open("ab") as fout:
             proc = subprocess.Popen(
                 [str(run_script)],

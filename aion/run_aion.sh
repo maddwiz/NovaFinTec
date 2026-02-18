@@ -129,10 +129,44 @@ if [[ "$AION_MODE" == "brain" ]]; then
 
   case "$AION_TASK" in
     trade)
+      FORCE_RESTART_TRADE="${AION_FORCE_RESTART_TRADE:-0}"
+      ALLOW_OPS_GUARD_CONCURRENT="${AION_ALLOW_OPS_GUARD_CONCURRENT:-0}"
+      EXISTING_TRADE_PIDS="$(
+        ps -axo pid=,command= | awk '
+          /[[:space:]]-m[[:space:]]aion\.exec\.paper_loop([[:space:]]|$)/ {print $1}
+        ' || true
+      )"
+      OPS_GUARD_PIDS="$(
+        ps -axo pid=,command= | awk '
+          /[[:space:]]-m[[:space:]]aion\.exec\.ops_guard([[:space:]]|$)/ {print $1}
+        ' || true
+      )"
+
+      if [[ -n "${OPS_GUARD_PIDS//[[:space:]]/}" && "$ALLOW_OPS_GUARD_CONCURRENT" != "1" ]]; then
+        echo "[AION] ERROR: ops_guard is running (${OPS_GUARD_PIDS//$'\n'/ })."
+        echo "[AION] Refusing direct trade launch to avoid competing supervisors."
+        echo "[AION] Stop ops_guard first or set AION_ALLOW_OPS_GUARD_CONCURRENT=1."
+        exit 2
+      fi
+
+      if [[ -n "${EXISTING_TRADE_PIDS//[[:space:]]/}" ]]; then
+        if [[ "$FORCE_RESTART_TRADE" != "1" ]]; then
+          echo "[AION] Trade loop already running (${EXISTING_TRADE_PIDS//$'\n'/ })."
+          echo "[AION] Refusing duplicate launch. Set AION_FORCE_RESTART_TRADE=1 to recycle."
+          exit 0
+        fi
+        echo "[AION] AION_FORCE_RESTART_TRADE=1; recycling trade loop: ${EXISTING_TRADE_PIDS//$'\n'/ }"
+        while IFS= read -r pid; do
+          [[ -z "${pid//[[:space:]]/}" ]] && continue
+          kill "$pid" 2>/dev/null || true
+        done <<< "$EXISTING_TRADE_PIDS"
+        sleep 1
+      fi
+
       if [[ "$AION_AUTO_CLEAN_STALE_WORKERS" == "1" ]]; then
         STALE_PIDS="$(
           ps -axo pid=,command= | awk '
-            /[[:space:]]-m[[:space:]]aion\.exec\.(paper_loop|universe_scan|doctor|ib_recover|ib_wait_ready)([[:space:]]|$)/ {print $1}
+            /[[:space:]]-m[[:space:]]aion\.exec\.(universe_scan|doctor|ib_recover|ib_wait_ready)([[:space:]]|$)/ {print $1}
           ' || true
         )"
         if [[ -n "${STALE_PIDS//[[:space:]]/}" ]]; then

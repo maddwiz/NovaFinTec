@@ -36,6 +36,8 @@ Scope: AION paper-live testing with live market data, simulated fills, full safe
 - [x] Added hard readiness precheck script: `aion/tools/paper_live_readiness.py`
 - [x] Launcher enforces precheck by default before trade loop (`aion/run_aion.sh`)
 - [x] Precheck artifact written to `aion/state/paper_live_readiness.json`
+- [x] Trade-loop singleton guard in launcher prevents duplicate `paper_loop` instances unless `AION_FORCE_RESTART_TRADE=1`
+- [x] `ops_guard` now launches trade mode with explicit supervisor override to keep orchestration deterministic
 
 ## CI and Tests
 
