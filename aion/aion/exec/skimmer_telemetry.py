@@ -118,6 +118,8 @@ class SkimmerTelemetry:
             "q_overlay_bias": float(q_bias),
             "q_overlay_confidence": float(q_conf),
             "confluence_score": float(rec["confluence_score"]),
+            "category_scores": rec.get("category_scores", {}),
+            "entry_category_scores": x.get("entry_category_scores"),
             "intraday_alignment_score": float(rec["confluence_score"]),
             "regime": rec["session_type"],
             "governor_compound_scalar": x.get("governor_compound_scalar"),

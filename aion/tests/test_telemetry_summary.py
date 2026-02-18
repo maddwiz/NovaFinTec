@@ -32,6 +32,11 @@ def test_build_telemetry_summary_computes_core_metrics(tmp_path):
                 "regime": "trend_day",
                 "pnl_realized": 120.0,
                 "reasons": ["Opening-range breakout aligned"],
+                "entry_category_scores": {
+                    "session_structure": 0.90,
+                    "multi_timeframe": 0.80,
+                    "pattern_confluence": 0.70,
+                },
                 "slippage_bps": 5.0,
                 "estimated_slippage_bps": 4.0,
             },
@@ -42,6 +47,10 @@ def test_build_telemetry_summary_computes_core_metrics(tmp_path):
                 "regime": "range_day",
                 "pnl_realized": -60.0,
                 "reasons": ["No timeframe alignment"],
+                "entry_category_scores": {
+                    "multi_timeframe": 0.95,
+                    "session_structure": 0.40,
+                },
                 "slippage_bps": 6.0,
                 "estimated_slippage_bps": 5.0,
             },
@@ -57,6 +66,8 @@ def test_build_telemetry_summary_computes_core_metrics(tmp_path):
     assert out["avg_slippage_bps"] > out["avg_estimated_slippage_bps"]
     assert len(out["top_win_reasons"]) >= 1
     assert len(out["top_loss_reasons"]) >= 1
+    assert out["top_win_signal_category"] == "session_structure"
+    assert out["top_loss_signal_category"] == "multi_timeframe"
 
 
 def test_write_telemetry_summary_creates_json_output(tmp_path):

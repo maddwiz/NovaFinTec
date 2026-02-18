@@ -99,6 +99,34 @@ def _closed_trade_rows(rows: list[dict]) -> list[dict]:
     return out
 
 
+def _top_signal_category(row: dict) -> str | None:
+    pools = []
+    if isinstance(row.get("entry_category_scores"), dict):
+        pools.append(row.get("entry_category_scores"))
+    if isinstance(row.get("category_scores"), dict):
+        pools.append(row.get("category_scores"))
+    if isinstance(row.get("extras"), dict):
+        ex = row.get("extras", {})
+        if isinstance(ex.get("entry_category_scores"), dict):
+            pools.append(ex.get("entry_category_scores"))
+        if isinstance(ex.get("category_scores"), dict):
+            pools.append(ex.get("category_scores"))
+
+    for pool in pools:
+        clean = {}
+        for k, v in pool.items():
+            key = str(k).strip()
+            if not key:
+                continue
+            clean[key] = _safe_float(v, 0.0)
+        if not clean:
+            continue
+        best = max(clean.items(), key=lambda kv: kv[1])[0]
+        if best:
+            return str(best)
+    return None
+
+
 def _win_loss_ratio(pnls: list[float]) -> float:
     wins = [x for x in pnls if x > 0]
     losses = [x for x in pnls if x < 0]
@@ -171,6 +199,8 @@ def build_telemetry_summary(
 
     win_reasons = Counter()
     loss_reasons = Counter()
+    win_signals = Counter()
+    loss_signals = Counter()
     for row in closed:
         reasons = row.get("reasons")
         if not isinstance(reasons, list):
@@ -185,8 +215,17 @@ def build_telemetry_summary(
             elif pnl < 0:
                 loss_reasons[r] += 1
 
+        sig = _top_signal_category(row)
+        if sig:
+            if pnl > 0:
+                win_signals[sig] += 1
+            elif pnl < 0:
+                loss_signals[sig] += 1
+
     top_win_reasons = [{"reason": k, "count": int(v)} for k, v in win_reasons.most_common(5)]
     top_loss_reasons = [{"reason": k, "count": int(v)} for k, v in loss_reasons.most_common(5)]
+    top_win_signals = [{"category": k, "count": int(v)} for k, v in win_signals.most_common(5)]
+    top_loss_signals = [{"category": k, "count": int(v)} for k, v in loss_signals.most_common(5)]
 
     out = {
         "generated_at_utc": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -203,6 +242,10 @@ def build_telemetry_summary(
         "worst_regime": worst_regime,
         "top_win_reasons": top_win_reasons,
         "top_loss_reasons": top_loss_reasons,
+        "top_win_signal_category": (None if not top_win_signals else str(top_win_signals[0]["category"])),
+        "top_loss_signal_category": (None if not top_loss_signals else str(top_loss_signals[0]["category"])),
+        "top_win_signal_categories": top_win_signals,
+        "top_loss_signal_categories": top_loss_signals,
     }
     return out
 

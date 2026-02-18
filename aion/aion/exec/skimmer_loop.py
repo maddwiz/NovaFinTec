@@ -47,6 +47,7 @@ class TradeState:
     entry_time: dt.datetime
     stop_price: float
     r_target_1: float
+    entry_category_scores: dict[str, float] | None = None
 
 
 class SkimmerLoop:
@@ -280,14 +281,15 @@ class SkimmerLoop:
             shares=int(fq),
             risk_amount=float(fq * max(1e-9, st.risk_distance)),
             reasons=[str(reason)],
-            extras={
-                "pnl_realized": float(pnl),
-                "remaining_qty": int(st.current_qty),
-                "fill_price": float(fill.avg_fill),
-                "slippage_bps": float(fill.est_slippage_bps),
-                "estimated_slippage_bps": float(fill.est_slippage_bps),
-            },
-        )
+                extras={
+                    "pnl_realized": float(pnl),
+                    "remaining_qty": int(st.current_qty),
+                    "fill_price": float(fill.avg_fill),
+                    "slippage_bps": float(fill.est_slippage_bps),
+                    "estimated_slippage_bps": float(fill.est_slippage_bps),
+                    "entry_category_scores": dict(st.entry_category_scores or {}),
+                },
+            )
 
         if reason in {"partial_profit_1R", "trailing_stop"}:
             self._emit_trade_event(
@@ -524,6 +526,7 @@ class SkimmerLoop:
             entry_time=ts_utc,
             stop_price=float(sizing.stop_price),
             r_target_1=float(sizing.r_target_1),
+            entry_category_scores=dict(best_result.category_scores or {}),
         )
 
         self.telemetry.log_decision(
