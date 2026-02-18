@@ -44,6 +44,11 @@ Scope: AION paper-live testing with live market data, simulated fills, full safe
 - [x] CI workflow includes install/lint/type/tests/secrets
 - [x] Local full test suite passes
 
+## Post-Session Ops
+
+- [x] One-command post-session snapshot: `aion/tools/post_session_report.py`
+- [x] Writes operator artifacts to `aion/state/post_session_report.json` and `aion/state/post_session_report.md`
+
 ## Optional Next Upgrade (now implemented, opt-in)
 
 - [x] IB paper-account order routing path via `AION_EXECUTION_BACKEND=ib_paper` (trade loops keep simulator default; IB path is opt-in and guarded)
