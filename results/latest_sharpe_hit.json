@@ -1,0 +1,10 @@
+{
+  "generated_at_utc": "2026-02-18T05:04:36.585878+00:00",
+  "source": "q/runs_plus/strict_oos_validation.json",
+  "metrics_oos_net": {
+    "n": 795,
+    "sharpe": 1.6773480368400073,
+    "hit_rate": 0.49433962264150944,
+    "max_drawdown": -0.012048876273216727
+  }
+}
