@@ -1,3 +1,5 @@
+import numpy as np
+
 import tools.run_governor_param_sweep as rps
 
 
@@ -126,3 +128,19 @@ def test_objective_complexity_penalizes_over_tuned_profiles(monkeypatch):
     s_complex, d_complex = rps._objective(complex_row, base)
     assert float(d_complex["complexity_penalty"]) > float(d_simple["complexity_penalty"])
     assert float(s_simple) > float(s_complex)
+
+
+def test_metrics_uses_sample_std(monkeypatch, tmp_path):
+    runs = tmp_path / "runs_plus"
+    runs.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(rps, "RUNS", runs)
+
+    r = np.array([0.01, 0.0, -0.01, 0.02], dtype=float)
+    w = np.array([[0.1], [0.1], [0.1], [0.1]], dtype=float)
+    np.savetxt(runs / "daily_returns.csv", r, delimiter=",")
+    np.savetxt(runs / "portfolio_weights_final.csv", w, delimiter=",")
+
+    out = rps._metrics()
+    expected_sd = float(np.nanstd(r, ddof=1))
+    expected_sharpe = float((np.nanmean(r) / (expected_sd + 1e-12)) * np.sqrt(252.0))
+    assert abs(float(out["sharpe"]) - expected_sharpe) < 1e-12

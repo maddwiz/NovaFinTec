@@ -72,8 +72,8 @@ def _metrics() -> dict:
     if w.ndim == 1:
         w = w.reshape(-1, 1)
     mu = float(np.nanmean(r))
-    sd = float(np.nanstd(r) + 1e-12)
-    sh = float((mu / sd) * np.sqrt(252.0))
+    sd = float(np.nanstd(r, ddof=1)) if r.size > 1 else 0.0
+    sh = float((mu / (sd + 1e-12)) * np.sqrt(252.0))
     hit = float(np.sum(r > 0.0) / max(1, r.size))
     eq = np.cumsum(r)
     peak = np.maximum.accumulate(eq)

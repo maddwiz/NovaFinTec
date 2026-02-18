@@ -17,12 +17,13 @@ Implemented and validated:
 - Cross-sectional momentum overlay in Q runtime stack.
 - External untouched holdout protocol (`run_external_holdout_validation.py`) integrated into pipeline.
 - Complexity penalties in search/tuning (`run_runtime_combo_search.py`, `run_governor_param_sweep.py`).
+- Sharpe consistency patch in governor sweep metrics (`run_governor_param_sweep.py` now uses sample std `ddof=1`).
 - Opt-in governor walk-forward validator (`run_governor_walkforward.py`) with expanding folds and OOS aggregation.
 - Class-aware execution friction in daily cost engine (`make_daily_from_weights.py`).
 - Local multi-asset bundle ingestion (`ingest_multi_asset_csv_bundle.py`).
 
 Validation status:
-- Latest full local run (`q/tests` + `aion/tests`): `605 passed`.
+- Latest full local run (`q/tests` + `aion/tests`): `606 passed`.
 - Latest targeted run (new governor walk-forward batch): `24 passed`.
 - Latest AION suite run after telemetry wiring: `216 passed`.
 - GitHub Actions workflow: `.github/workflows/ci.yml`.
