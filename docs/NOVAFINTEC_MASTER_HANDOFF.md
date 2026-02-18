@@ -22,19 +22,21 @@ Implemented and validated:
 - Sharpe consistency patch in governor sweep metrics (`run_governor_param_sweep.py` now uses sample std `ddof=1`).
 - Extended sample-std consistency audit in `q/tools` Sharpe/vol helpers (active runtime/report scripts now use `ddof=1` where applicable).
 - Regime-council anti-leakage hardening: optional walk-forward dynamic regime classifier calibrates thresholds on classifier-only windows with explicit fold diagnostics (`classifier_start/end`, thresholds, embargo gap).
+- Runtime combo-search validation hardening: governor holdout quality is now explicit (`governor_validation_min_rows`, `governor_validation_ok`) and can gate candidate selection.
 - Opt-in governor walk-forward validator (`run_governor_walkforward.py`) with expanding folds and OOS aggregation.
 - Class-aware execution friction in daily cost engine (`make_daily_from_weights.py`).
 - Local multi-asset bundle ingestion (`ingest_multi_asset_csv_bundle.py`).
 
 Validation status:
-- Latest full local run (`q/tests` + `aion/tests`): `613 passed`.
+- Latest full local run (`q/tests` + `aion/tests`): `615 passed`.
 - Latest targeted run (new governor walk-forward batch): `24 passed`.
 - Latest AION suite run after telemetry wiring: `216 passed`.
 - Latest skimmer wiring run (`test_skimmer_loop_integration.py` + dispatch): `3 passed`.
 - Latest regime-council hardening run (`test_run_regime_council_weights.py`): `6 passed`.
 - Latest council-member stability run (`test_council_member_overlays.py`): `5 passed`.
 - Latest skimmer lifecycle run (`test_skimmer_loop_integration.py`): `4 passed`.
-- Latest CI-equivalent run (`.github/workflows/ci.yml` command): `544 passed`.
+- Latest runtime-search validation run (`test_run_runtime_combo_search.py`): `21 passed`.
+- Latest CI-equivalent run (`.github/workflows/ci.yml` command): `546 passed`.
 - GitHub Actions workflow: `.github/workflows/ci.yml`.
 
 ## 3) Top-Level File Map

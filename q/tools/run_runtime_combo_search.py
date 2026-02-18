@@ -282,6 +282,13 @@ def _eval_combo(env_overrides: dict[str, str]) -> dict:
 
     train_frac = float(np.clip(float(env.get("Q_RUNTIME_SEARCH_GOVERNOR_TRAIN_FRAC", "0.75")), 0.50, 0.95))
     holdout_min = int(np.clip(int(float(env.get("Q_RUNTIME_SEARCH_GOVERNOR_HOLDOUT_MIN", "252"))), 20, 5000))
+    governor_validation_min_rows = int(
+        np.clip(
+            int(float(env.get("Q_RUNTIME_SEARCH_GOVERNOR_VALIDATION_MIN_ROWS", str(holdout_min)))),
+            20,
+            5000,
+        )
+    )
     gov_train_rows = 0
     gov_val_rows = 0
     gov_train_metrics = {"sharpe": 0.0, "hit_rate": 0.0, "max_drawdown": 0.0, "n": 0}
@@ -306,6 +313,7 @@ def _eval_combo(env_overrides: dict[str, str]) -> dict:
         robust_sharpe = strict_robust_sh
         robust_hit_rate = strict_robust_hit
         robust_max_drawdown = strict_robust_mdd
+    governor_validation_ok = bool(int(gov_val_metrics.get("n", 0)) >= int(governor_validation_min_rows))
 
     return {
         "robust_sharpe": robust_sharpe,
@@ -316,6 +324,8 @@ def _eval_combo(env_overrides: dict[str, str]) -> dict:
         "strict_robust_max_drawdown": strict_robust_mdd,
         "governor_train_rows": int(gov_train_rows),
         "governor_validation_rows": int(gov_val_rows),
+        "governor_validation_min_rows": int(governor_validation_min_rows),
+        "governor_validation_ok": bool(governor_validation_ok),
         "governor_train_sharpe": float(gov_train_metrics.get("sharpe", 0.0)),
         "governor_train_hit_rate": float(gov_train_metrics.get("hit_rate", 0.0)),
         "governor_train_max_drawdown": float(gov_train_metrics.get("max_drawdown", 0.0)),
@@ -456,6 +466,8 @@ def _profile_payload(row: dict) -> dict:
         "uncertainty_macro_shock_blend": float(row.get("uncertainty_macro_shock_blend", 0.0)),
         "governor_train_rows": int(row.get("governor_train_rows", 0)),
         "governor_validation_rows": int(row.get("governor_validation_rows", 0)),
+        "governor_validation_min_rows": int(row.get("governor_validation_min_rows", 0)),
+        "governor_validation_ok": bool(row.get("governor_validation_ok", True)),
         "governor_train_sharpe": float(row.get("governor_train_sharpe", 0.0)),
         "governor_train_hit_rate": float(row.get("governor_train_hit_rate", 0.0)),
         "governor_train_max_drawdown": float(row.get("governor_train_max_drawdown", 0.0)),
@@ -720,6 +732,13 @@ def main() -> int:
             print(f"… evaluated {i}/{total} combos")
             _write_progress(evaluated=i, total=total, best=best_so_far)
 
+    require_gov_val = str(os.getenv("Q_RUNTIME_SEARCH_REQUIRE_GOVERNOR_VALIDATION", "1")).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
     def _valid(r: dict) -> bool:
         rc_ok = all(int(x.get("code", 1)) == 0 for x in (r.get("rc") or []))
         return (
@@ -728,6 +747,7 @@ def main() -> int:
             and bool(r.get("cost_stress_ok", False))
             and bool(r.get("health_ok", False))
             and int(r.get("health_alerts_hard", 999)) == 0
+            and ((not require_gov_val) or bool(r.get("governor_validation_ok", True)))
         )
 
     def _relaxed_valid(r: dict) -> bool:
@@ -737,6 +757,7 @@ def main() -> int:
             and bool(r.get("cost_stress_ok", False))
             and bool(r.get("health_ok", False))
             and int(r.get("health_alerts_hard", 999)) == 0
+            and ((not require_gov_val) or bool(r.get("governor_validation_ok", True)))
         )
 
     valid = [r for r in rows if _valid(r)]

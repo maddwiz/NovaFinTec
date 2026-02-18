@@ -519,3 +519,76 @@ def test_eval_combo_scores_using_governor_validation(monkeypatch, tmp_path: Path
     assert float(out["robust_hit_rate"]) == float(out["governor_validation_hit_rate"])
     assert float(out["strict_robust_sharpe"]) == 9.0
     assert float(out["robust_sharpe"]) != float(out["strict_robust_sharpe"])
+
+
+def test_eval_combo_marks_governor_validation_not_ok_when_below_min_rows(monkeypatch, tmp_path: Path):
+    runs = tmp_path / "runs_plus"
+    runs.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(rcs, "ROOT", tmp_path)
+    monkeypatch.setattr(rcs, "RUNS", runs)
+    monkeypatch.setattr(rcs, "_run", lambda *_args, **_kwargs: 0)
+
+    def _fake_load_json(path: Path):
+        name = path.name
+        if name == "strict_oos_validation.json":
+            return {"metrics_oos_robust": {"sharpe": 1.2, "hit_rate": 0.5, "max_drawdown": -0.05}}
+        if name in {"q_promotion_gate.json", "cost_stress_validation.json", "health_alerts.json"}:
+            return {"ok": True, "alerts_hard": 0}
+        return {}
+
+    monkeypatch.setattr(rcs, "_load_json", _fake_load_json)
+    # Split -> train=300, val=100 with frac=0.75 and holdout_min=80.
+    r = np.r_[np.full(300, 0.01), np.full(100, -0.01)]
+    monkeypatch.setattr(rcs, "_load_daily_returns_for_governor_eval", lambda: r)
+    monkeypatch.setenv("Q_RUNTIME_SEARCH_GOVERNOR_TRAIN_FRAC", "0.75")
+    monkeypatch.setenv("Q_RUNTIME_SEARCH_GOVERNOR_HOLDOUT_MIN", "80")
+    monkeypatch.setenv("Q_RUNTIME_SEARCH_GOVERNOR_VALIDATION_MIN_ROWS", "120")
+
+    out = rcs._eval_combo({})
+    assert int(out["governor_validation_rows"]) == 100
+    assert int(out["governor_validation_min_rows"]) == 120
+    assert bool(out["governor_validation_ok"]) is False
+
+
+def test_runtime_combo_search_filters_candidates_by_governor_validation_ok(monkeypatch, tmp_path: Path):
+    runs = tmp_path / "runs_plus"
+    runs.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(rcs, "ROOT", tmp_path)
+    monkeypatch.setattr(rcs, "RUNS", runs)
+    monkeypatch.setattr(rcs, "_base_runtime_env", lambda: {})
+    monkeypatch.setenv("Q_RUNTIME_SEARCH_FLOORS", "0.18,0.22")
+    monkeypatch.setenv("Q_RUNTIME_SEARCH_FLAGS", "a")
+    monkeypatch.setenv("Q_RUNTIME_SEARCH_REQUIRE_GOVERNOR_VALIDATION", "1")
+
+    def _fake_eval(env):
+        floor = float(env.get("Q_RUNTIME_TOTAL_FLOOR", "0.18"))
+        disabled = {x for x in env.get("Q_DISABLE_GOVERNORS", "").split(",") if x}
+        # Highest raw score candidate fails governor-validation quality gate.
+        if floor == 0.22 and disabled == set():
+            sh = 2.0
+            gv_ok = False
+        elif floor == 0.18 and disabled == set():
+            sh = 1.2
+            gv_ok = True
+        else:
+            sh = 1.0
+            gv_ok = True
+        return {
+            "robust_sharpe": sh,
+            "robust_hit_rate": 0.50,
+            "robust_max_drawdown": -0.04,
+            "governor_validation_ok": gv_ok,
+            "promotion_ok": True,
+            "cost_stress_ok": True,
+            "health_ok": True,
+            "health_alerts_hard": 0,
+            "rc": [{"step": "x", "code": 0}],
+        }
+
+    monkeypatch.setattr(rcs, "_eval_combo", _fake_eval)
+    rc = rcs.main()
+    assert rc == 0
+
+    sel = json.loads((runs / "runtime_profile_selected.json").read_text(encoding="utf-8"))
+    # The non-compliant (gv_ok=False) high-sharpe row must be excluded.
+    assert abs(float(sel["runtime_total_floor"]) - 0.18) < 1e-9
