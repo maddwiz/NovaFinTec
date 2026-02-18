@@ -31,6 +31,11 @@ def test_day_skimmer_mode_applies_intraday_defaults(monkeypatch, tmp_path):
     assert float(cfg.PARTIAL_PROFIT_FRACTION) > 0.0
     assert cfg.TRAILING_STOP_ENABLED is True
     assert float(cfg.TRAILING_STOP_ATR_MULTIPLE) > 0.0
+    assert float(cfg.STOP_ATR_LONG) > 0.0
+    assert float(cfg.STOP_ATR_SHORT) > 0.0
+    assert cfg.STOP_VOL_ADAPTIVE is True
+    assert int(cfg.STOP_VOL_LOOKBACK) > 0
+    assert float(cfg.STOP_VOL_EXPANSION_MULT) >= 1.0
 
 
 def test_long_term_mode_respects_explicit_env_overrides(monkeypatch, tmp_path):

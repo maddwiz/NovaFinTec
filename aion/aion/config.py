@@ -152,6 +152,11 @@ def _apply_aion_preset_defaults():
         "AION_ENTRY_THRESHOLD_SHORT",
         "AION_SIGNAL_MIN_MARGIN",
         "AION_STOP_ATR_MULT",
+        "AION_STOP_ATR_LONG",
+        "AION_STOP_ATR_SHORT",
+        "AION_STOP_VOL_ADAPTIVE",
+        "AION_STOP_VOL_LOOKBACK",
+        "AION_STOP_VOL_EXPANSION_MULT",
         "AION_TARGET_ATR_MULT",
         "AION_TRAIL_ATR_MULT",
         "AION_BREAKEVEN_R",
@@ -342,6 +347,13 @@ PARTIAL_PROFIT_FRACTION = float(
 TRAILING_STOP_ENABLED = _bool_env("AION_TRAILING_STOP_ENABLED", _mode_default(True, True))
 TRAILING_STOP_ATR_MULTIPLE = float(
     np.clip(float(os.getenv("AION_TRAILING_STOP_ATR_MULTIPLE", str(_mode_default(2.0, 1.5)))), 0.5, 6.0)
+)
+STOP_ATR_LONG = float(np.clip(float(os.getenv("AION_STOP_ATR_LONG", str(_mode_default(2.5, 2.0)))), 0.2, 8.0))
+STOP_ATR_SHORT = float(np.clip(float(os.getenv("AION_STOP_ATR_SHORT", str(_mode_default(2.0, 1.5)))), 0.2, 8.0))
+STOP_VOL_ADAPTIVE = _bool_env("AION_STOP_VOL_ADAPTIVE", True)
+STOP_VOL_LOOKBACK = int(np.clip(int(float(os.getenv("AION_STOP_VOL_LOOKBACK", "20"))), 5, 252))
+STOP_VOL_EXPANSION_MULT = float(
+    np.clip(float(os.getenv("AION_STOP_VOL_EXPANSION_MULT", "1.3")), 1.0, 3.0)
 )
 # Backward-compatible aliases.
 TRAIL_ATR_MULT = float(

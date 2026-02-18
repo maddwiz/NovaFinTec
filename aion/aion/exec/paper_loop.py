@@ -2,6 +2,7 @@ import datetime as dt
 import json
 import math
 import time
+import numpy as np
 
 from .. import config as cfg
 from ..brain.signals import (
@@ -778,6 +779,8 @@ def _normalize_position(raw: dict):
         "confidence": _safe_float(raw.get("confidence"), 0.0),
         "regime": str(raw.get("regime", "mixed")),
         "atr_pct": max(0.0, _safe_float(raw.get("atr_pct"), 0.0)),
+        "stop_atr_mult": max(0.1, _safe_float(raw.get("stop_atr_mult"), getattr(cfg, "STOP_ATR_LONG", 1.0))),
+        "stop_vol_expanded": bool(raw.get("stop_vol_expanded", False)),
     }
     return out
 
@@ -930,6 +933,45 @@ def _trailing_stop_candidate(side: str, extreme_price: float, atr_value: float, 
     if str(side).upper() == "LONG":
         return float(extreme_price - atr * mult)
     return float(extreme_price + atr * mult)
+
+
+def _entry_stop_atr_multiple(side: str, close_returns) -> tuple[float, bool]:
+    side_up = str(side).upper()
+    if side_up == "SHORT":
+        base = float(getattr(cfg, "STOP_ATR_SHORT", getattr(cfg, "STOP_ATR_MULT", 1.0)))
+    else:
+        base = float(getattr(cfg, "STOP_ATR_LONG", getattr(cfg, "STOP_ATR_MULT", 1.0)))
+    base = max(0.1, base)
+
+    if not bool(getattr(cfg, "STOP_VOL_ADAPTIVE", True)):
+        return base, False
+
+    x = np.asarray(close_returns, float).ravel()
+    x = x[np.isfinite(x)]
+    lookback = max(5, int(getattr(cfg, "STOP_VOL_LOOKBACK", 20)))
+    if x.size < max(lookback + 5, 30):
+        return base, False
+
+    roll_vals = []
+    for i in range(lookback - 1, len(x)):
+        seg = x[i - lookback + 1 : i + 1]
+        sd = float(np.std(seg, ddof=1)) if len(seg) > 1 else 0.0
+        if math.isfinite(sd):
+            roll_vals.append(sd)
+    if len(roll_vals) < max(lookback, 20):
+        return base, False
+
+    rv = np.asarray(roll_vals, float)
+    hist = rv[-min(252, len(rv)) :]
+    curr = float(rv[-1])
+    p90 = float(np.percentile(hist, 90.0))
+    if (not math.isfinite(curr)) or (not math.isfinite(p90)) or p90 <= 0:
+        return base, False
+    if curr <= p90:
+        return base, False
+
+    expand = float(getattr(cfg, "STOP_VOL_EXPANSION_MULT", 1.3))
+    return max(0.1, base * max(1.0, expand)), True
 
 
 def _effective_stop_price(pos: dict) -> tuple[float, bool]:
@@ -2180,10 +2222,12 @@ def main() -> int:
                         log_run(f"{sym}: event filter blocked entry ({reason})")
                         continue
 
-                    rets = df["close"].pct_change().dropna().tail(80)
+                    full_rets = df["close"].pct_change().dropna()
+                    rets = full_rets.tail(80)
                     volatility = float(rets.std()) if not rets.empty else 0.01
                     margin = abs(float(signal["long_conf"]) - float(signal["short_conf"]))
                     expected_edge = float(signal["confidence"]) * (0.6 + margin)
+                    stop_atr_mult, stop_vol_expanded = _entry_stop_atr_multiple(signal["side"], full_rets.values)
 
                     entry_candidates.append(
                         {
@@ -2197,6 +2241,8 @@ def main() -> int:
                             "volatility": max(1e-6, volatility),
                             "confidence": float(signal["confidence"]),
                             "expected_edge": expected_edge,
+                            "stop_atr_mult": float(stop_atr_mult),
+                            "stop_vol_expanded": bool(stop_vol_expanded),
                         }
                     )
 
@@ -2241,7 +2287,7 @@ def main() -> int:
                     atr=c["atr"],
                     price=c["price"],
                     confidence=c["confidence"],
-                    stop_atr_mult=float(c["signal"]["stop_atr_mult"]),
+                    stop_atr_mult=float(c.get("stop_atr_mult", c["signal"]["stop_atr_mult"])),
                     max_notional_pct=max_position_notional_pct_runtime,
                 )
                 qty = min(qty_port, qty_risk)
@@ -2278,7 +2324,7 @@ def main() -> int:
                 else:
                     cash += notional
 
-                init_risk = max(c["atr"] * float(c["signal"]["stop_atr_mult"]), fill.avg_fill * 0.0035)
+                init_risk = max(c["atr"] * float(c.get("stop_atr_mult", c["signal"]["stop_atr_mult"])), fill.avg_fill * 0.0035)
                 if c["side"] == "LONG":
                     stop = fill.avg_fill - init_risk
                     target = fill.avg_fill + (c["atr"] * float(c["signal"]["target_atr_mult"]))
@@ -2310,6 +2356,8 @@ def main() -> int:
                     "confidence": float(c["confidence"]),
                     "regime": str(c["signal"]["regime"]),
                     "atr_pct": float(c["atr_pct"]),
+                    "stop_atr_mult": float(c.get("stop_atr_mult", c["signal"]["stop_atr_mult"])),
+                    "stop_vol_expanded": bool(c.get("stop_vol_expanded", False)),
                 }
                 trades_today += 1
 
