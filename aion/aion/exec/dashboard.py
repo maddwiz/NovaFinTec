@@ -3,10 +3,12 @@ import errno
 import json
 import math
 import re
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 from urllib.request import urlopen
+from zoneinfo import ZoneInfo
 
 from .. import config as cfg
 from .doctor import check_external_overlay
@@ -18,6 +20,8 @@ from .runtime_health import (
     overlay_runtime_status,
     runtime_controls_stale_info,
 )
+
+DENVER_TZ = ZoneInfo("America/Denver")
 
 
 def _read_json(path: Path, default):
@@ -166,6 +170,64 @@ def _to_int(raw, default: int):
         return default
 
 
+def _parse_timestamp(raw):
+    s = str(raw or "").strip()
+    if not s:
+        return None
+    if s.endswith("Z"):
+        s = s[:-1] + "+00:00"
+    try:
+        return datetime.fromisoformat(s)
+    except Exception:
+        pass
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(s, fmt)
+        except Exception:
+            continue
+    return None
+
+
+def _equity_pnl_summary(path: Path) -> dict:
+    rows = _tail_csv(path, limit=5000)
+    out = {
+        "present": bool(rows),
+        "daily_pnl": None,
+        "overall_pnl": None,
+        "overall_return_pct": None,
+    }
+    if not rows:
+        return out
+
+    def _row_equity(r):
+        return _to_float((r or {}).get("equity"), None)
+
+    start_eq = _row_equity(rows[0])
+    end_eq = _row_equity(rows[-1])
+    if (start_eq is not None) and (end_eq is not None):
+        out["overall_pnl"] = float(end_eq - start_eq)
+        if abs(start_eq) > 1e-9:
+            out["overall_return_pct"] = float((end_eq / start_eq) - 1.0)
+
+    now_denver = datetime.now(DENVER_TZ).date()
+    daily_start_eq = None
+    for r in rows:
+        ts = _parse_timestamp((r or {}).get("timestamp"))
+        if ts is None:
+            continue
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=DENVER_TZ)
+        day_denver = ts.astimezone(DENVER_TZ).date()
+        eq = _row_equity(r)
+        if (eq is not None) and (day_denver == now_denver):
+            daily_start_eq = eq
+            break
+    if (daily_start_eq is not None) and (end_eq is not None):
+        out["daily_pnl"] = float(end_eq - daily_start_eq)
+
+    return out
+
+
 def _doctor_check(doctor: dict, name: str):
     checks = doctor.get("checks", []) if isinstance(doctor, dict) else []
     if not isinstance(checks, list):
@@ -223,6 +285,7 @@ def _status_payload():
     equity_metrics = perf.get("equity_metrics", {})
     signal_rows = _tail_csv(cfg.LOG_DIR / "signals.csv", limit=200)
     signal_gate_summary = _signal_gate_summary(signal_rows)
+    pnl_summary = _equity_pnl_summary(cfg.LOG_DIR / "shadow_equity.csv")
     ext = _doctor_check(doctor, "external_overlay") or {}
     ext_details = ext.get("details", {}) if isinstance(ext.get("details"), dict) else {}
     ext_ok = bool(ext.get("ok", True))
@@ -324,6 +387,7 @@ def _status_payload():
         "trade_metrics": trade_metrics,
         "equity_metrics": equity_metrics,
         "signal_gate_summary": signal_gate_summary,
+        "pnl_summary": pnl_summary,
         "telemetry_summary": _read_json(cfg.TELEMETRY_SUMMARY_FILE, {}),
         "adaptive_stats": profile.get("adaptive_stats", {}),
         "trading_enabled": bool(profile.get("trading_enabled", True)),
@@ -371,6 +435,8 @@ def _html_template():
       <div class="card kpi"><div class="k">Trading Enabled</div><div class="v" id="trading_enabled">-</div></div>
       <div class="card kpi"><div class="k">Watchlist</div><div class="v" id="watchlist_count">-</div></div>
       <div class="card kpi"><div class="k">Closed Trades</div><div class="v" id="closed_trades">-</div></div>
+      <div class="card kpi"><div class="k">Daily PnL (Denver)</div><div class="v" id="daily_pnl">-</div></div>
+      <div class="card kpi"><div class="k">Overall PnL</div><div class="v" id="overall_pnl">-</div></div>
       <div class="card kpi"><div class="k">Q Overlay</div><div class="v" id="overlay_ok">-</div></div>
       <div class="card kpi"><div class="k">Ops Guard</div><div class="v" id="ops_guard_ok">-</div></div>
       <div class="card kpi"><div class="k">Entry Gates</div><div class="v" id="gate_summary">-</div></div>
@@ -416,11 +482,43 @@ def _html_template():
     async function j(url){ const r = await fetch(url); return r.json(); }
     function txt(el, v){ document.getElementById(el).textContent = v; }
     function cls(el, ok){ const n=document.getElementById(el); n.classList.remove('ok','bad'); n.classList.add(ok?'ok':'bad'); }
+    const DENVER_FMT = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Denver',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: 'numeric',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true
+    });
+    function formatDenver(v){
+      if(v === null || v === undefined || v === '') return '';
+      let raw = String(v).trim();
+      if(/^\\d{4}-\\d{2}-\\d{2}$/.test(raw)) raw = `${raw}T00:00:00`;
+      if(/^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}$/.test(raw)) raw = raw.replace(' ','T');
+      const d = new Date(raw);
+      if(Number.isNaN(d.getTime())) return String(v);
+      return `${DENVER_FMT.format(d)} MT`;
+    }
+    function fmtMoney(v){
+      const n = Number(v);
+      if(!Number.isFinite(n)) return '-';
+      return `${n >= 0 ? '+' : '-'}$${Math.abs(n).toFixed(2)}`;
+    }
     function renderTable(id, rows, cols){
       const tb = document.querySelector(`#${id} tbody`); tb.innerHTML='';
       for(const r of rows){
         const tr=document.createElement('tr');
-        for(const c of cols){ const td=document.createElement('td'); td.textContent=(r[c]??''); tr.appendChild(td); }
+        for(const c of cols){
+          const td=document.createElement('td');
+          let val = (r[c]??'');
+          if(c === 'timestamp' || c === 'time'){
+            val = formatDenver(val);
+          }
+          td.textContent=val;
+          tr.appendChild(td);
+        }
         tb.appendChild(tr);
       }
     }
@@ -432,11 +530,15 @@ def _html_template():
         j('/api/alerts?limit=14'),
         j('/api/decisions?limit=18')
       ]);
-      txt('ts', new Date().toLocaleString());
+      txt('ts', formatDenver(new Date().toISOString()));
       txt('doctor_ok', s.doctor_ok ? 'PASS' : 'FAIL'); cls('doctor_ok', !!s.doctor_ok);
       txt('trading_enabled', s.trading_enabled ? 'ON' : 'OFF'); cls('trading_enabled', !!s.trading_enabled);
       txt('watchlist_count', s.watchlist_count ?? 0);
       txt('closed_trades', s.trade_metrics?.closed_trades ?? 0);
+      txt('daily_pnl', fmtMoney(s.pnl_summary?.daily_pnl));
+      cls('daily_pnl', Number(s.pnl_summary?.daily_pnl || 0) >= 0);
+      txt('overall_pnl', fmtMoney(s.pnl_summary?.overall_pnl));
+      cls('overall_pnl', Number(s.pnl_summary?.overall_pnl || 0) >= 0);
       txt('overlay_ok', s.external_overlay_ok ? 'OK' : 'WARN'); cls('overlay_ok', !!s.external_overlay_ok);
       txt('ops_guard_ok', s.ops_guard_ok ? 'OK' : 'WARN'); cls('ops_guard_ok', !!s.ops_guard_ok);
       const gates = s.signal_gate_summary || {};
@@ -482,6 +584,7 @@ def _html_template():
         winrate: s.trade_metrics?.winrate,
         expectancy: s.trade_metrics?.expectancy,
         return_pct: s.equity_metrics?.return_pct,
+        pnl_summary: s.pnl_summary,
         signal_gate_summary: s.signal_gate_summary,
         telemetry_summary: s.telemetry_summary,
         adaptive: s.adaptive_stats,

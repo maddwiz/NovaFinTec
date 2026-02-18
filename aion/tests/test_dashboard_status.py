@@ -117,6 +117,17 @@ def test_status_payload_includes_external_overlay_fields(tmp_path: Path, monkeyp
         + "\n",
         encoding="utf-8",
     )
+    (log_dir / "shadow_equity.csv").write_text(
+        "\n".join(
+            [
+                "timestamp,equity,cash,open_pnl,closed_pnl",
+                "2026-01-01 09:30:00,5000.00,5000.00,0.00,0.00",
+                "2026-01-01 10:00:00,5005.50,5005.50,0.00,5.50",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
     s = dash._status_payload()
     assert s["external_overlay_ok"] is False
@@ -172,6 +183,9 @@ def test_status_payload_includes_external_overlay_fields(tmp_path: Path, monkeyp
     assert s["signal_gate_summary"]["blocked_total"] == 1
     assert s["signal_gate_summary"]["passed"] == 1
     assert s["signal_gate_summary"]["avg_intraday_score"] is not None
+    assert s["pnl_summary"]["present"] is True
+    assert s["pnl_summary"]["overall_pnl"] == 5.5
+    assert s["pnl_summary"]["overall_return_pct"] is not None
     assert s["telemetry_summary"]["closed_trade_events"] == 5
     assert s["telemetry_summary"]["top_win_signal_category"] == "session_structure"
     assert s["telemetry_summary"]["top_loss_signal_category"] == "multi_timeframe"
