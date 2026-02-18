@@ -26,11 +26,12 @@ Implemented and validated:
 - Local multi-asset bundle ingestion (`ingest_multi_asset_csv_bundle.py`).
 
 Validation status:
-- Latest full local run (`q/tests` + `aion/tests`): `610 passed`.
+- Latest full local run (`q/tests` + `aion/tests`): `611 passed`.
 - Latest targeted run (new governor walk-forward batch): `24 passed`.
 - Latest AION suite run after telemetry wiring: `216 passed`.
 - Latest skimmer wiring run (`test_skimmer_loop_integration.py` + dispatch): `3 passed`.
 - Latest regime-council hardening run (`test_run_regime_council_weights.py`): `6 passed`.
+- Latest council-member stability run (`test_council_member_overlays.py`): `5 passed`.
 - Latest CI-equivalent run (`.github/workflows/ci.yml` command): `541 passed`.
 - GitHub Actions workflow: `.github/workflows/ci.yml`.
 
