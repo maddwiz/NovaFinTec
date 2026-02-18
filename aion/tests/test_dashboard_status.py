@@ -249,3 +249,21 @@ def test_signal_gate_summary_supports_legacy_reason_fields():
     assert out["blocked_total"] == 1
     assert out["passed"] == 1
     assert out["avg_intraday_score"] is not None
+
+
+def test_tail_jsonl_returns_last_rows(tmp_path: Path):
+    p = tmp_path / "trade_decisions.jsonl"
+    p.write_text(
+        "\n".join(
+            [
+                json.dumps({"timestamp": "2026-01-01T10:00:00Z", "symbol": "AAPL", "decision": "ENTRY_LONG"}),
+                "not-json",
+                json.dumps({"timestamp": "2026-01-01T10:05:00Z", "symbol": "MSFT", "decision": "EXIT_TRAILING_STOP"}),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    rows = dash._tail_jsonl(p, limit=1)
+    assert len(rows) == 1
+    assert rows[0]["symbol"] == "MSFT"

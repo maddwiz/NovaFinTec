@@ -51,6 +51,27 @@ def _tail_csv(path: Path, limit: int = 30):
         return []
 
 
+def _tail_jsonl(path: Path, limit: int = 30):
+    if not path.exists():
+        return []
+    try:
+        lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
+    except Exception:
+        return []
+    rows = []
+    for ln in lines:
+        s = str(ln).strip()
+        if not s:
+            continue
+        try:
+            row = json.loads(s)
+        except Exception:
+            continue
+        if isinstance(row, dict):
+            rows.append(row)
+    return rows[-max(1, limit):]
+
+
 _INTRADAY_ALIGN_RE = re.compile(r"intraday align\s+([0-9]*\.?[0-9]+)", re.IGNORECASE)
 
 
@@ -353,6 +374,10 @@ def _html_template():
       <div class="card kpi"><div class="k">Q Overlay</div><div class="v" id="overlay_ok">-</div></div>
       <div class="card kpi"><div class="k">Ops Guard</div><div class="v" id="ops_guard_ok">-</div></div>
       <div class="card kpi"><div class="k">Entry Gates</div><div class="v" id="gate_summary">-</div></div>
+      <div class="card kpi"><div class="k">Rolling Hit (20)</div><div class="v" id="telemetry_hit">-</div></div>
+      <div class="card kpi"><div class="k">Win/Loss Ratio</div><div class="v" id="telemetry_wlr">-</div></div>
+      <div class="card kpi"><div class="k">Best Regime</div><div class="v" id="telemetry_best_regime">-</div></div>
+      <div class="card kpi"><div class="k">Worst Regime</div><div class="v" id="telemetry_worst_regime">-</div></div>
 
       <div class="card wide">
         <div class="k">System Snapshot</div>
@@ -376,6 +401,13 @@ def _html_template():
           <th>Time</th><th>Symbol</th><th>Decision</th><th>Intra</th><th>MTF</th><th>Meta</th><th>IntraScore</th><th>L</th><th>S</th><th>Patterns</th><th>Indicators</th>
         </tr></thead><tbody></tbody></table>
       </div>
+
+      <div class="card full">
+        <div class="k">Recent Decisions</div>
+        <table id="decisions_tbl"><thead><tr>
+          <th>Time</th><th>Symbol</th><th>Decision</th><th>Confluence</th><th>Regime</th><th>PnL</th><th>Reasons</th>
+        </tr></thead><tbody></tbody></table>
+      </div>
     </div>
   </div>
   <script>
@@ -391,11 +423,12 @@ def _html_template():
       }
     }
     async function refresh(){
-      const [s,tr,sg,al] = await Promise.all([
+      const [s,tr,sg,al,dc] = await Promise.all([
         j('/api/status'),
         j('/api/trades?limit=18'),
         j('/api/signals?limit=18'),
-        j('/api/alerts?limit=14')
+        j('/api/alerts?limit=14'),
+        j('/api/decisions?limit=18')
       ]);
       txt('ts', new Date().toLocaleString());
       txt('doctor_ok', s.doctor_ok ? 'PASS' : 'FAIL'); cls('doctor_ok', !!s.doctor_ok);
@@ -409,6 +442,18 @@ def _html_template():
       const blocked = gates.blocked_total ?? 0;
       txt('gate_summary', `${blocked}/${considered}`);
       cls('gate_summary', considered === 0 ? true : (blocked / Math.max(considered, 1)) < 0.65);
+      const tel = s.telemetry_summary || {};
+      const hit = Number.isFinite(Number(tel.rolling_hit_rate)) ? `${(Number(tel.rolling_hit_rate) * 100).toFixed(1)}%` : '-';
+      txt('telemetry_hit', hit);
+      cls('telemetry_hit', Number(tel.rolling_hit_rate || 0) >= 0.5);
+      const wlrNum = Number(tel.win_loss_ratio);
+      const wlr = Number.isFinite(wlrNum) ? wlrNum.toFixed(2) : '-';
+      txt('telemetry_wlr', wlr);
+      cls('telemetry_wlr', Number.isFinite(wlrNum) ? wlrNum >= 1.0 : true);
+      txt('telemetry_best_regime', tel.most_profitable_regime || '-');
+      cls('telemetry_best_regime', true);
+      txt('telemetry_worst_regime', tel.worst_regime || '-');
+      cls('telemetry_worst_regime', false);
       txt('snapshot', JSON.stringify({
         ib: s.ib,
         external_overlay_ok: s.external_overlay_ok,
@@ -432,6 +477,7 @@ def _html_template():
         expectancy: s.trade_metrics?.expectancy,
         return_pct: s.equity_metrics?.return_pct,
         signal_gate_summary: s.signal_gate_summary,
+        telemetry_summary: s.telemetry_summary,
         adaptive: s.adaptive_stats,
         remediation: s.doctor_remediation
       }, null, 2));
@@ -441,6 +487,11 @@ def _html_template():
         'signals_tbl',
         sg.rows || [],
         ['timestamp','symbol','decision','intraday_gate','mtf_gate','meta_gate','intraday_score','long_conf','short_conf','pattern_hits','indicator_hits']
+      );
+      renderTable(
+        'decisions_tbl',
+        dc.rows || [],
+        ['timestamp','symbol','decision','confluence_score','regime','pnl_realized','reasons']
       );
     }
     refresh();
@@ -495,6 +546,11 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/alerts":
             lines = _tail_lines(cfg.LOG_DIR / "alerts.log", limit=limit)
             self._send_json({"lines": lines})
+            return
+        if path == "/api/decisions":
+            p = Path(cfg.STATE_DIR) / str(getattr(cfg, "TELEMETRY_DECISIONS_FILE", "trade_decisions.jsonl"))
+            rows = _tail_jsonl(p, limit=limit)
+            self._send_json({"rows": rows})
             return
         self._send_json({"error": "not found"}, status=404)
 
