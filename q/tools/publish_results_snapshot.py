@@ -20,6 +20,15 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+try:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+except Exception:
+    matplotlib = None
+    plt = None
+
 ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = ROOT.parent
 RUNS = ROOT / "runs_plus"
@@ -126,6 +135,55 @@ def _write_equity_csv(path: Path, returns: np.ndarray) -> None:
             w.writerow([int(i), float(e), float(d)])
 
 
+def _compute_equity_at_cost(returns: np.ndarray, cost_bps: float) -> np.ndarray:
+    r = np.asarray(returns, float).ravel()
+    drag = float(cost_bps) / 10000.0
+    net = r - drag
+    return np.cumprod(1.0 + net)
+
+
+def _drawdown(equity: np.ndarray) -> np.ndarray:
+    eq = np.asarray(equity, float).ravel()
+    if eq.size == 0:
+        return np.zeros(0, dtype=float)
+    peak = np.maximum.accumulate(eq)
+    return (eq / (peak + 1e-12)) - 1.0
+
+
+def _write_detailed_equity_chart(path: Path, returns: np.ndarray) -> bool:
+    if plt is None:
+        return False
+    r = np.asarray(returns, float).ravel()
+    if r.size <= 0:
+        return False
+    dates = np.arange(len(r))
+    curves = {}
+    for bps, label in [(0, "Zero cost"), (5, "5 bps"), (10, "10 bps"), (20, "20 bps")]:
+        curves[label] = _compute_equity_at_cost(r, bps)
+
+    base_eq = curves["Zero cost"]
+    dd = _drawdown(base_eq)
+
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), height_ratios=[3, 1], sharex=True)
+    for label, eq in curves.items():
+        alpha = 1.0 if label == "Zero cost" else 0.85
+        lw = 2.0 if label == "Zero cost" else 1.4
+        ax1.plot(dates, eq, label=label, alpha=alpha, linewidth=lw)
+    ax1.set_title("Walk-Forward OOS Equity Curve (Cost Sensitivity)")
+    ax1.legend(loc="best")
+    ax1.grid(alpha=0.20)
+
+    ax2.fill_between(dates, dd, 0.0, color="red", alpha=0.25)
+    ax2.plot(dates, dd, color="red", linewidth=1.0)
+    ax2.set_title("Drawdown")
+    ax2.grid(alpha=0.20)
+
+    plt.tight_layout()
+    fig.savefig(path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    return True
+
+
 def _summarize_governor_compound() -> dict:
     p = RUNS / "final_governor_trace.csv"
     if not p.exists():
@@ -166,6 +224,7 @@ def main() -> int:
 
     primary_metrics = _metrics(primary)
     _write_equity_csv(RESULTS / "walkforward_equity.csv", primary)
+    chart_ok = _write_detailed_equity_chart(RESULTS / "equity_curve_detailed.png", primary)
 
     strict = _read_json(RUNS / "strict_oos_validation.json")
     stress = _read_json(RUNS / "cost_stress_validation.json")
@@ -198,6 +257,7 @@ def main() -> int:
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "source_returns": source,
         "primary_metrics": primary_metrics,
+        "equity_curve_detailed_png": bool(chart_ok),
         "strict_oos": strict,
         "cost_stress": stress,
         "external_holdout": external_holdout,
@@ -242,6 +302,7 @@ def main() -> int:
         "",
         "- `results/walkforward_metrics.json`",
         "- `results/walkforward_equity.csv`",
+        "- `results/equity_curve_detailed.png`",
         "- `results/benchmarks_metrics.csv`",
         "- `results/governor_compound_summary.json`",
     ]
@@ -249,6 +310,8 @@ def main() -> int:
 
     print(f"✅ Wrote {RESULTS/'walkforward_metrics.json'}")
     print(f"✅ Wrote {RESULTS/'walkforward_equity.csv'}")
+    if chart_ok:
+        print(f"✅ Wrote {RESULTS/'equity_curve_detailed.png'}")
     print(f"✅ Wrote {RESULTS/'benchmarks_metrics.csv'}")
     print(f"✅ Wrote {RESULTS/'governor_compound_summary.json'}")
     print(f"✅ Wrote {RESULTS/'README.md'}")

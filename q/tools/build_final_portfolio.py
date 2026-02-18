@@ -47,6 +47,7 @@ TRACE_STEPS = [
     "regime_fracture_governor",
     "regime_moe_governor",
     "uncertainty_sizing",
+    "entropy_sizing",
     "capacity_impact_guard",
     "credit_leadlag_overlay",
     "cross_sectional_momentum_overlay",
@@ -54,6 +55,9 @@ TRACE_STEPS = [
     "calendar_mask",
     "calendar_event_overlay",
     "macro_proxy_guard",
+    "regime_transition_predictor",
+    "vol_forecast_overlay",
+    "synthetic_vol_overlay",
     "novaspine_context_boost",
     "novaspine_hive_boost",
     "shock_mask_guard",
@@ -592,10 +596,52 @@ if __name__ == "__main__":
         0.0,
         2.0,
     )
+    entropy_sizing_strength = _env_or_profile_float(
+        "Q_ENTROPY_SIZING_STRENGTH",
+        "entropy_sizing_strength",
+        0.75,
+        0.0,
+        2.0,
+    )
+    entropy_sizing_floor = _env_or_profile_float(
+        "Q_ENTROPY_SIZING_FLOOR",
+        "entropy_sizing_floor",
+        0.30,
+        0.01,
+        2.0,
+    )
+    entropy_sizing_ceil = _env_or_profile_float(
+        "Q_ENTROPY_SIZING_CEIL",
+        "entropy_sizing_ceil",
+        1.50,
+        entropy_sizing_floor,
+        3.0,
+    )
     macro_proxy_strength = _env_or_profile_float(
         "Q_MACRO_PROXY_STRENGTH",
         "macro_proxy_strength",
         0.0,
+        0.0,
+        2.0,
+    )
+    regime_transition_strength = _env_or_profile_float(
+        "Q_REGIME_TRANSITION_STRENGTH",
+        "regime_transition_strength",
+        1.0,
+        0.0,
+        2.0,
+    )
+    vol_forecast_overlay_strength = _env_or_profile_float(
+        "Q_VOL_FORECAST_OVERLAY_STRENGTH",
+        "vol_forecast_overlay_strength",
+        1.0,
+        0.0,
+        2.0,
+    )
+    synthetic_vol_overlay_strength = _env_or_profile_float(
+        "Q_SYNTHETIC_VOL_OVERLAY_STRENGTH",
+        "synthetic_vol_overlay_strength",
+        1.0,
         0.0,
         2.0,
     )
@@ -978,6 +1024,25 @@ if __name__ == "__main__":
         steps.append("uncertainty_sizing")
         _trace_put("uncertainty_sizing", ur.ravel())
 
+    # 21b) Entropy sizing from council agreement (low entropy => size up).
+    es = load_series("runs_plus/entropy_sizing_scalar.csv")
+    if es is None:
+        cv = load_mat("runs_plus/council_votes.csv")
+        if cv is not None and cv.ndim == 2 and cv.shape[0] > 0 and cv.shape[1] > 1:
+            av = np.abs(np.nan_to_num(cv, nan=0.0, posinf=0.0, neginf=0.0))
+            ws = av / np.maximum(np.sum(av, axis=1, keepdims=True), 1e-12)
+            H = -np.sum(ws * np.log(np.clip(ws, 1e-12, None)), axis=1)
+            Hmax = np.log(max(2, cv.shape[1]))
+            Hn = H / max(Hmax, 1e-12)
+            es = np.clip(1.5 - Hn, entropy_sizing_floor, entropy_sizing_ceil)
+    if _gov_enabled("entropy_sizing") and es is not None:
+        L = min(len(es), W.shape[0])
+        es_raw = np.clip(es[:L], entropy_sizing_floor, entropy_sizing_ceil)
+        esc = _apply_governor_strength(es_raw, entropy_sizing_strength, lo=0.0, hi=3.0).reshape(-1, 1)
+        W[:L] = W[:L] * esc
+        steps.append("entropy_sizing")
+        _trace_put("entropy_sizing", esc.ravel())
+
     # 22) Capacity/impact proxy guard from participation pressure.
     cis = load_series("runs_plus/capacity_impact_scalar.csv")
     if _gov_enabled("capacity_impact_guard") and cis is not None:
@@ -1047,6 +1112,36 @@ if __name__ == "__main__":
         W[:L] = W[:L] * mp
         steps.append("macro_proxy_guard")
         _trace_put("macro_proxy_guard", mp.ravel())
+
+    # 28b) Regime transition risk predictor scalar.
+    rts = load_series("runs_plus/regime_transition_scalar.csv")
+    if _gov_enabled("regime_transition_predictor") and rts is not None:
+        L = min(len(rts), W.shape[0])
+        rt_raw = np.clip(rts[:L], 0.0, 1.20)
+        rt = _apply_governor_strength(rt_raw, regime_transition_strength, lo=0.0, hi=2.0).reshape(-1, 1)
+        W[:L] = W[:L] * rt
+        steps.append("regime_transition_predictor")
+        _trace_put("regime_transition_predictor", rt.ravel())
+
+    # 28c) Forward vol forecast overlay.
+    vfo = load_series("runs_plus/vol_forecast_overlay.csv")
+    if _gov_enabled("vol_forecast_overlay") and vfo is not None:
+        L = min(len(vfo), W.shape[0])
+        vf_raw = np.clip(vfo[:L], 0.50, 1.50)
+        vf = _apply_governor_strength(vf_raw, vol_forecast_overlay_strength, lo=0.0, hi=3.0).reshape(-1, 1)
+        W[:L] = W[:L] * vf
+        steps.append("vol_forecast_overlay")
+        _trace_put("vol_forecast_overlay", vf.ravel())
+
+    # 28d) Synthetic vol overlay (delta-neutral vol proxy stream).
+    svo = load_series("runs_plus/synthetic_vol_overlay.csv")
+    if _gov_enabled("synthetic_vol_overlay") and svo is not None:
+        L = min(len(svo), W.shape[0])
+        sv_raw = np.clip(svo[:L], 0.50, 1.50)
+        sv = _apply_governor_strength(sv_raw, synthetic_vol_overlay_strength, lo=0.0, hi=3.0).reshape(-1, 1)
+        W[:L] = W[:L] * sv
+        steps.append("synthetic_vol_overlay")
+        _trace_put("synthetic_vol_overlay", sv.ravel())
 
     # 28) NovaSpine recall-context boost (if available).
     ncb = load_series("runs_plus/novaspine_context_boost.csv")
@@ -1240,6 +1335,9 @@ if __name__ == "__main__":
                     "quality_governor_strength": quality_governor_strength,
                     "regime_moe_strength": regime_moe_strength,
                     "uncertainty_sizing_strength": uncertainty_sizing_strength,
+                    "entropy_sizing_strength": entropy_sizing_strength,
+                    "entropy_sizing_floor": entropy_sizing_floor,
+                    "entropy_sizing_ceil": entropy_sizing_ceil,
                     "capacity_impact_strength": capacity_impact_strength,
                     "credit_leadlag_strength": credit_leadlag_strength,
                     "cross_sectional_momentum_strength": cross_sectional_momentum_strength,
@@ -1251,6 +1349,9 @@ if __name__ == "__main__":
                     "hive_conviction_floor": hive_conviction_floor,
                     "hive_conviction_ceil": hive_conviction_ceil,
                     "macro_proxy_strength": macro_proxy_strength,
+                    "regime_transition_strength": regime_transition_strength,
+                    "vol_forecast_overlay_strength": vol_forecast_overlay_strength,
+                    "synthetic_vol_overlay_strength": synthetic_vol_overlay_strength,
                     "vol_target_strength": vol_target_strength,
                     "vol_target_annual": vol_target_annual,
                     "vol_target_lookback": vol_target_lookback,

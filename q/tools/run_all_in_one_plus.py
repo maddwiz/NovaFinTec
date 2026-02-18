@@ -478,9 +478,18 @@ if __name__ == "__main__":
     if not ok and rc is not None: failures.append({"step": "tools/run_credit_council_member.py", "code": rc})
     ok, rc = run_script("tools/run_microstructure_council_member.py")
     if not ok and rc is not None: failures.append({"step": "tools/run_microstructure_council_member.py", "code": rc})
+    # Adaptive decomposition council members (trend + cycle components).
+    ok, rc = run_script("tools/run_adaptive_signal_decomposition.py")
+    if not ok and rc is not None: failures.append({"step": "tools/run_adaptive_signal_decomposition.py", "code": rc})
     # Cross-sectional DNA convergence alpha as a council member.
     ok, rc = run_script("tools/run_dna_convergence.py")
     if not ok and rc is not None: failures.append({"step": "tools/run_dna_convergence.py", "code": rc})
+    # Cross-asset lead-lag network council member.
+    ok, rc = run_script("tools/run_leadlag_network.py")
+    if not ok and rc is not None: failures.append({"step": "tools/run_leadlag_network.py", "code": rc})
+    # Fractal-efficiency council member.
+    ok, rc = run_script("tools/run_fractal_efficiency_signal.py")
+    if not ok and rc is not None: failures.append({"step": "tools/run_fractal_efficiency_signal.py", "code": rc})
 
     # (C) Build council votes (real if present, else sleeves or synthetic)
     ok, rc = run_script("tools/make_council_votes.py")
@@ -536,6 +545,9 @@ if __name__ == "__main__":
     # Optional NovaSpine per-hive memory feedback.
     ok, rc = run_script("tools/run_novaspine_hive_feedback.py")
     if not ok and rc is not None: failures.append({"step": "tools/run_novaspine_hive_feedback.py", "code": rc})
+    # Convert realized AION telemetry into Bayesian signal priors for Thompson bandit.
+    ok, rc = run_script("tools/run_novaspine_feedback_learner.py")
+    if not ok and rc is not None: failures.append({"step": "tools/run_novaspine_feedback_learner.py", "code": rc})
     # Cross-hive arbitration (weights per hive)
     ok, rc = run_script("tools/run_cross_hive.py")
     if not ok and rc is not None: failures.append({"step": "tools/run_cross_hive.py", "code": rc})
@@ -602,6 +614,9 @@ if __name__ == "__main__":
     # Macro/forward-looking proxy guard (VIX term structure, curve, credit stress).
     ok, rc = run_script("tools/run_macro_proxy_guard.py")
     if not ok and rc is not None: failures.append({"step": "tools/run_macro_proxy_guard.py", "code": rc})
+    # HAR-RV forward vol forecast overlay.
+    ok, rc = run_script("tools/run_vol_forecast.py")
+    if not ok and rc is not None: failures.append({"step": "tools/run_vol_forecast.py", "code": rc})
     # Credit-equity lead/lag alpha overlay.
     ok, rc = run_script("tools/run_credit_leadlag_signal.py")
     if not ok and rc is not None: failures.append({"step": "tools/run_credit_leadlag_signal.py", "code": rc})
@@ -617,9 +632,18 @@ if __name__ == "__main__":
     # Calendar/event seasonality overlay (turn-of-month + optional event impulses).
     ok, rc = run_script("tools/run_calendar_event_overlay.py")
     if not ok and rc is not None: failures.append({"step": "tools/run_calendar_event_overlay.py", "code": rc})
+    # Regime transition predictor (1-5d transition/crisis risk).
+    ok, rc = run_script("tools/run_regime_transition_predictor.py")
+    if not ok and rc is not None: failures.append({"step": "tools/run_regime_transition_predictor.py", "code": rc})
+    # Synthetic vol overlay from forecast-vs-realized spread.
+    ok, rc = run_script("tools/run_synthetic_vol_overlay.py")
+    if not ok and rc is not None: failures.append({"step": "tools/run_synthetic_vol_overlay.py", "code": rc})
     # Uncertainty-aware sizing scalar (confidence/disagreement/meta-exec/shock).
     ok, rc = run_script("tools/run_uncertainty_sizing.py")
     if not ok and rc is not None: failures.append({"step": "tools/run_uncertainty_sizing.py", "code": rc})
+    # Entropy-based conviction scalar from council agreement.
+    ok, rc = run_script("tools/run_entropy_sizing.py")
+    if not ok and rc is not None: failures.append({"step": "tools/run_entropy_sizing.py", "code": rc})
     # Assemble provisional portfolio weights and returns.
     ok, rc = run_script("tools/build_final_portfolio.py")
     if not ok and rc is not None: failures.append({"step": "tools/build_final_portfolio.py", "code": rc})

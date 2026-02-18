@@ -124,6 +124,7 @@ def build_dream_coherence_governor(
     hi: float = 1.15,
     smooth: float = 0.88,
     max_causal_delay: int = 3,
+    bandit_confidence_widths: np.ndarray | None = None,
 ) -> tuple[np.ndarray, dict]:
     """
     Blend dream/reflex/symbolic/council streams into a coherence governor.
@@ -179,7 +180,19 @@ def build_dream_coherence_governor(
         wv = np.ones(M.shape[1], float)
     wv = np.clip(np.nan_to_num(wv, nan=1.0, posinf=1.0, neginf=1.0), 0.05, 4.0)
     consensus = np.tanh((M * wv.reshape(1, -1)).sum(axis=1) / (float(np.sum(wv)) + 1e-12))
-    dispersion = np.std(M, axis=1)
+
+    # V2: optional certainty-weighted agreement from Thompson bandit CI widths.
+    certainty = None
+    if bandit_confidence_widths is not None:
+        bw = np.asarray(bandit_confidence_widths, float).ravel()
+        if bw.size == M.shape[1]:
+            certainty = 1.0 - np.clip(bw / 0.5, 0.0, 1.0)
+            certainty = np.clip(certainty, 0.05, 1.0)
+    if certainty is not None:
+        Mw = M * certainty.reshape(1, -1)
+        dispersion = np.std(Mw, axis=1)
+    else:
+        dispersion = np.std(M, axis=1)
     agreement = np.clip(1.0 - dispersion / 0.90, 0.0, 1.0)
     efficacy = _rolling_signal_quality(consensus, ret, win=63)
 
@@ -230,5 +243,7 @@ def build_dream_coherence_governor(
         "per_signal_delay_quality": per_signal_delay_quality,
         "per_signal_weight": {n: float(wv[i]) for i, n in enumerate(names)},
         "per_signal_consensus_corr": per_signal_corr,
+        "bandit_certainty_used": bool(certainty is not None),
+        "bandit_certainty_mean": (float(np.mean(certainty)) if certainty is not None else None),
     }
     return gov, info

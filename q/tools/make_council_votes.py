@@ -21,9 +21,13 @@ ROOT = Path(__file__).resolve().parents[1]
 RUNS = ROOT/"runs_plus"; RUNS.mkdir(exist_ok=True)
 
 OPTIONAL_MEMBER_FILES = [
+    "council_adaptive_trend.csv",
+    "council_adaptive_cycle.csv",
     "council_credit_leadlag.csv",
     "council_microstructure.csv",
     "council_dna_convergence.csv",
+    "council_leadlag_network.csv",
+    "council_fractal_efficiency.csv",
 ]
 
 

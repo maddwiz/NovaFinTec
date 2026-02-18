@@ -29,6 +29,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from qengine.bandit import ExpWeightsBandit
+from qengine.bandit_v2 import ThompsonBandit
 
 REGIMES = ("trending", "mean_reverting", "choppy", "squeeze")
 
@@ -250,8 +251,23 @@ def _fit_bandit_weights(signals: np.ndarray, returns: np.ndarray, eta: float) ->
     idx = pd.RangeIndex(t)
     sig = {f"s{i}": pd.Series(s[:, i], index=idx) for i in range(k)}
     ret = pd.Series(r, index=idx)
+    bandit_type = str(os.getenv("Q_BANDIT_TYPE", "thompson")).strip().lower()
     try:
-        w = ExpWeightsBandit(eta=float(eta)).fit(sig, ret).get_weights()
+        if bandit_type == "thompson":
+            prior_file = str(os.getenv("Q_BANDIT_PRIOR_FILE", "")).strip() or None
+            w = (
+                ThompsonBandit(
+                    n_arms=k,
+                    decay=float(np.clip(float(os.getenv("Q_THOMPSON_DECAY", "0.995")), 0.90, 1.0)),
+                    magnitude_scaling=str(os.getenv("Q_THOMPSON_MAGNITUDE_SCALING", "1")).strip().lower()
+                    not in {"0", "false", "off", "no"},
+                    prior_file=prior_file,
+                )
+                .fit(sig, ret)
+                .get_weights()
+            )
+        else:
+            w = ExpWeightsBandit(eta=float(eta)).fit(sig, ret).get_weights()
     except Exception:
         w = {}
     vec = np.asarray([float(w.get(f"s{i}", 0.0)) for i in range(k)], float)

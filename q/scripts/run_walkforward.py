@@ -5,11 +5,26 @@ from pathlib import Path
 from qengine.data import load_csv
 from qengine.signals import dna_signal, trend_signal, momentum_signal
 from qengine.bandit import ExpWeightsBandit
+from qengine.bandit_v2 import ThompsonBandit
 from qengine.risk import apply_risk
 from qengine.crisis import crisis_anchor_from_vix, crisis_anchor_from_internal
 from qengine.walkforward import walkforward
 from qengine.explain import explain_trades
 from qengine.anomaly import anomaly_triage, apply_quarantine
+
+
+def _fit_bandit(signals: dict, returns: pd.Series, eta: float):
+    bandit_type = str(os.getenv("Q_BANDIT_TYPE", "thompson")).strip().lower()
+    if bandit_type == "thompson":
+        prior_file = str(os.getenv("Q_BANDIT_PRIOR_FILE", "")).strip() or None
+        return ThompsonBandit(
+            n_arms=len(signals),
+            decay=float(os.getenv("Q_THOMPSON_DECAY", "0.995")),
+            magnitude_scaling=str(os.getenv("Q_THOMPSON_MAGNITUDE_SCALING", "1")).strip().lower()
+            not in {"0", "false", "off", "no"},
+            prior_file=prior_file,
+        ).fit(signals, returns)
+    return ExpWeightsBandit(eta=eta).fit(signals, returns)
 
 def main():
     ap = argparse.ArgumentParser()
@@ -57,7 +72,7 @@ def main():
             "mom":   train_df["mom_sig"],
         }
         returns_train = train_df["Close"].pct_change().fillna(0.0)
-        bandit = ExpWeightsBandit(eta=args.eta).fit(signals_train, returns_train)
+        bandit = _fit_bandit(signals_train, returns_train, eta=args.eta)
         W = bandit.get_weights()
 
         # frozen weights on test (no leakage)

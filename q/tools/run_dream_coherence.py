@@ -138,7 +138,18 @@ if __name__ == "__main__":
     }
 
     aligned, ret, idx = _align_tail(sig, returns)
-    gov, info = build_dream_coherence_governor(aligned, ret, lo=0.70, hi=1.15, smooth=0.88)
+    bandit_widths = None
+    bw = _load_series(RUNS / "bandit_confidence_widths.csv")
+    if bw is not None and len(bw) >= len(aligned):
+        bandit_widths = np.asarray(bw[: len(aligned)], float)
+    gov, info = build_dream_coherence_governor(
+        aligned,
+        ret,
+        lo=0.70,
+        hi=1.15,
+        smooth=0.88,
+        bandit_confidence_widths=bandit_widths,
+    )
     if len(gov) == 0:
         print("(!) Dream coherence alignment failed; skipping.")
         raise SystemExit(0)
@@ -168,6 +179,8 @@ if __name__ == "__main__":
         "per_signal_delay_quality": info.get("per_signal_delay_quality", {}),
         "per_signal_weight": info.get("per_signal_weight", {}),
         "per_signal_consensus_corr": info.get("per_signal_consensus_corr", {}),
+        "bandit_certainty_used": bool(info.get("bandit_certainty_used", False)),
+        "bandit_certainty_mean": info.get("bandit_certainty_mean", None),
     }
     (RUNS / "dream_coherence_info.json").write_text(json.dumps(comp_info, indent=2))
 

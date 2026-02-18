@@ -30,6 +30,7 @@ from ..brain.watchlist import SkimmerWatchlistManager
 from ..data.ib_client import disconnect, hist_bars_cached, ib
 from ..execution.simulator import ExecutionSimulator
 from ..risk.exposure_gate import check_exposure
+from ..risk.governor_hierarchy import GovernorAction, resolve_governor_action
 from .alerting import send_alert
 from .audit_log import audit_log
 from .kill_switch import KillSwitchWatcher
@@ -1016,6 +1017,51 @@ class SkimmerLoop:
                 {"event": "OVERLAY_REJECTED", "reason": reason, "path": str(self.cfg.EXT_SIGNAL_FILE)},
                 log_dir=Path(self.cfg.STATE_DIR),
             )
+
+        runtime_diag = overlay_bundle.get("runtime_diag", {}) if isinstance(overlay_bundle, dict) else {}
+        flags = runtime_diag.get("flags", []) if isinstance(runtime_diag, dict) else []
+        if not isinstance(flags, list):
+            flags = []
+        gov_results = []
+        lock_reason = str(getattr(self.risk.state, "lock_reason", "")).strip().lower()
+        if bool(self.risk.state.session_locked) and ("daily loss" in lock_reason):
+            gov_results.append({"name": "daily_loss_limit", "score": 0.0, "threshold": 1.0})
+        if isinstance(runtime_diag, dict) and (not bool(runtime_diag.get("quality_gate_ok", True))):
+            gov_results.append({"name": "quality_governor", "score": 0.0, "threshold": 1.0})
+        flag_to_governor = {
+            "fracture_alert": "crisis_sentinel",
+            "drift_alert": "shock_mask_guard",
+            "exec_risk_hard": "exposure_gate",
+        }
+        for fl in flags:
+            gname = flag_to_governor.get(str(fl).strip().lower())
+            if gname:
+                gov_results.append({"name": gname, "score": 0.0, "threshold": 1.0})
+        gov_action = resolve_governor_action(gov_results) if gov_results else GovernorAction.PASS
+        if gov_action >= GovernorAction.FLATTEN:
+            triggered = [str(x.get("name", "")) for x in gov_results if x.get("name")]
+            audit_log(
+                {"event": "GOVERNOR_FLATTEN", "triggered": triggered},
+                log_dir=Path(self.cfg.STATE_DIR),
+            )
+            try:
+                (Path(self.cfg.STATE_DIR) / "KILL_SWITCH").write_text("GOVERNOR_FLATTEN", encoding="utf-8")
+            except Exception:
+                pass
+            log_run(f"GOVERNOR FLATTEN (skimmer): triggered={','.join(triggered) if triggered else 'unknown'}")
+            send_alert(
+                f"AION skimmer governor FLATTEN triggered: {','.join(triggered) if triggered else 'unknown'}",
+                level="CRITICAL",
+            )
+            self._force_close_all("governor_flatten")
+            _persist_ib_order_state(ib_client)
+            try:
+                write_system_health(state_dir=Path(self.cfg.STATE_DIR), log_dir=Path(self.cfg.LOG_DIR))
+            except Exception:
+                pass
+            return False
+        if gov_action >= GovernorAction.VETO:
+            canary_block_new_entries = True
 
         symbols = self._active_symbols(overlay_bundle=overlay_bundle)
         for symbol in symbols:

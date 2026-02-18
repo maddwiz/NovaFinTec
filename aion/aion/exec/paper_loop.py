@@ -28,6 +28,7 @@ from ..portfolio.optimizer import allocate_candidates
 from ..risk.event_filter import EventRiskFilter
 from ..risk.kill_switch import KillSwitch
 from ..risk.exposure_gate import check_exposure
+from ..risk.governor_hierarchy import GovernorAction, resolve_governor_action
 from ..risk.policy import apply_policy_caps, load_policy, symbol_allowed
 from ..risk.position_sizing import gross_leverage_ok, risk_qty
 from .alerting import send_alert
@@ -2360,6 +2361,96 @@ def main() -> int:
                     f"(daily_loss_abs={policy_daily_loss_abs:.2f}, daily_loss_pct={policy_daily_loss_pct:.2%})"
                 )
             last_policy_loss_hit = bool(policy_loss_hit)
+
+            # Governor hierarchy: escalate critical vetoes into FLATTEN workflow.
+            gov_results = []
+            if policy_loss_hit:
+                gov_results.append({"name": "daily_loss_limit", "score": 0.0, "threshold": 1.0})
+            if overlay_block_new_entries:
+                gov_results.append({"name": "shock_mask_guard", "score": 0.0, "threshold": 1.0})
+            flag_to_governor = {
+                "fracture_alert": "crisis_sentinel",
+                "drift_alert": "shock_mask_guard",
+                "exec_risk_hard": "exposure_gate",
+            }
+            for fl in ext_runtime_diag.get("flags", []) if isinstance(ext_runtime_diag.get("flags", []), list) else []:
+                gname = flag_to_governor.get(str(fl).strip().lower())
+                if gname:
+                    gov_results.append({"name": gname, "score": 0.0, "threshold": 1.0})
+
+            gov_action = resolve_governor_action(gov_results) if gov_results else GovernorAction.PASS
+            if gov_action >= GovernorAction.FLATTEN:
+                triggered = [str(x.get("name", "")) for x in gov_results if x.get("name")]
+                log_run(f"GOVERNOR FLATTEN: Closing all positions | triggered={','.join(triggered) if triggered else 'unknown'}")
+                audit_log(
+                    {"event": "GOVERNOR_FLATTEN", "triggered": triggered},
+                    log_dir=Path(cfg.STATE_DIR),
+                )
+                try:
+                    (Path(cfg.STATE_DIR) / "KILL_SWITCH").write_text("GOVERNOR_FLATTEN", encoding="utf-8")
+                except Exception:
+                    pass
+
+                for sym in list(open_positions.keys()):
+                    pos = open_positions.get(sym)
+                    if not pos:
+                        continue
+                    qty = int(pos.get("qty", 0))
+                    if qty <= 0:
+                        continue
+                    side = "SELL" if str(pos.get("side", "BUY")).upper() == "BUY" else "BUY"
+                    px = _safe_float(last_prices.get(sym), None)
+                    if not isinstance(px, float):
+                        bars = hist_bars_cached(sym, cfg.HIST_BAR_SIZE, cfg.HIST_DURATION, retries=cfg.IB_RETRY_COUNT)
+                        if bars is None or bars.empty:
+                            continue
+                        px = float(bars["close"].iloc[-1])
+                    fill = exe.simulate_fill(
+                        side=side,
+                        qty=qty,
+                        ref_price=px,
+                        atr_pct=float(_safe_float(pos.get("atr_pct"), 0.0)),
+                        confidence=1.0,
+                        allow_partial=False,
+                    )
+                    fq = int(max(0, min(qty, _safe_int(getattr(fill, "filled_qty", 0), 0))))
+                    if fq <= 0:
+                        continue
+                    monitor.record_execution(float(_safe_float(getattr(fill, "est_slippage_bps", 0.0), 0.0)))
+                    cash, closed_pnl = _close_position(
+                        open_positions,
+                        sym,
+                        float(fill.avg_fill),
+                        "governor_flatten",
+                        cash,
+                        closed_pnl,
+                        ks,
+                        today,
+                        fill_ratio=float(_safe_float(getattr(fill, "fill_ratio", 1.0), 1.0)),
+                        slippage_bps=float(_safe_float(getattr(fill, "est_slippage_bps", 0.0), 0.0)),
+                        monitor=monitor,
+                        memory_runtime_context=None,
+                        telemetry_sink=telemetry_sink,
+                        governor_compound_scalar=None,
+                        filled_qty=fq,
+                    )
+                    if sym not in open_positions:
+                        cooldown[sym] = cfg.REENTRY_COOLDOWN_CYCLES
+
+                save_runtime_state(day_key, cash, closed_pnl, trades_today, open_positions, cooldown)
+                try:
+                    write_system_health(state_dir=Path(cfg.STATE_DIR), log_dir=Path(cfg.LOG_DIR))
+                except Exception:
+                    pass
+                try:
+                    _persist_ib_order_state(ib_client)
+                except Exception:
+                    pass
+                send_alert(
+                    f"AION governor FLATTEN triggered: {','.join(triggered) if triggered else 'unknown'}",
+                    level="CRITICAL",
+                )
+                return 0
 
             save_runtime_controls(
                 {
