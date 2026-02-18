@@ -1176,6 +1176,11 @@ def _partial_close(
 
 
 def main() -> int:
+    if str(getattr(cfg, "TRADING_MODE", "long_term")).strip().lower() == "day_skimmer":
+        from .skimmer_loop import run_day_skimmer_loop
+
+        return int(run_day_skimmer_loop())
+
     equity = cfg.EQUITY_START
     cash = cfg.EQUITY_START
     open_positions = {}
