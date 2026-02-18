@@ -48,6 +48,27 @@ def _bars_1m(n: int = 120) -> pd.DataFrame:
     )
 
 
+def _bars_1m_near_close(n: int = 20) -> pd.DataFrame:
+    start = pd.Timestamp("2026-01-06 15:36:00")
+    idx = pd.date_range(start, periods=n, freq="min")
+    base = 101.0 + np.linspace(0.0, 0.2, n)
+    close = base
+    open_ = close - 0.02
+    high = np.maximum(open_, close) + 0.03
+    low = np.minimum(open_, close) - 0.03
+    volume = 900_000 + (np.arange(n) % 7) * 1_000
+    return pd.DataFrame(
+        {
+            "open": open_,
+            "high": high,
+            "low": low,
+            "close": close,
+            "volume": volume,
+        },
+        index=idx,
+    )
+
+
 def _frames_for_price(price: float, atr_5m: float = 1.0):
     idx_1m = pd.date_range("2026-01-06 11:00:00", periods=3, freq="min")
     bars_1m = pd.DataFrame({"close": [price - 0.1, price, price]}, index=idx_1m)
@@ -263,3 +284,87 @@ def test_manage_position_trailing_stop_only_after_partial(monkeypatch, tmp_path)
     loop.open_trades["AAPL"].partial_taken = True
     loop._manage_position("AAPL", frames, 100.0)
     assert "AAPL" not in loop.open_trades
+
+
+def test_tick_force_closes_open_position_near_session_end(monkeypatch, tmp_path):
+    _configure_cfg(monkeypatch, tmp_path)
+    bars = _bars_1m_near_close(22)
+
+    monkeypatch.setattr(skl, "SkimmerWatchlistManager", _WatchlistStub)
+    monkeypatch.setattr(skl, "ExecutionSimulator", _ExecStub)
+    monkeypatch.setattr(skl, "ib", lambda: None)
+    monkeypatch.setattr(skl, "hist_bars_cached", lambda *args, **kwargs: bars.copy())
+    monkeypatch.setattr(skl, "load_external_signal_bundle", lambda **kwargs: {"signals": {}})
+    monkeypatch.setattr(skl, "emit_trade_event", lambda *args, **kwargs: None)
+    monkeypatch.setattr(skl, "build_trade_event", lambda **kwargs: kwargs)
+    monkeypatch.setattr(skl, "write_telemetry_summary", lambda **kwargs: None)
+    monkeypatch.setattr(skl, "log_run", lambda *args, **kwargs: None)
+    monkeypatch.setattr(skl, "log_trade", lambda *args, **kwargs: None)
+    monkeypatch.setattr(skl, "log_equity", lambda *args, **kwargs: None)
+    monkeypatch.setattr(skl, "detect_all_intraday_patterns", lambda *args, **kwargs: {})
+    monkeypatch.setattr(
+        skl,
+        "score_intraday_entry",
+        lambda *args, **kwargs: SimpleNamespace(
+            score=0.10, entry_allowed=False, reasons=["skip"], category_scores={}
+        ),
+    )
+
+    loop = skl.SkimmerLoop(skl.cfg)
+    loop.open_trades["AAPL"] = skl.TradeState(
+        symbol="AAPL",
+        side="LONG",
+        entry_price=101.0,
+        entry_qty=12,
+        current_qty=12,
+        risk_distance=1.0,
+        partial_taken=False,
+        highest_since_entry=101.0,
+        lowest_since_entry=101.0,
+        entry_time=pd.Timestamp("2026-01-06T15:30:00Z").to_pydatetime(),
+        stop_price=98.0,
+        r_target_1=104.0,
+    )
+
+    loop.tick()
+    assert "AAPL" not in loop.open_trades
+
+    decisions = (tmp_path / "skimmer_decisions.jsonl").read_text(encoding="utf-8").splitlines()
+    actions = [json.loads(line).get("action") for line in decisions if line.strip()]
+    assert "EXIT_SESSION_END" in actions
+
+
+def test_tick_skips_entry_when_risk_gate_blocks(monkeypatch, tmp_path):
+    _configure_cfg(monkeypatch, tmp_path)
+    bars = _bars_1m(130)
+    calls = {"detect": 0}
+
+    monkeypatch.setattr(skl, "SkimmerWatchlistManager", _WatchlistStub)
+    monkeypatch.setattr(skl, "ExecutionSimulator", _ExecStub)
+    monkeypatch.setattr(skl, "ib", lambda: None)
+    monkeypatch.setattr(skl, "hist_bars_cached", lambda *args, **kwargs: bars.copy())
+    monkeypatch.setattr(skl, "load_external_signal_bundle", lambda **kwargs: {"signals": {"AAPL": {"bias": 0.3, "confidence": 0.7}}})
+    monkeypatch.setattr(skl, "emit_trade_event", lambda *args, **kwargs: None)
+    monkeypatch.setattr(skl, "build_trade_event", lambda **kwargs: kwargs)
+    monkeypatch.setattr(skl, "write_telemetry_summary", lambda **kwargs: None)
+    monkeypatch.setattr(skl, "log_run", lambda *args, **kwargs: None)
+    monkeypatch.setattr(skl, "log_trade", lambda *args, **kwargs: None)
+    monkeypatch.setattr(skl, "log_equity", lambda *args, **kwargs: None)
+
+    def _fake_detect(*args, **kwargs):
+        calls["detect"] += 1
+        return {}
+
+    monkeypatch.setattr(skl, "detect_all_intraday_patterns", _fake_detect)
+
+    loop = skl.SkimmerLoop(skl.cfg)
+    loop.risk.state.session_locked = True
+    loop.risk.state.lock_reason = "test_lock"
+    loop.tick()
+
+    assert "AAPL" not in loop.open_trades
+    assert calls["detect"] == 0
+
+    decisions = (tmp_path / "skimmer_decisions.jsonl").read_text(encoding="utf-8").splitlines()
+    actions = [json.loads(line).get("action") for line in decisions if line.strip()]
+    assert "SKIP_RISK_GATE" in actions
