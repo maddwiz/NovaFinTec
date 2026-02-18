@@ -664,6 +664,71 @@ def _bar_minutes_from_setting(bar_size: str) -> int:
     return max(1, n)
 
 
+def compute_volume_profile(df_intraday: pd.DataFrame, n_bins: int = 20):
+    """
+    Compute session volume profile from intraday bars.
+    Returns: (value_area_high, value_area_low, poc)
+    """
+    if df_intraday is None or df_intraday.empty:
+        return 0.0, 0.0, 0.0
+
+    prices = (df_intraday["high"] + df_intraday["low"] + df_intraday["close"]) / 3.0
+    volumes = pd.to_numeric(df_intraday.get("volume", 0.0), errors="coerce").fillna(0.0)
+
+    price_min = float(prices.min())
+    price_max = float(prices.max())
+    if price_max - price_min < 1e-6:
+        mid = float(prices.mean()) if len(prices) else price_max
+        return float(price_max), float(price_min), mid
+
+    n_bins = int(max(4, n_bins))
+    bins = np.linspace(price_min, price_max, n_bins + 1)
+    bin_vol = np.zeros(n_bins, dtype=float)
+    pvals = prices.to_numpy(dtype=float)
+    vvals = volumes.to_numpy(dtype=float)
+
+    for i in range(n_bins):
+        if i < n_bins - 1:
+            mask = (pvals >= bins[i]) & (pvals < bins[i + 1])
+        else:
+            mask = (pvals >= bins[i]) & (pvals <= bins[i + 1])
+        bin_vol[i] = float(vvals[mask].sum())
+
+    max_vol = float(np.max(bin_vol))
+    ties = np.flatnonzero(np.isclose(bin_vol, max_vol))
+    if ties.size > 1:
+        poc_idx = int(ties[ties.size // 2])
+    else:
+        poc_idx = int(np.argmax(bin_vol))
+    poc = (bins[poc_idx] + bins[poc_idx + 1]) / 2.0
+
+    total_vol = float(bin_vol.sum())
+    if total_vol <= 0:
+        return float(price_max), float(price_min), float(poc)
+    target = 0.70 * total_vol
+    va_vol = float(bin_vol[poc_idx])
+    lo_idx = poc_idx
+    hi_idx = poc_idx
+    while va_vol < target and (lo_idx > 0 or hi_idx < n_bins - 1):
+        expand_lo = float(bin_vol[lo_idx - 1]) if lo_idx > 0 else -1.0
+        expand_hi = float(bin_vol[hi_idx + 1]) if hi_idx < n_bins - 1 else -1.0
+        if expand_lo >= expand_hi and lo_idx > 0:
+            lo_idx -= 1
+            va_vol += max(0.0, expand_lo)
+        elif hi_idx < n_bins - 1:
+            hi_idx += 1
+            va_vol += max(0.0, expand_hi)
+        elif lo_idx > 0:
+            lo_idx -= 1
+            va_vol += max(0.0, expand_lo)
+        else:
+            break
+
+    va_low = float(bins[lo_idx])
+    va_high = float(bins[hi_idx + 1])
+    return va_high, va_low, float(poc)
+
+
 def intraday_entry_alignment(df_intraday: pd.DataFrame, side: str, cfg):
     """
     Minute-chart execution gate for day skimmer mode.
@@ -714,6 +779,7 @@ def intraday_entry_alignment(df_intraday: pd.DataFrame, side: str, cfg):
 
     tol = float(max(1e-4, getattr(cfg, "INTRADAY_BREAK_TOL", 0.0012)))
     vol_rel_min = float(max(1.0, getattr(cfg, "INTRADAY_VOLUME_REL_MIN", 1.12)))
+    vp_bins = int(max(8, getattr(cfg, "INTRADAY_VP_BINS", 20)))
 
     opening = sess.iloc[:open_bars]
     orb_high = float(opening["high"].max())
@@ -748,6 +814,7 @@ def intraday_entry_alignment(df_intraday: pd.DataFrame, side: str, cfg):
     mom_ref_idx = max(0, len(sess) - recent_bars - 1)
     mom_ref = float(sess["close"].iloc[mom_ref_idx])
     momentum = (close_now - mom_ref) / (abs(mom_ref) + 1e-9)
+    va_high, va_low, poc = compute_volume_profile(sess, n_bins=vp_bins)
 
     score = 0.32
     reasons = []
@@ -779,6 +846,15 @@ def intraday_entry_alignment(df_intraday: pd.DataFrame, side: str, cfg):
         if cond_or and cond_vwap and cond_vol:
             score += 0.14
             reasons.append("Breakout/VWAP/volume confluence")
+
+        if close_now > poc and close_now > va_high:
+            score += 0.10
+            reasons.append("Above POC and value area high")
+        elif close_now < va_low:
+            score -= 0.05
+            reasons.append("Below value area low")
+        elif close_now < poc and close_now >= va_low:
+            reasons.append("Inside value area (neutral)")
     else:
         cond_or = (close_now <= orb_low * (1.0 - tol)) or (
             low_recent <= orb_low * (1.0 - tol) and close_now <= orb_low * (1.0 + 0.5 * tol)
@@ -806,6 +882,15 @@ def intraday_entry_alignment(df_intraday: pd.DataFrame, side: str, cfg):
         if cond_or and cond_vwap and cond_vol:
             score += 0.14
             reasons.append("Breakdown/VWAP/volume confluence")
+
+        if close_now < va_low:
+            score += 0.10
+            reasons.append("Below value area low (breakdown)")
+        elif close_now < poc and close_now >= va_low:
+            reasons.append("Inside value area (neutral)")
+        elif close_now > va_high:
+            score -= 0.05
+            reasons.append("Above value area high")
 
     return _clamp01(score), reasons
 
