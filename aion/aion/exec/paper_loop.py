@@ -28,15 +28,18 @@ from ..portfolio.optimizer import allocate_candidates
 from ..risk.event_filter import EventRiskFilter
 from ..risk.kill_switch import KillSwitch
 from ..risk.exposure_gate import check_exposure
+from ..risk.governor_diagnostics import build_diagnostic, write_governor_diagnostics
 from ..risk.governor_hierarchy import GovernorAction, resolve_governor_action
 from ..risk.policy import apply_policy_caps, load_policy, symbol_allowed
 from ..risk.position_sizing import gross_leverage_ok, risk_qty
 from .alerting import send_alert
 from .audit_log import audit_log
+from .order_events import attach_order_status_handler
 from .kill_switch import KillSwitchWatcher
 from .health_aggregator import write_system_health
 from .order_state import save_order_state
 from .reconciliation import reconcile_on_startup
+from .shadow_state import apply_shadow_fill
 from .telemetry import DecisionTelemetry
 from .telemetry_summary import write_telemetry_summary
 from ..utils.logging_utils import log_alert, log_equity, log_run, log_signal, log_trade
@@ -189,6 +192,53 @@ def _persist_ib_order_state(client) -> None:
         next_valid_id=_ib_req_id(client),
         open_orders=_extract_open_orders(client),
     )
+
+
+def _write_runtime_governor_diagnostics(gov_results: list[dict], gov_action: GovernorAction) -> None:
+    rows: list[dict] = []
+    for item in (gov_results or []):
+        name = str(item.get("name", "runtime_governor")).strip() or "runtime_governor"
+        score = float(_safe_float(item.get("score", 1.0), 1.0))
+        raw_threshold = item.get("threshold", None)
+        threshold = None if raw_threshold is None else float(_safe_float(raw_threshold, 0.0))
+        reason = str(item.get("reason", "runtime")).strip() or "runtime"
+        action = "veto" if (threshold is not None and score <= threshold) else "pass"
+        rows.append(
+            build_diagnostic(
+                name=name,
+                values=[score],
+                threshold=threshold,
+                action=action,
+                reason=reason,
+                floor=0.0,
+            )
+        )
+
+    if not rows:
+        rows.append(
+            build_diagnostic(
+                name="runtime_governor_stack",
+                values=[1.0],
+                threshold=0.0,
+                action="pass",
+                reason="no_flags",
+                floor=0.0,
+            )
+        )
+
+    rows.append(
+        {
+            "name": "governor_hierarchy_action",
+            "score": float(int(gov_action)),
+            "min": float(int(gov_action)),
+            "max": float(int(gov_action)),
+            "threshold": None,
+            "action": str(gov_action.name).lower(),
+            "reason": "resolved_hierarchy",
+            "pct_below_floor": 0.0,
+        }
+    )
+    write_governor_diagnostics(Path(cfg.STATE_DIR) / "governor_diagnostics.json", rows)
 
 
 def now() -> str:
@@ -1289,10 +1339,12 @@ def _close_position(
         pnl = (fill_price - pos["entry"]) * qty
         cash += qty * fill_price
         side = "EXIT_SELL"
+        shadow_action = "SELL"
     else:
         pnl = (pos["entry"] - fill_price) * qty
         cash -= qty * fill_price
         side = "EXIT_BUY"
+        shadow_action = "BUY"
 
     closed_pnl += pnl
     ks.register_trade(pnl, today)
@@ -1371,6 +1423,17 @@ def _close_position(
             "remaining_qty": int(max(0, prev_qty - qty)),
         },
     )
+    try:
+        apply_shadow_fill(
+            Path(cfg.STATE_DIR) / "shadow_trades.json",
+            symbol=str(symbol).upper(),
+            action=str(shadow_action),
+            filled_qty=int(qty),
+            avg_fill_price=float(fill_price),
+            timestamp=dt.datetime.now(dt.timezone.utc).isoformat(),
+        )
+    except Exception as exc:
+        log_run(f"shadow update failed on close {symbol}: {exc}")
     remaining = max(0, prev_qty - qty)
     if remaining > 0:
         pos["qty"] = int(remaining)
@@ -1466,6 +1529,18 @@ def _partial_close(
             log_dir=Path(cfg.STATE_DIR),
         )
         return cash, closed_pnl, False
+
+    try:
+        apply_shadow_fill(
+            Path(cfg.STATE_DIR) / "shadow_trades.json",
+            symbol=str(symbol).upper(),
+            action=str(side).upper(),
+            filled_qty=int(filled_qty),
+            avg_fill_price=float(fill.avg_fill),
+            timestamp=dt.datetime.now(dt.timezone.utc).isoformat(),
+        )
+    except Exception as exc:
+        log_run(f"shadow update failed on partial close {symbol}: {exc}")
 
     if pos["side"] == "LONG":
         pnl = (fill.avg_fill - pos["entry"]) * filled_qty
@@ -1664,6 +1739,11 @@ def main() -> int:
     )
     try:
         ib_client_boot = ib()
+        attach_order_status_handler(
+            ib_client_boot,
+            state_dir=Path(cfg.STATE_DIR),
+            shadow_path=Path(cfg.STATE_DIR) / "shadow_trades.json",
+        )
         if bool(getattr(cfg, "AION_BLOCK_LIVE_ORDERS", True)) and (not bool(getattr(cfg, "AION_PAPER_MODE", True))):
             def _blocked_place_order(*_args, **_kwargs):
                 log_run("PAPER-ONLY GUARD: placeOrder blocked")
@@ -1725,6 +1805,11 @@ def main() -> int:
         while True:
             try:
                 ib_client = ib()
+                attach_order_status_handler(
+                    ib_client,
+                    state_dir=Path(cfg.STATE_DIR),
+                    shadow_path=Path(cfg.STATE_DIR) / "shadow_trades.json",
+                )
                 if ib_fail_streak > 0:
                     log_run(f"IB reconnected after {ib_fail_streak} failed cycle(s).")
                     if cfg.MONITORING_ENABLED:
@@ -2379,6 +2464,10 @@ def main() -> int:
                     gov_results.append({"name": gname, "score": 0.0, "threshold": 1.0})
 
             gov_action = resolve_governor_action(gov_results) if gov_results else GovernorAction.PASS
+            try:
+                _write_runtime_governor_diagnostics(gov_results, gov_action)
+            except Exception as exc:
+                log_run(f"governor diagnostics write failed: {exc}")
             if gov_action >= GovernorAction.FLATTEN:
                 triggered = [str(x.get("name", "")) for x in gov_results if x.get("name")]
                 log_run(f"GOVERNOR FLATTEN: Closing all positions | triggered={','.join(triggered) if triggered else 'unknown'}")
@@ -3164,6 +3253,18 @@ def main() -> int:
                     cash -= notional
                 else:
                     cash += notional
+
+                try:
+                    apply_shadow_fill(
+                        Path(cfg.STATE_DIR) / "shadow_trades.json",
+                        symbol=str(sym).upper(),
+                        action=str(entry_side).upper(),
+                        filled_qty=int(fill.filled_qty),
+                        avg_fill_price=float(fill.avg_fill),
+                        timestamp=dt.datetime.now(dt.timezone.utc).isoformat(),
+                    )
+                except Exception as exc:
+                    log_run(f"shadow update failed on entry {sym}: {exc}")
 
                 init_risk = max(c["atr"] * float(c.get("stop_atr_mult", c["signal"]["stop_atr_mult"])), fill.avg_fill * 0.0035)
                 if c["side"] == "LONG":

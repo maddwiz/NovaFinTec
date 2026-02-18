@@ -30,13 +30,16 @@ from ..brain.watchlist import SkimmerWatchlistManager
 from ..data.ib_client import disconnect, hist_bars_cached, ib
 from ..execution.simulator import ExecutionSimulator
 from ..risk.exposure_gate import check_exposure
+from ..risk.governor_diagnostics import build_diagnostic, write_governor_diagnostics
 from ..risk.governor_hierarchy import GovernorAction, resolve_governor_action
 from .alerting import send_alert
 from .audit_log import audit_log
+from .order_events import attach_order_status_handler
 from .kill_switch import KillSwitchWatcher
 from .health_aggregator import write_system_health
 from .order_state import save_order_state
 from .reconciliation import reconcile_on_startup
+from .shadow_state import apply_shadow_fill
 from .telemetry_summary import write_telemetry_summary
 from .skimmer_telemetry import SkimmerTelemetry
 from ..utils.logging_utils import log_equity, log_run, log_trade
@@ -251,6 +254,12 @@ class SkimmerLoop:
             except Exception:
                 pass
 
+        attach_order_status_handler(
+            ib_client,
+            state_dir=Path(self.cfg.STATE_DIR),
+            shadow_path=Path(self.cfg.STATE_DIR) / "shadow_trades.json",
+        )
+
         rec = reconcile_on_startup(
             ib_client=ib_client,
             shadow_path=Path(self.cfg.STATE_DIR) / "shadow_trades.json",
@@ -294,6 +303,50 @@ class SkimmerLoop:
         except Exception as exc:
             log_run(f"skimmer watchlist refresh failed: {exc}")
         return ["SPY", "QQQ", "AAPL", "MSFT", "NVDA", "TSLA", "AMZN", "META", "AMD", "GOOGL"]
+
+    def _write_runtime_governor_diagnostics(self, gov_results: list[dict], gov_action: GovernorAction) -> None:
+        rows: list[dict] = []
+        for item in (gov_results or []):
+            name = str(item.get("name", "runtime_governor")).strip() or "runtime_governor"
+            score = float(item.get("score", 1.0))
+            raw_threshold = item.get("threshold", None)
+            threshold = None if raw_threshold is None else float(raw_threshold)
+            reason = str(item.get("reason", "runtime")).strip() or "runtime"
+            action = "veto" if (threshold is not None and score <= threshold) else "pass"
+            rows.append(
+                build_diagnostic(
+                    name=name,
+                    values=[score],
+                    threshold=threshold,
+                    action=action,
+                    reason=reason,
+                    floor=0.0,
+                )
+            )
+        if not rows:
+            rows.append(
+                build_diagnostic(
+                    name="runtime_governor_stack",
+                    values=[1.0],
+                    threshold=0.0,
+                    action="pass",
+                    reason="no_flags",
+                    floor=0.0,
+                )
+            )
+        rows.append(
+            {
+                "name": "governor_hierarchy_action",
+                "score": float(int(gov_action)),
+                "min": float(int(gov_action)),
+                "max": float(int(gov_action)),
+                "threshold": None,
+                "action": str(gov_action.name).lower(),
+                "reason": "resolved_hierarchy",
+                "pct_below_floor": 0.0,
+            }
+        )
+        write_governor_diagnostics(Path(self.cfg.STATE_DIR) / "governor_diagnostics.json", rows)
 
     @staticmethod
     def _normalize_bars(df: pd.DataFrame | None) -> pd.DataFrame:
@@ -511,6 +564,17 @@ class SkimmerLoop:
             },
             log_dir=Path(self.cfg.STATE_DIR),
         )
+        try:
+            apply_shadow_fill(
+                Path(self.cfg.STATE_DIR) / "shadow_trades.json",
+                symbol=str(symbol).upper(),
+                action=str(side_exec).upper(),
+                filled_qty=int(fq),
+                avg_fill_price=float(fill.avg_fill),
+                timestamp=dt.datetime.now(dt.timezone.utc).isoformat(),
+            )
+        except Exception as exc:
+            log_run(f"shadow update failed on skimmer close {symbol}: {exc}")
 
         if st.side == "LONG":
             self.cash += float(fill.avg_fill) * fq
@@ -864,6 +928,18 @@ class SkimmerLoop:
         else:
             self.cash += notional
 
+        try:
+            apply_shadow_fill(
+                Path(self.cfg.STATE_DIR) / "shadow_trades.json",
+                symbol=str(symbol).upper(),
+                action=str(side_exec).upper(),
+                filled_qty=int(fill.filled_qty),
+                avg_fill_price=float(fill.avg_fill),
+                timestamp=dt.datetime.now(dt.timezone.utc).isoformat(),
+            )
+        except Exception as exc:
+            log_run(f"shadow update failed on skimmer entry {symbol}: {exc}")
+
         ts_utc = dt.datetime.now(dt.timezone.utc)
         self.open_trades[symbol] = TradeState(
             symbol=symbol,
@@ -955,6 +1031,11 @@ class SkimmerLoop:
     def tick(self) -> bool:
         ib_client = ib()
         self._ib_client = ib_client
+        attach_order_status_handler(
+            ib_client,
+            state_dir=Path(self.cfg.STATE_DIR),
+            shadow_path=Path(self.cfg.STATE_DIR) / "shadow_trades.json",
+        )
         self._startup_safety_bootstrap(ib_client)
         now_mono = float(time.monotonic())
         if (now_mono - float(self._last_order_state_save_ts)) >= float(self._order_state_save_interval_sec):
@@ -1038,6 +1119,10 @@ class SkimmerLoop:
             if gname:
                 gov_results.append({"name": gname, "score": 0.0, "threshold": 1.0})
         gov_action = resolve_governor_action(gov_results) if gov_results else GovernorAction.PASS
+        try:
+            self._write_runtime_governor_diagnostics(gov_results, gov_action)
+        except Exception as exc:
+            log_run(f"skimmer governor diagnostics write failed: {exc}")
         if gov_action >= GovernorAction.FLATTEN:
             triggered = [str(x.get("name", "")) for x in gov_results if x.get("name")]
             audit_log(
