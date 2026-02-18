@@ -13,6 +13,7 @@ NovaSpine integration is wired as optional but active memory/context feedback th
 ## 2) Current Production State (as of this handoff)
 Implemented and validated:
 - Intraday gate telemetry in AION signals/dashboard.
+- Explicit `day_skimmer` runtime-path coverage: `paper_loop.py` dispatch + `skimmer_loop.py` tick integration tests now enforce bar-engine -> patterns -> confluence -> risk/entry flow.
 - Canonical decision telemetry + summary refresh in long-term `paper_loop.py` (`trade_decisions.jsonl`, `telemetry_summary.json`).
 - Cross-sectional momentum overlay in Q runtime stack.
 - External untouched holdout protocol (`run_external_holdout_validation.py`) integrated into pipeline.
@@ -23,9 +24,11 @@ Implemented and validated:
 - Local multi-asset bundle ingestion (`ingest_multi_asset_csv_bundle.py`).
 
 Validation status:
-- Latest full local run (`q/tests` + `aion/tests`): `606 passed`.
+- Latest full local run (`q/tests` + `aion/tests`): `608 passed`.
 - Latest targeted run (new governor walk-forward batch): `24 passed`.
 - Latest AION suite run after telemetry wiring: `216 passed`.
+- Latest skimmer wiring run (`test_skimmer_loop_integration.py` + dispatch): `3 passed`.
+- Latest CI-equivalent run (`.github/workflows/ci.yml` command): `539 passed`.
 - GitHub Actions workflow: `.github/workflows/ci.yml`.
 
 ## 3) Top-Level File Map
