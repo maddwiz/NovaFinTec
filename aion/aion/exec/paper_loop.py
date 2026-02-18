@@ -2,6 +2,7 @@ import datetime as dt
 import json
 import math
 import time
+from pathlib import Path
 import numpy as np
 
 from .. import config as cfg
@@ -28,6 +29,8 @@ from ..risk.event_filter import EventRiskFilter
 from ..risk.kill_switch import KillSwitch
 from ..risk.policy import apply_policy_caps, load_policy, symbol_allowed
 from ..risk.position_sizing import gross_leverage_ok, risk_qty
+from .telemetry import DecisionTelemetry
+from .telemetry_summary import write_telemetry_summary
 from ..utils.logging_utils import log_alert, log_equity, log_run, log_signal, log_trade
 
 WATCHLIST_TXT = cfg.STATE_DIR / "watchlist.txt"
@@ -1003,6 +1006,110 @@ def _hours_since_entry(pos: dict) -> float | None:
     return max(0.0, float((now_utc - ts.astimezone(dt.timezone.utc)).total_seconds() / 3600.0))
 
 
+def _telemetry_write(telemetry_sink: DecisionTelemetry | None, record: dict):
+    if telemetry_sink is None or (not bool(getattr(cfg, "TELEMETRY_ENABLED", True))):
+        return
+    try:
+        telemetry_sink.write(record)
+    except Exception as exc:
+        log_run(f"Telemetry write exception: {exc}")
+
+
+def _exit_decision_from_reason(reason: str) -> str:
+    key = str(reason or "").strip().lower()
+    mapping = {
+        "target_hit": "EXIT_TARGET_HIT",
+        "initial_stop": "EXIT_INITIAL_STOP",
+        "trailing_stop": "EXIT_TRAILING_STOP",
+        "time_stop": "EXIT_TIME_STOP",
+        "opposite_high_confidence_signal": "EXIT_SIGNAL_FLIP",
+    }
+    return mapping.get(key, "EXIT")
+
+
+def _telemetry_log_trade_decision(
+    telemetry_sink: DecisionTelemetry | None,
+    *,
+    symbol: str,
+    decision: str,
+    q_overlay_bias: float | None = None,
+    q_overlay_confidence: float | None = None,
+    confluence_score: float | None = None,
+    intraday_alignment_score: float | None = None,
+    regime: str | None = None,
+    governor_compound_scalar: float | None = None,
+    entry_price: float | None = None,
+    stop_price: float | None = None,
+    risk_distance: float | None = None,
+    position_size_shares: int | None = None,
+    book_imbalance=None,
+    reasons: list[str] | None = None,
+    pnl_realized: float | None = None,
+    slippage_bps: float | None = None,
+    estimated_slippage_bps: float | None = None,
+    extras: dict | None = None,
+):
+    if telemetry_sink is None or (not bool(getattr(cfg, "TELEMETRY_ENABLED", True))):
+        return
+
+    rs = [str(x).strip() for x in (reasons or []) if str(x).strip()]
+    risk = risk_distance
+    if (risk is None) and (entry_price is not None) and (stop_price is not None):
+        risk = abs(_safe_float(entry_price, 0.0) - _safe_float(stop_price, 0.0))
+
+    rec = {
+        "timestamp": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "symbol": str(symbol or "").upper(),
+        "decision": str(decision or "").upper(),
+        "q_overlay_bias": float(_safe_float(q_overlay_bias, 0.0)),
+        "q_overlay_confidence": float(max(0.0, min(1.0, _safe_float(q_overlay_confidence, 0.0)))),
+        "confluence_score": float(max(0.0, min(1.0, _safe_float(confluence_score, 0.0)))),
+        "intraday_alignment_score": float(max(0.0, min(1.0, _safe_float(intraday_alignment_score, 0.0)))),
+        "regime": str(regime or "unknown").strip().lower() or "unknown",
+        "governor_compound_scalar": (
+            None
+            if governor_compound_scalar is None
+            else float(max(0.0, min(2.0, _safe_float(governor_compound_scalar, 1.0))))
+        ),
+        "entry_price": (None if entry_price is None else float(_safe_float(entry_price, 0.0))),
+        "stop_price": (None if stop_price is None else float(_safe_float(stop_price, 0.0))),
+        "risk_distance": (None if risk is None else float(max(0.0, _safe_float(risk, 0.0)))),
+        "position_size_shares": (None if position_size_shares is None else int(max(0, _safe_int(position_size_shares, 0)))),
+        "book_imbalance": book_imbalance,
+        "reasons": rs,
+    }
+    if pnl_realized is not None:
+        rec["pnl_realized"] = float(_safe_float(pnl_realized, 0.0))
+    if slippage_bps is not None:
+        rec["slippage_bps"] = float(_safe_float(slippage_bps, 0.0))
+    if estimated_slippage_bps is not None:
+        rec["estimated_slippage_bps"] = float(_safe_float(estimated_slippage_bps, 0.0))
+    if isinstance(extras, dict) and extras:
+        rec["extras"] = dict(extras)
+    _telemetry_write(telemetry_sink, rec)
+
+
+def _maybe_update_telemetry_summary(last_update_mono: float) -> float:
+    if not bool(getattr(cfg, "TELEMETRY_ENABLED", True)):
+        return float(last_update_mono)
+    now_mono = float(time.monotonic())
+    interval = max(30.0, float(getattr(cfg, "LOOP_SECONDS", 30)))
+    if (now_mono - float(last_update_mono)) < interval:
+        return float(last_update_mono)
+    try:
+        decisions_path = Path(cfg.STATE_DIR) / str(getattr(cfg, "TELEMETRY_DECISIONS_FILE", "trade_decisions.jsonl"))
+        output_path = Path(getattr(cfg, "TELEMETRY_SUMMARY_FILE", Path(cfg.STATE_DIR) / "telemetry_summary.json"))
+        window = int(max(1, _safe_int(getattr(cfg, "TELEMETRY_SUMMARY_WINDOW", 20), 20)))
+        write_telemetry_summary(
+            decisions_path=decisions_path,
+            output_path=output_path,
+            rolling_window=window,
+        )
+    except Exception as exc:
+        log_run(f"Telemetry summary refresh exception: {exc}")
+    return now_mono
+
+
 def _close_position(
     open_positions: dict,
     symbol: str,
@@ -1016,6 +1123,8 @@ def _close_position(
     slippage_bps: float = 0.0,
     monitor: RuntimeMonitor | None = None,
     memory_runtime_context: dict | None = None,
+    telemetry_sink: DecisionTelemetry | None = None,
+    governor_compound_scalar: float | None = None,
 ):
     pos = open_positions[symbol]
     qty = int(pos["qty"])
@@ -1081,6 +1190,30 @@ def _close_position(
         monitor=monitor,
         extra=event_extra,
     )
+    _telemetry_log_trade_decision(
+        telemetry_sink,
+        symbol=symbol,
+        decision=_exit_decision_from_reason(reason),
+        q_overlay_bias=_safe_float(pos.get("q_overlay_bias"), 0.0),
+        q_overlay_confidence=_safe_float(pos.get("q_overlay_confidence"), 0.0),
+        confluence_score=_safe_float(pos.get("confidence"), 0.0),
+        intraday_alignment_score=_safe_float(pos.get("intraday_score"), 0.0),
+        regime=str(pos.get("regime", "unknown")),
+        governor_compound_scalar=governor_compound_scalar,
+        entry_price=float(pos.get("entry", 0.0)),
+        stop_price=float(pos.get("stop", 0.0)),
+        risk_distance=float(pos.get("init_risk", 0.0)),
+        position_size_shares=int(qty),
+        reasons=[str(reason)],
+        pnl_realized=float(pnl),
+        slippage_bps=float(slippage_bps),
+        estimated_slippage_bps=float(slippage_bps),
+        extras={
+            "fill_ratio": float(fill_ratio),
+            "r_captured": float(actual_r),
+            "time_in_trade_hours": hrs,
+        },
+    )
     del open_positions[symbol]
     return cash, closed_pnl
 
@@ -1096,6 +1229,8 @@ def _partial_close(
     today: str,
     monitor: RuntimeMonitor | None = None,
     memory_runtime_context: dict | None = None,
+    telemetry_sink: DecisionTelemetry | None = None,
+    governor_compound_scalar: float | None = None,
 ):
     qty = int(pos["qty"])
     close_qty = _partial_close_qty(qty, float(getattr(cfg, "PARTIAL_PROFIT_FRACTION", cfg.PARTIAL_CLOSE_FRACTION)))
@@ -1170,6 +1305,31 @@ def _partial_close(
         monitor=monitor,
         extra=event_extra,
     )
+    _telemetry_log_trade_decision(
+        telemetry_sink,
+        symbol=symbol,
+        decision="PARTIAL_PROFIT_1R",
+        q_overlay_bias=_safe_float(pos.get("q_overlay_bias"), 0.0),
+        q_overlay_confidence=_safe_float(pos.get("q_overlay_confidence"), 0.0),
+        confluence_score=_safe_float(pos.get("confidence"), 0.0),
+        intraday_alignment_score=_safe_float(pos.get("intraday_score"), 0.0),
+        regime=str(pos.get("regime", "unknown")),
+        governor_compound_scalar=governor_compound_scalar,
+        entry_price=float(pos.get("entry", 0.0)),
+        stop_price=float(pos.get("stop", 0.0)),
+        risk_distance=float(pos.get("init_risk", 0.0)),
+        position_size_shares=int(close_qty),
+        reasons=["partial_profit_1R"],
+        pnl_realized=float(pnl),
+        slippage_bps=float(fill.est_slippage_bps),
+        estimated_slippage_bps=float(fill.est_slippage_bps),
+        extras={
+            "fill_ratio": float(fill.fill_ratio),
+            "remaining_qty": int(pos.get("qty", 0)),
+            "r_captured": float(actual_r),
+            "time_in_trade_hours": hrs,
+        },
+    )
 
     fully_closed = pos["qty"] <= 0
     return cash, closed_pnl, fully_closed
@@ -1220,6 +1380,12 @@ def main() -> int:
     event_filter = EventRiskFilter(cfg)
     meta_model = MetaLabelModel(cfg)
     monitor = RuntimeMonitor(cfg)
+    telemetry_sink = (
+        DecisionTelemetry(cfg, filename=str(getattr(cfg, "TELEMETRY_DECISIONS_FILE", "trade_decisions.jsonl")))
+        if bool(getattr(cfg, "TELEMETRY_ENABLED", True))
+        else None
+    )
+    last_telemetry_summary_ts = 0.0
     ib_fail_streak = 0
     last_ext_runtime_sig = None
     last_policy_sig = None
@@ -1937,6 +2103,18 @@ def main() -> int:
                 exec_governor_state=str(exec_governor_state),
                 exec_governor_block_new_entries=bool(exec_governor_block_new_entries),
             )
+            governor_compound_scalar = float(
+                max(
+                    0.0,
+                    min(
+                        2.0,
+                        float(ext_runtime_scale)
+                        * float(ext_position_risk_scale)
+                        * float(memory_feedback_risk_scale)
+                        * float(aion_feedback_risk_scale),
+                    ),
+                )
+            )
 
             for sym in wl:
                 try:
@@ -2094,6 +2272,8 @@ def main() -> int:
                                     today,
                                     monitor=monitor,
                                     memory_runtime_context=memory_runtime_context,
+                                    telemetry_sink=telemetry_sink,
+                                    governor_compound_scalar=governor_compound_scalar,
                                 )
                                 monitor.record_execution(cfg.SLIPPAGE_BPS)
                                 if fully_closed:
@@ -2140,6 +2320,8 @@ def main() -> int:
                                     today,
                                     monitor=monitor,
                                     memory_runtime_context=memory_runtime_context,
+                                    telemetry_sink=telemetry_sink,
+                                    governor_compound_scalar=governor_compound_scalar,
                                 )
                                 monitor.record_execution(cfg.SLIPPAGE_BPS)
                                 if fully_closed:
@@ -2200,6 +2382,8 @@ def main() -> int:
                                 slippage_bps=fill.est_slippage_bps,
                                 monitor=monitor,
                                 memory_runtime_context=memory_runtime_context,
+                                telemetry_sink=telemetry_sink,
+                                governor_compound_scalar=governor_compound_scalar,
                             )
                             cooldown[sym] = cfg.REENTRY_COOLDOWN_CYCLES
                             continue
@@ -2248,6 +2432,13 @@ def main() -> int:
                             "expected_edge": expected_edge,
                             "stop_atr_mult": float(stop_atr_mult),
                             "stop_vol_expanded": bool(stop_vol_expanded),
+                            "q_overlay_bias": (
+                                _safe_float(ext_sig.get("bias"), 0.0) if isinstance(ext_sig, dict) else 0.0
+                            ),
+                            "q_overlay_confidence": (
+                                _safe_float(ext_sig.get("confidence"), 0.0) if isinstance(ext_sig, dict) else 0.0
+                            ),
+                            "intraday_score": float(intraday_score),
                         }
                     )
 
@@ -2363,6 +2554,9 @@ def main() -> int:
                     "atr_pct": float(c["atr_pct"]),
                     "stop_atr_mult": float(c.get("stop_atr_mult", c["signal"]["stop_atr_mult"])),
                     "stop_vol_expanded": bool(c.get("stop_vol_expanded", False)),
+                    "q_overlay_bias": float(_safe_float(c.get("q_overlay_bias"), 0.0)),
+                    "q_overlay_confidence": float(_safe_float(c.get("q_overlay_confidence"), 0.0)),
+                    "intraday_score": float(_safe_float(c.get("intraday_score"), 0.0)),
                 }
                 trades_today += 1
 
@@ -2405,11 +2599,35 @@ def main() -> int:
                         "runtime_context": dict(memory_runtime_context),
                     },
                 )
+                _telemetry_log_trade_decision(
+                    telemetry_sink,
+                    symbol=sym,
+                    decision=("ENTER_LONG" if c["side"] == "LONG" else "ENTER_SHORT"),
+                    q_overlay_bias=_safe_float(c.get("q_overlay_bias"), 0.0),
+                    q_overlay_confidence=_safe_float(c.get("q_overlay_confidence"), 0.0),
+                    confluence_score=float(c["confidence"]),
+                    intraday_alignment_score=_safe_float(c.get("intraday_score"), 0.0),
+                    regime=str(c["signal"]["regime"]),
+                    governor_compound_scalar=governor_compound_scalar,
+                    entry_price=float(fill.avg_fill),
+                    stop_price=float(stop),
+                    risk_distance=float(init_risk),
+                    position_size_shares=int(fill.filled_qty),
+                    reasons=list(c["signal"]["reasons"][:6]),
+                    slippage_bps=float(fill.est_slippage_bps),
+                    estimated_slippage_bps=float(fill.est_slippage_bps),
+                    extras={
+                        "fill_ratio": float(fill.fill_ratio),
+                        "target_price": float(target),
+                        "trail_price": float(trail_stop),
+                    },
+                )
 
             open_pnl = _mark_open_pnl(open_positions, last_prices)
             equity = _equity_from_cash_and_positions(cash, open_positions, last_prices)
             log_equity(now(), equity, cash, open_pnl, closed_pnl)
             save_runtime_state(day_key, cash, closed_pnl, trades_today, open_positions, cooldown)
+            last_telemetry_summary_ts = _maybe_update_telemetry_summary(last_telemetry_summary_ts)
 
             if cfg.MONITORING_ENABLED:
                 avg_conf = float(sum(cycle_conf) / len(cycle_conf)) if cycle_conf else 0.0

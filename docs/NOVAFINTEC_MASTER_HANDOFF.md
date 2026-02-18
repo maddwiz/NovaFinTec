@@ -13,6 +13,7 @@ NovaSpine integration is wired as optional but active memory/context feedback th
 ## 2) Current Production State (as of this handoff)
 Implemented and validated:
 - Intraday gate telemetry in AION signals/dashboard.
+- Canonical decision telemetry + summary refresh in long-term `paper_loop.py` (`trade_decisions.jsonl`, `telemetry_summary.json`).
 - Cross-sectional momentum overlay in Q runtime stack.
 - External untouched holdout protocol (`run_external_holdout_validation.py`) integrated into pipeline.
 - Complexity penalties in search/tuning (`run_runtime_combo_search.py`, `run_governor_param_sweep.py`).
@@ -23,6 +24,7 @@ Implemented and validated:
 Validation status:
 - Latest full local run: `529 passed`.
 - Latest targeted run (new governor walk-forward batch): `24 passed`.
+- Latest AION suite run after telemetry wiring: `216 passed`.
 - GitHub Actions workflow: `.github/workflows/ci.yml`.
 
 ## 3) Top-Level File Map
@@ -239,7 +241,7 @@ Recommended cadence:
 ## 12) Quick Commands for Future Agents
 - Full tests:
 ```bash
-PYTHONPATH="$(pwd)/q:$(pwd)/aion" .venv/bin/python -m pytest -q q/tests aion/tests/test_external_signals_runtime.py aion/tests/test_doctor_external_overlay.py aion/tests/test_dashboard_status.py aion/tests/test_config_external_overlay_path.py aion/tests/test_novaspine_bridge.py aion/tests/test_runtime_risk_caps.py aion/tests/test_risk_policy.py aion/tests/test_ops_guard.py aion/tests/test_promotion_gate.py aion/tests/test_runtime_decision.py aion/tests/test_operator.py aion/tests/test_ib_client.py aion/tests/test_watchlist.py aion/tests/test_backtest_skimmer.py aion/tests/test_telemetry_summary.py aion/tests/test_paper_loop_day_skimmer_dispatch.py aion/tests/test_skimmer_telemetry.py
+PYTHONPATH="$(pwd)/q:$(pwd)/aion" .venv/bin/python -m pytest -q q/tests aion/tests/test_external_signals_runtime.py aion/tests/test_doctor_external_overlay.py aion/tests/test_dashboard_status.py aion/tests/test_config_external_overlay_path.py aion/tests/test_novaspine_bridge.py aion/tests/test_runtime_risk_caps.py aion/tests/test_risk_policy.py aion/tests/test_ops_guard.py aion/tests/test_promotion_gate.py aion/tests/test_runtime_decision.py aion/tests/test_operator.py aion/tests/test_ib_client.py aion/tests/test_watchlist.py aion/tests/test_backtest_skimmer.py aion/tests/test_telemetry_summary.py aion/tests/test_paper_loop_day_skimmer_dispatch.py aion/tests/test_skimmer_telemetry.py aion/tests/test_paper_loop_telemetry.py
 ```
 - Compile check:
 ```bash
