@@ -28,6 +28,19 @@ class _ExecStub:
         )
 
 
+class _ExecNoFillStub:
+    def __init__(self, _cfg):
+        pass
+
+    def execute(self, *, side, qty, ref_price, atr_pct, confidence, allow_partial):
+        return SimpleNamespace(
+            filled_qty=0,
+            avg_fill=float(ref_price),
+            fill_ratio=0.0,
+            est_slippage_bps=1.5,
+        )
+
+
 def _bars_1m(n: int = 120) -> pd.DataFrame:
     idx = pd.date_range("2026-01-06 09:30:00", periods=n, freq="min")
     base = 100.0 + np.linspace(0.0, 1.2, n) + 0.08 * np.sin(np.arange(n) / 6.0)
@@ -368,3 +381,82 @@ def test_tick_skips_entry_when_risk_gate_blocks(monkeypatch, tmp_path):
     decisions = (tmp_path / "skimmer_decisions.jsonl").read_text(encoding="utf-8").splitlines()
     actions = [json.loads(line).get("action") for line in decisions if line.strip()]
     assert "SKIP_RISK_GATE" in actions
+
+
+def test_tick_logs_no_fill_and_keeps_flat(monkeypatch, tmp_path):
+    _configure_cfg(monkeypatch, tmp_path)
+    bars = _bars_1m(140)
+
+    monkeypatch.setattr(skl, "SkimmerWatchlistManager", _WatchlistStub)
+    monkeypatch.setattr(skl, "ExecutionSimulator", _ExecNoFillStub)
+    monkeypatch.setattr(skl, "ib", lambda: None)
+    monkeypatch.setattr(skl, "hist_bars_cached", lambda *args, **kwargs: bars.copy())
+    monkeypatch.setattr(skl, "load_external_signal_bundle", lambda **kwargs: {"signals": {"AAPL": {"bias": 0.5, "confidence": 0.9}}})
+    monkeypatch.setattr(skl, "emit_trade_event", lambda *args, **kwargs: None)
+    monkeypatch.setattr(skl, "build_trade_event", lambda **kwargs: kwargs)
+    monkeypatch.setattr(skl, "write_telemetry_summary", lambda **kwargs: None)
+    monkeypatch.setattr(skl, "log_run", lambda *args, **kwargs: None)
+    monkeypatch.setattr(skl, "log_trade", lambda *args, **kwargs: None)
+    monkeypatch.setattr(skl, "log_equity", lambda *args, **kwargs: None)
+    monkeypatch.setattr(skl, "detect_all_intraday_patterns", lambda *args, **kwargs: {})
+    monkeypatch.setattr(
+        skl,
+        "score_intraday_entry",
+        lambda bundle, _cfg: SimpleNamespace(
+            score=0.85 if bundle.side == "LONG" else 0.10,
+            entry_allowed=(bundle.side == "LONG"),
+            reasons=["align"],
+            category_scores={"session_structure": 0.8},
+        ),
+    )
+
+    loop = skl.SkimmerLoop(skl.cfg)
+    loop.tick()
+
+    assert "AAPL" not in loop.open_trades
+    decisions = (tmp_path / "skimmer_decisions.jsonl").read_text(encoding="utf-8").splitlines()
+    actions = [json.loads(line).get("action") for line in decisions if line.strip()]
+    assert "NO_FILL" in actions
+
+
+def test_tick_caps_long_quantity_to_available_cash(monkeypatch, tmp_path):
+    _configure_cfg(monkeypatch, tmp_path)
+    monkeypatch.setattr(skl.cfg, "EQUITY_START", 150.0, raising=False)
+    bars = _bars_1m(140)
+
+    monkeypatch.setattr(skl, "SkimmerWatchlistManager", _WatchlistStub)
+    monkeypatch.setattr(skl, "ExecutionSimulator", _ExecStub)
+    monkeypatch.setattr(skl, "ib", lambda: None)
+    monkeypatch.setattr(skl, "hist_bars_cached", lambda *args, **kwargs: bars.copy())
+    monkeypatch.setattr(skl, "load_external_signal_bundle", lambda **kwargs: {"signals": {"AAPL": {"bias": 0.5, "confidence": 0.9}}})
+    monkeypatch.setattr(skl, "emit_trade_event", lambda *args, **kwargs: None)
+    monkeypatch.setattr(skl, "build_trade_event", lambda **kwargs: kwargs)
+    monkeypatch.setattr(skl, "write_telemetry_summary", lambda **kwargs: None)
+    monkeypatch.setattr(skl, "log_run", lambda *args, **kwargs: None)
+    monkeypatch.setattr(skl, "log_trade", lambda *args, **kwargs: None)
+    monkeypatch.setattr(skl, "log_equity", lambda *args, **kwargs: None)
+    monkeypatch.setattr(skl, "detect_all_intraday_patterns", lambda *args, **kwargs: {})
+    monkeypatch.setattr(
+        skl,
+        "score_intraday_entry",
+        lambda bundle, _cfg: SimpleNamespace(
+            score=0.88 if bundle.side == "LONG" else 0.05,
+            entry_allowed=(bundle.side == "LONG"),
+            reasons=["align"],
+            category_scores={"session_structure": 0.8},
+        ),
+    )
+
+    loop = skl.SkimmerLoop(skl.cfg)
+    loop.tick()
+
+    assert "AAPL" in loop.open_trades
+    assert loop.open_trades["AAPL"].entry_qty == 1
+
+    decisions = (tmp_path / "skimmer_decisions.jsonl").read_text(encoding="utf-8").splitlines()
+    parsed = [json.loads(line) for line in decisions if line.strip()]
+    entries = [row for row in parsed if row.get("action") == "ENTRY_LONG"]
+    assert entries
+    extras = entries[-1].get("extras", {})
+    assert int(extras.get("requested_qty", 0)) == 1
+    assert int(extras.get("sizing_qty", 0)) >= 1

@@ -428,9 +428,34 @@ class SkimmerLoop:
         )
 
         side_exec = "BUY" if best_side == "LONG" else "SELL"
+        requested_qty = int(max(0, sizing.shares))
+        if side_exec == "BUY":
+            max_cash_qty = int(max(0.0, float(self.cash)) / max(1e-9, float(px)))
+            if max_cash_qty <= 0:
+                self.telemetry.log_decision(
+                    symbol=symbol,
+                    action="SKIP_CAPITAL",
+                    confluence_score=float(best_result.score),
+                    category_scores=best_result.category_scores,
+                    session_phase=str(getattr(getattr(session_state, "phase", None), "value", "unknown")),
+                    session_type=str(getattr(getattr(session_state, "session_type", None), "value", "unknown")),
+                    patterns_detected=detected_patterns,
+                    entry_price=float(px),
+                    stop_price=float(sizing.stop_price),
+                    shares=int(requested_qty),
+                    risk_amount=float(requested_qty * max(1e-9, float(sizing.risk_distance))),
+                    reasons=["Insufficient cash for long entry"],
+                    extras={"candidate_side": str(best_side), "cash": float(self.cash)},
+                )
+                return
+            requested_qty = min(requested_qty, max_cash_qty)
+
+        if requested_qty <= 0:
+            return
+
         fill = self.exe.execute(
             side=side_exec,
-            qty=int(sizing.shares),
+            qty=int(requested_qty),
             ref_price=float(px),
             atr_pct=float(self._atr_pct_1m(frames)),
             confidence=float(np.clip(best_result.score, 0.0, 1.0)),
@@ -447,16 +472,39 @@ class SkimmerLoop:
                 patterns_detected=detected_patterns,
                 entry_price=float(px),
                 stop_price=float(sizing.stop_price),
-                shares=int(sizing.shares),
-                risk_amount=float(sizing.risk_amount),
+                shares=int(requested_qty),
+                risk_amount=float(requested_qty * max(1e-9, float(sizing.risk_distance))),
                 reasons=list(best_result.reasons[:8]),
-                extras={"candidate_side": str(best_side)},
+                extras={
+                    "candidate_side": str(best_side),
+                    "requested_qty": int(requested_qty),
+                    "sizing_qty": int(sizing.shares),
+                },
             )
             return
 
         notional = float(fill.avg_fill) * int(fill.filled_qty)
         if side_exec == "BUY":
             if self.cash < notional:
+                self.telemetry.log_decision(
+                    symbol=symbol,
+                    action="SKIP_CAPITAL_POST_FILL",
+                    confluence_score=float(best_result.score),
+                    category_scores=best_result.category_scores,
+                    session_phase=str(getattr(getattr(session_state, "phase", None), "value", "unknown")),
+                    session_type=str(getattr(getattr(session_state, "session_type", None), "value", "unknown")),
+                    patterns_detected=detected_patterns,
+                    entry_price=float(fill.avg_fill),
+                    stop_price=float(sizing.stop_price),
+                    shares=int(fill.filled_qty),
+                    risk_amount=float(int(fill.filled_qty) * max(1e-9, float(sizing.risk_distance))),
+                    reasons=["Fill notional exceeds available cash"],
+                    extras={
+                        "candidate_side": str(best_side),
+                        "cash": float(self.cash),
+                        "fill_notional": float(notional),
+                    },
+                )
                 return
             self.cash -= notional
         else:
@@ -489,7 +537,7 @@ class SkimmerLoop:
             entry_price=float(fill.avg_fill),
             stop_price=float(sizing.stop_price),
             shares=int(fill.filled_qty),
-            risk_amount=float(sizing.risk_amount),
+            risk_amount=float(int(fill.filled_qty) * max(1e-9, float(sizing.risk_distance))),
             reasons=list(best_result.reasons[:10]),
             extras={
                 "symbol": str(symbol).upper(),
@@ -499,6 +547,8 @@ class SkimmerLoop:
                 "minutes_to_close": int(minutes_to_close),
                 "slippage_bps": float(fill.est_slippage_bps),
                 "estimated_slippage_bps": float(fill.est_slippage_bps),
+                "requested_qty": int(requested_qty),
+                "sizing_qty": int(sizing.shares),
             },
         )
         self._emit_trade_event(
